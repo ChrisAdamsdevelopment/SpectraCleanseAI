@@ -1,0 +1,30 @@
+# ── Secrets – NEVER commit these ─────────────────────────────────────────────
+.env
+.env.local
+.env.*.local
+
+# ── Dependencies ──────────────────────────────────────────────────────────────
+node_modules/
+
+# ── Runtime / uploads ─────────────────────────────────────────────────────────
+# Temporary audio files processed by the backend
+uploads/
+
+# SQLite database (persisted via Hyperlift volume at /data in production)
+*.db
+*.db-shm
+*.db-wal
+/data/
+
+# ── Frontend build output ─────────────────────────────────────────────────────
+dist/
+
+# ── Logs ─────────────────────────────────────────────────────────────────────
+*.log
+npm-debug.log*
+
+# ── OS / editor noise ─────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
