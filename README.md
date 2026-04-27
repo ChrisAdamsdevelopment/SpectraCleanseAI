@@ -1,72 +1,39 @@
 # SpectraCleanse AI
 
-<p align="center">
-  <img src="https://img.shields.io/badge/status-live-brightgreen" alt="Live">
-  <img src="https://img.shields.io/badge/license-MIT-blue" alt="License">
-</p>
+![Live](https://img.shields.io/badge/status-live-brightgreen)
+![Pricing](https://img.shields.io/badge/pricing-free%20%7C%20%249.99%20%7C%20%2424.99-blue)
+![Sign up](https://img.shields.io/badge/sign%20up-spectracleanse.com-cyan)
 
-**SpectraCleanse AI** strips hidden AI provenance markers from your audio and video files and injects high‑performing SEO metadata — so your content reaches the audience it deserves, without algorithmic suppression.
+**SpectraCleanse AI strips AI provenance markers and injects SEO metadata to beat algorithmic suppression.**
 
----
-
-## 🎯 The Problem
-
-YouTube, Spotify, TikTok and Instagram now **automatically flag AI‑generated content** with “Made with AI” labels, shadowbanning and a massive drop in reach. Creators see **50–80% fewer views** the moment those markers are detected.
+Upload your audio or video file, choose a platform preset, and SpectraCleanse AI will forensically wipe every embedded tag that signals AI-generated origin — then inject clean, platform-optimised metadata powered by Gemini to maximise your reach on YouTube, Spotify, Apple Music, TikTok, and beyond.
 
 ---
 
-## ✅ The Solution
+## Try it free
 
-SpectraCleanse fixes this in one click:
+→ **[spectracleanse.com](https://spectracleanse.com)**
 
-- **Forensic Cleanse** — removes C2PA, JUMBF, XMP, IPTC and every other fingerprint platforms use to identify AI content.
-- **SEO Injection** — automatically writes the perfect title, description and tags for YouTube, Spotify, Apple Music or TikTok.
-- **Batch Processing** — upload up to 20 files and process them all at once.
-- **Verification Reports** — see exactly what was stripped and what was injected after every cleanse.
+No credit card required. Free accounts include 3 files per month. Upgrade to Creator ($9.99/mo) or Studio ($24.99/mo) for unlimited processing and batch uploads.
 
 ---
 
-## 💰 Pricing
+## How it works
 
-Every paid plan **pays for itself** the moment one video escapes the 50‑view algorithm jail.
-
-| Plan | Price | Cleanses |
-|:---|:---|:---|
-| **Free** | $0 / month | 3 per month |
-| **Creator** | **$9.99 / month** | Unlimited |
-| **Studio** | **$29.99 / month** | Unlimited + Deep Cleanse + API access |
-| **Enterprise** | Custom | Unlimited + white‑label |
-
-**[Start your free cleanses →](https://spectracleanse.com)**
+1. **Upload** — drag in any MP3, WAV, FLAC, M4A, or MP4 file (up to 500 MB).
+2. **Analyse** — the forensic engine reads every embedded tag and identifies provenance markers.
+3. **Cleanse** — a nuclear wipe removes all XMP, IPTC, and ID3 fields that could trigger algorithmic detection.
+4. **Inject** — Gemini generates an SEO-optimised title, description, and tag set tuned to your chosen platform.
+5. **Download** — receive a clean file with a full forensic report showing exactly what was removed.
 
 ---
 
-## ⚡ How it Works
+## Open source
 
-1. **Upload** an MP3, WAV, FLAC, M4A or MP4 file.
-2. **We strip** all AI markers and inject the best SEO for your chosen platform.
-3. **Download** your cleansed, ready‑to‑upload file.
-
-No software to install. No terminal. No technical skills needed.
+The source code is available at [github.com/ChrisAdamsdevelopment/SpectraCleanseAI](https://github.com/ChrisAdamsdevelopment/SpectraCleanseAI) and is released under the [MIT License](LICENSE). You are free to self-host, fork, or contribute.
 
 ---
 
-## 🛡️ Privacy
+## Contact
 
-Your files are processed securely and deleted immediately afterwards. We never store or share your content.
-
----
-
-## 📦 Open Source
-
-This entire project is open source under the MIT license. You’re free to browse the code, contribute, or use it as a reference. However, the easiest way to use SpectraCleanse is to **sign up at [spectracleanse.com](https://spectracleanse.com)** — we handle the hosting, updates, and support.
-
----
-
-## 📬 Contact
-
-Enterprise plans, API partnerships or press inquiries: **hello@spectracleanse.com**
-
----
-
-*Built for creators who refuse to be silenced by an algorithm.*
+Questions, partnerships, or enterprise enquiries: [hello@spectracleanse.com](mailto:hello@spectracleanse.com)

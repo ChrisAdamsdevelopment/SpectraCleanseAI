@@ -1,0 +1,44 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# SpectraCleanse AI – Spaceship Hyperlift configuration
+# Plan: Medium (1 vCPU, 2 GB RAM)
+# Docs: https://spaceship.com/docs/hyperlift
+# ─────────────────────────────────────────────────────────────────────────────
+
+[service]
+name    = "spectracleanse-api"
+region  = "us-east-1"       # change to your preferred region
+
+[build]
+context    = "."
+dockerfile = "Dockerfile"
+
+[deploy]
+plan    = "medium"          # 1 vCPU, 2 GB RAM
+port    = 3001
+healthcheck_path = "/api/health"
+
+# Persist the SQLite database across deploys
+[[volumes]]
+mount  = "/data"
+size   = "10gb"
+
+# ── Environment variables ─────────────────────────────────────────────────────
+# Secrets (JWT_SECRET, STRIPE_*, GEMINI_API_KEY) must be set via the
+# Hyperlift dashboard under Settings → Environment Variables.
+# The non-secret defaults below are safe to commit.
+
+[env]
+PORT         = "3001"
+FRONTEND_URL = "https://spectracleanse.com"
+DB_PATH      = "/data/spectra.db"
+NODE_ENV     = "production"
+
+# List the secret keys that Hyperlift should inject at runtime.
+# Values are managed in the dashboard – do not hard-code them here.
+[env.secrets]
+JWT_SECRET                = "JWT_SECRET"
+STRIPE_SECRET_KEY         = "STRIPE_SECRET_KEY"
+STRIPE_WEBHOOK_SECRET     = "STRIPE_WEBHOOK_SECRET"
+STRIPE_CREATOR_PRICE_ID   = "STRIPE_CREATOR_PRICE_ID"
+STRIPE_STUDIO_PRICE_ID    = "STRIPE_STUDIO_PRICE_ID"
+GEMINI_API_KEY            = "GEMINI_API_KEY"
