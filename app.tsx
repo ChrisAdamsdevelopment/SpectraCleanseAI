@@ -5,7 +5,7 @@ import {
   LogOut, User, Lock, Mail, Eye, EyeOff, Sparkles,
   ArrowUpCircle, Crown, Star, X,
 } from 'lucide-react';
-import * as mm from 'music-metadata-browser';
+import * as mm from 'music-metadata';
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
 const PLATFORMS = ['General', 'YouTube', 'Spotify', 'Apple Music', 'TikTok'] as const;
@@ -573,7 +573,7 @@ export default function App() {
       return {
         seo: {
           title:       parsed.common.title || item.file.name.replace(/\.[^.]+$/, ''),
-          description: parsed.common.comment?.[0] || '',
+          description: parsed.common.comment?.[0]?.text || '',
           tags:        parsed.common.genre?.[0] || '',
         },
       };
