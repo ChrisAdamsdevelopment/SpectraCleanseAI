@@ -24,7 +24,8 @@ jobs:
           cache-dependency-path: package-lock.json
 
       - name: Install dependencies
-        run: npm ci --omit=dev
+        # Full install (not --omit=dev) so all runtime deps are present
+        run: npm ci
 
       - name: Audit for vulnerabilities
         # Fail the build on any high or critical CVE
@@ -42,22 +43,25 @@ jobs:
           export DB_PATH=/tmp/spectra-ci.db
           export PORT=3001
 
-          node server.js &
+          # Redirect output to a log file so we can print it on failure
+          node server.js > /tmp/server.log 2>&1 &
           SERVER_PID=$!
 
-          # Wait up to 10 s for the server to be ready
-          for i in $(seq 1 10); do
+          # Wait up to 15 s for the server to be ready
+          for i in $(seq 1 15); do
             sleep 1
             if curl -sf http://localhost:3001/api/health; then
               echo "Server healthy"
-              break
+              kill $SERVER_PID 2>/dev/null || true
+              exit 0
             fi
           done
 
-          # Fail if health check never passed
-          curl -sf http://localhost:3001/api/health || (kill $SERVER_PID && exit 1)
-
-          kill $SERVER_PID
+          # If we get here the server never responded — print logs and fail
+          echo "=== Server failed to start. Logs: ===" >&2
+          cat /tmp/server.log >&2
+          kill $SERVER_PID 2>/dev/null || true
+          exit 1
 
   # ── 2. Frontend: type-check + build ───────────────────────────────────────
   frontend:
@@ -71,9 +75,9 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
+          # Vite 4 requires Node 18; if you upgrade to Vite 5 bump this to 20
           node-version: "18"
           cache: "npm"
-          # Point at the frontend lockfile if you keep frontend deps separate
           cache-dependency-path: package-lock.json
 
       - name: Install all dependencies (including devDependencies for build)
@@ -84,7 +88,7 @@ jobs:
 
       - name: Build
         env:
-          # Use a placeholder – the real URL is injected at deploy time
+          # Placeholder – real URL is injected at deploy time via Hyperlift env
           VITE_BACKEND_URL: https://spectracleanse.com
         run: npx vite build
 
@@ -99,7 +103,7 @@ jobs:
   docker:
     name: Docker – build image
     runs-on: ubuntu-latest
-    # Only needs the backend source, not the frontend build
+    # Only runs after backend passes
     needs: [backend]
 
     steps:
