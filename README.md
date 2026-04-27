@@ -34,6 +34,14 @@ The source code is available at [github.com/ChrisAdamsdevelopment/SpectraCleanse
 
 ---
 
+## Local development notes
+
+- Backend defaults to developer-friendly mode when `NODE_ENV` is not `production`.
+- If Stripe env vars are missing locally, `/api/create-checkout-session` can return a mock checkout redirect (set `ENABLE_MOCK_CHECKOUT=true`).
+- In production, Stripe variables are still required and the server will fail fast if they are missing.
+
+---
+
 ## Contact
 
 Questions, partnerships, or enterprise enquiries: [hello@spectracleanse.com](mailto:hello@spectracleanse.com)
