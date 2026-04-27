@@ -208,9 +208,18 @@ function CheckoutBanner({
   type,
   onDismiss,
 }: {
-  type: 'success' | 'cancelled';
+  type: 'success' | 'cancelled' | 'mock';
   onDismiss: () => void;
 }) {
+  if (type === 'mock') {
+    return (
+      <div className="flex items-center gap-3 px-5 py-3 bg-cyan-500/10 border-b border-cyan-500/20 text-sm text-cyan-300">
+        <Sparkles size={15} className="shrink-0" />
+        Local mock checkout completed (Stripe not configured). Production billing is unchanged.
+        <button onClick={onDismiss} className="ml-auto text-cyan-700 hover:text-cyan-300"><X size={14} /></button>
+      </div>
+    );
+  }
   if (type === 'cancelled') {
     return (
       <div className="flex items-center gap-3 px-5 py-3 bg-slate-800 border-b border-slate-700 text-sm text-slate-400">
@@ -415,7 +424,7 @@ export default function App() {
   const [usage,        setUsage]        = useState<UsageState>({ thisMonth: 0, limit: 3 });
   const [showUpgrade,  setShowUpgrade]  = useState(false);
   const [upgradeLoading, setUpgradeLoading] = useState(false);
-  const [checkoutBanner, setCheckoutBanner] = useState<'success' | 'cancelled' | null>(null);
+  const [checkoutBanner, setCheckoutBanner] = useState<'success' | 'cancelled' | 'mock' | null>(null);
 
   const [queue,      setQueue]      = useState<QueueItem[]>([]);
   const [activeId,   setActiveId]   = useState<string | null>(null);
@@ -437,9 +446,10 @@ export default function App() {
     // Check if we're returning from Stripe Checkout
     const params = new URLSearchParams(window.location.search);
     const checkout = params.get('checkout');
+    const mockCheckout = params.get('mockCheckout');
 
     if (checkout === 'success') {
-      setCheckoutBanner('success');
+      setCheckoutBanner(mockCheckout === '1' ? 'mock' : 'success');
       // Re-fetch /api/me so the plan badge updates immediately after upgrade
       fetch(`${BACKEND_URL}/api/me`, {
         headers: { Authorization: `Bearer ${session.token}` },
@@ -800,7 +810,10 @@ export default function App() {
                 onClick={() => fileInputRef.current?.click()}
               >
                 <Upload className="mx-auto mb-2 opacity-30" size={32} />
-                Click to add files
+                <p>Click to add files</p>
+                <p className="text-[11px] mt-2 text-slate-700">
+                  Tip: add multiple files, then run one batch.
+                </p>
               </div>
             ) : (
               queue.map(item => (

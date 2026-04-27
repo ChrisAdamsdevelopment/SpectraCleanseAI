@@ -11,24 +11,36 @@ const Database   = require('better-sqlite3');
 const Stripe     = require('stripe');
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Environment validation – fail fast so misconfigured deploys are obvious
+// Environment validation – strict in production, developer-friendly locally
 // ─────────────────────────────────────────────────────────────────────────────
-const REQUIRED_ENV = [
-  'JWT_SECRET',
-  'STRIPE_SECRET_KEY',
-  'STRIPE_WEBHOOK_SECRET',
-  'STRIPE_CREATOR_PRICE_ID',
-  'STRIPE_STUDIO_PRICE_ID',
-  'FRONTEND_URL',
-];
-for (const key of REQUIRED_ENV) {
-  if (!process.env[key]) {
-    console.error(`FATAL: missing required environment variable: ${key}`);
-    process.exit(1);
-  }
+const IS_PROD = process.env.NODE_ENV === 'production';
+const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
+const JWT_SECRET = process.env.JWT_SECRET || (IS_PROD ? '' : 'dev_jwt_secret_change_me');
+const ENABLE_MOCK_CHECKOUT =
+  process.env.ENABLE_MOCK_CHECKOUT === 'true' || !IS_PROD;
+
+const STRIPE_CONFIGURED = Boolean(
+  process.env.STRIPE_SECRET_KEY &&
+  process.env.STRIPE_WEBHOOK_SECRET &&
+  process.env.STRIPE_CREATOR_PRICE_ID &&
+  process.env.STRIPE_STUDIO_PRICE_ID
+);
+
+if (!JWT_SECRET) {
+  console.error('FATAL: missing required environment variable: JWT_SECRET');
+  process.exit(1);
 }
 
-const stripe = Stripe(process.env.STRIPE_SECRET_KEY);
+if (IS_PROD && !STRIPE_CONFIGURED) {
+  console.error('FATAL: Stripe is not fully configured in production.');
+  process.exit(1);
+}
+
+if (!IS_PROD && !STRIPE_CONFIGURED) {
+  console.warn('[Billing] Stripe variables are missing. Mock checkout mode is enabled for local development.');
+}
+
+const stripe = STRIPE_CONFIGURED ? Stripe(process.env.STRIPE_SECRET_KEY) : null;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Database – SQLite via better-sqlite3 (WAL mode, FK enforcement)
@@ -80,7 +92,6 @@ function planFromPriceId(priceId) {
 // ─────────────────────────────────────────────────────────────────────────────
 // JWT helpers
 // ─────────────────────────────────────────────────────────────────────────────
-const JWT_SECRET  = process.env.JWT_SECRET;
 const JWT_EXPIRES = '7d';
 
 function signToken(userId, email, plan) {
@@ -108,7 +119,7 @@ function requireAuth(req, res, next) {
 // ─────────────────────────────────────────────────────────────────────────────
 const app = express();
 
-const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || process.env.FRONTEND_URL;
+const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || FRONTEND_URL;
 app.use(cors({
   origin: ALLOWED_ORIGIN,
   methods: ['GET', 'POST'],
@@ -126,6 +137,9 @@ app.post(
   '/api/stripe-webhook',
   express.raw({ type: 'application/json' }),
   async (req, res) => {
+    if (!stripe || !process.env.STRIPE_WEBHOOK_SECRET) {
+      return res.status(503).json({ error: 'Stripe webhook unavailable in this environment' });
+    }
     const sig = req.headers['stripe-signature'];
     let event;
     try {
@@ -264,7 +278,21 @@ app.post('/api/create-checkout-session', requireAuth, async (req, res) => {
     ? process.env.STRIPE_STUDIO_PRICE_ID
     : process.env.STRIPE_CREATOR_PRICE_ID;
 
-  const frontendUrl = process.env.FRONTEND_URL;
+  const frontendUrl = FRONTEND_URL;
+
+  if (!stripe || !priceId) {
+    if (ENABLE_MOCK_CHECKOUT) {
+      const mockUrl = `${frontendUrl}?checkout=success&mockCheckout=1&plan=${encodeURIComponent(plan)}`;
+      return res.json({
+        url: mockUrl,
+        mock: true,
+      });
+    }
+    return res.status(503).json({
+      error: 'Stripe checkout is not configured',
+      detail: 'Set Stripe env vars or enable mock checkout in local development.',
+    });
+  }
 
   try {
     // Re-use existing Stripe customer to preserve billing history
@@ -413,7 +441,16 @@ app.post('/api/process', requireAuth, upload.single('file'), async (req, res) =>
     const beforeKeys = new Set(Object.keys(beforeTags));
 
     // Phase 2: Nuclear wipe
-    await exiftool.execute('-all=', '-XMP:all=', '-IPTC:all=', '-overwrite_original', outputPath);
+    try {
+      await exiftool.execute('-all=', '-XMP:all=', '-IPTC:all=', '-overwrite_original', outputPath);
+    } catch (wipeErr) {
+      console.warn('Primary metadata wipe failed, retrying with exiftool.write fallback:', wipeErr.message);
+      await exiftool.write(
+        outputPath,
+        {},
+        ['-all=', '-XMP:all=', '-IPTC:all=', '-overwrite_original']
+      );
+    }
 
     // Phase 3: Platform-aware SEO injection
     const tagsArray      = (tags || '').split(',').map(t => t.trim()).filter(Boolean);
