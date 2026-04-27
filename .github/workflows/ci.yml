@@ -1,0 +1,121 @@
+name: CI
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+jobs:
+  # ── 1. Backend: audit deps + verify the server starts cleanly ──────────────
+  backend:
+    name: Backend – audit & smoke test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "18"
+          cache: "npm"
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci --omit=dev
+
+      - name: Audit for vulnerabilities
+        # Fail the build on any high or critical CVE
+        run: npm audit --audit-level=high
+
+      - name: Smoke test – server boots and /api/health responds
+        run: |
+          # Supply the minimum env vars server.js requires to start
+          export JWT_SECRET=ci-test-secret-not-real
+          export STRIPE_SECRET_KEY=sk_test_ci_placeholder
+          export STRIPE_WEBHOOK_SECRET=whsec_ci_placeholder
+          export STRIPE_CREATOR_PRICE_ID=price_ci_creator
+          export STRIPE_STUDIO_PRICE_ID=price_ci_studio
+          export FRONTEND_URL=http://localhost:5173
+          export DB_PATH=/tmp/spectra-ci.db
+          export PORT=3001
+
+          node server.js &
+          SERVER_PID=$!
+
+          # Wait up to 10 s for the server to be ready
+          for i in $(seq 1 10); do
+            sleep 1
+            if curl -sf http://localhost:3001/api/health; then
+              echo "Server healthy"
+              break
+            fi
+          done
+
+          # Fail if health check never passed
+          curl -sf http://localhost:3001/api/health || (kill $SERVER_PID && exit 1)
+
+          kill $SERVER_PID
+
+  # ── 2. Frontend: type-check + build ───────────────────────────────────────
+  frontend:
+    name: Frontend – type-check & build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "18"
+          cache: "npm"
+          # Point at the frontend lockfile if you keep frontend deps separate
+          cache-dependency-path: package-lock.json
+
+      - name: Install all dependencies (including devDependencies for build)
+        run: npm ci
+
+      - name: Type-check
+        run: npx tsc --noEmit
+
+      - name: Build
+        env:
+          # Use a placeholder – the real URL is injected at deploy time
+          VITE_BACKEND_URL: https://spectracleanse.com
+        run: npx vite build
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: dist/
+          retention-days: 3
+
+  # ── 3. Docker: build the image (every push; push to registry only on main) ─
+  docker:
+    name: Docker – build image
+    runs-on: ubuntu-latest
+    # Only needs the backend source, not the frontend build
+    needs: [backend]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build image (no push on PRs)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: Dockerfile
+          push: false
+          tags: spectracleanse-api:ci
+          # Enable layer caching so repeat builds are fast
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
