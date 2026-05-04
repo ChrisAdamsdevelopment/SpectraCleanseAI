@@ -593,6 +593,14 @@ app.get('/api/health', (_req, res) =>
 );
 
 
+// Unknown API routes should return JSON (never HTML)
+app.use('/api', (req, res) => {
+  res.status(404).json({
+    error: 'API route not found',
+    path: req.originalUrl
+  });
+});
+
 const distPath = path.join(__dirname, 'dist');
 
 if (fs.existsSync(distPath)) {
