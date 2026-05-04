@@ -5,12 +5,13 @@ import {
   LogOut, User, Lock, Mail, Eye, EyeOff, Sparkles,
   ArrowUpCircle, Crown, Star, X,
 } from 'lucide-react';
-import * as mm from 'music-metadata';
+import { readFileMetadata, writeMP3Metadata } from './src/utils/metadata';
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
 const PLATFORMS = ['General', 'YouTube', 'Spotify', 'Apple Music', 'TikTok'] as const;
 type Platform = typeof PLATFORMS[number];
 type ItemStatus = 'pending' | 'analyzing' | 'processing' | 'done' | 'error';
+type RiskLevel = 'High' | 'Low';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -35,6 +36,8 @@ interface QueueItem {
   downloadName: string | null;
   report: { removedCount: number; removedTags: string[]; timestamp: string } | null;
   error: string | null;
+  analysis: { format: string; title: string; artist: string; genre: string; provenanceRisk: RiskLevel; detectedMarkers: string[] } | null;
+  logs: string[];
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -561,7 +564,7 @@ export default function App() {
         file,
         status: 'pending' as ItemStatus,
         seo: { title: file.name.replace(/\.[^.]+$/, ''), description: '', tags: '' },
-        downloadUrl: null, downloadName: null, report: null, error: null,
+        downloadUrl: null, downloadName: null, report: null, error: null, analysis: null, logs: [],
       }));
     if (newItems.length === 0) return;
     setQueue(prev => [...prev, ...newItems].slice(0, 20));
@@ -577,15 +580,17 @@ export default function App() {
     setActiveId(prev => prev === id ? null : prev);
   };
 
+  const addLog = (id: string, message: string) => {
+    const stamp = new Date().toLocaleTimeString();
+    updateItem(id, { logs: [...(queue.find(i => i.id === id)?.logs || []), `[${stamp}] ${message}`] });
+  };
+
   const analyzeFile = async (item: QueueItem): Promise<Partial<QueueItem>> => {
     try {
-      const parsed = await mm.parseBlob(item.file);
+      const parsed = await readFileMetadata(item.file);
       return {
-        seo: {
-          title:       parsed.common.title || item.file.name.replace(/\.[^.]+$/, ''),
-          description: parsed.common.comment?.[0]?.text || '',
-          tags:        parsed.common.genre?.[0] || '',
-        },
+        seo: { title: parsed.title, description: '', tags: parsed.genre || '' },
+        analysis: { format: parsed.format, title: parsed.title, artist: parsed.artist, genre: parsed.genre, provenanceRisk: parsed.provenanceRisk, detectedMarkers: parsed.detectedMarkers },
       };
     } catch { return {}; }
   };
@@ -601,10 +606,12 @@ export default function App() {
       if (cancelRef.cancelled) break;
 
       updateItem(item.id, { status: 'analyzing', error: null });
+      addLog(item.id, 'Reading local metadata for analysis');
       const analyzed = await analyzeFile(item);
       if (cancelRef.cancelled) break;
 
       updateItem(item.id, { ...analyzed, status: 'processing' });
+      addLog(item.id, 'Starting server cleanse via /api/process');
 
       // Grab the latest SEO values from state (user may have edited them)
       const currentSeo = await new Promise<QueueItem['seo']>(resolve => {
@@ -923,6 +930,10 @@ export default function App() {
                     onChange={e => updateItem(activeItem.id, { seo: { ...activeItem.seo, description: e.target.value } })}
                     className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:border-cyan-500 outline-none resize-none" />
                 </div>
+                <button onClick={async ()=>{
+                  const res = await fetch(`${BACKEND_URL}/api/generate-seo`, { method:'POST', headers:{'Content-Type':'application/json', Authorization:`Bearer ${authToken}`}, body: JSON.stringify({ title: activeItem.seo.title, artist: activeItem.analysis?.artist || '', genre: activeItem.analysis?.genre || '', platform })});
+                  if (res.ok) { const d = await res.json(); updateItem(activeItem.id, { seo: { title: d.title || activeItem.seo.title, description: d.description || '', tags: d.tags || '' } }); addLog(activeItem.id, 'SEO payload generated'); }
+                }} className="px-3 py-1.5 text-xs bg-violet-700 hover:bg-violet-600 rounded-lg">Generate AI SEO Payload</button>
                 <div>
                   <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Tags (comma-separated)</label>
                   <input type="text" value={activeItem.seo.tags}
@@ -931,6 +942,42 @@ export default function App() {
                     className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:border-cyan-500 outline-none transition-colors" />
                 </div>
               </div>
+
+
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">
+                <div className="flex gap-3">
+                  <button
+                    onClick={async () => {
+                      if (!activeItem.file.name.toLowerCase().endsWith('.mp3')) { updateItem(activeItem.id, { error: 'Quick Cleanse supports MP3 only.' }); return; }
+                      updateItem(activeItem.id, { error: null });
+                      addLog(activeItem.id, 'Starting browser quick cleanse');
+                      const blob = await writeMP3Metadata(activeItem.file, { title: activeItem.seo.title, artist: activeItem.analysis?.artist || '', genre: activeItem.analysis?.genre || '' });
+                      const old = activeItem.downloadUrl;
+                      if (old) URL.revokeObjectURL(old);
+                      const url = URL.createObjectURL(blob);
+                      updateItem(activeItem.id, { downloadUrl: url, downloadName: `quick_cleansed_${activeItem.file.name}`, status: 'done' });
+                      addLog(activeItem.id, 'Browser quick cleanse complete');
+                    }}
+                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 rounded-lg text-sm font-bold"
+                  >Quick Cleanse (Browser)</button>
+                  <button onClick={runBatch} className="px-4 py-2 bg-cyan-600 hover:bg-cyan-500 rounded-lg text-sm font-bold">Full Server Cleanse</button>
+                </div>
+                {activeItem.downloadUrl && (
+                  <a href={activeItem.downloadUrl} download={activeItem.downloadName || `cleansed_${activeItem.file.name}`} className="inline-flex items-center gap-2 text-cyan-300 text-sm underline">Manual Download Link</a>
+                )}
+              </div>
+
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
+                <h3 className="font-bold mb-3">Analysis</h3>
+                <div className="grid grid-cols-2 gap-2 text-sm">
+                  <div>Format: {activeItem.analysis?.format || '—'}</div><div>Title: {activeItem.analysis?.title || '—'}</div>
+                  <div>Artist: {activeItem.analysis?.artist || '—'}</div><div>Genre: {activeItem.analysis?.genre || '—'}</div>
+                  <div>Provenance Risk: <span className={activeItem.analysis?.provenanceRisk === 'High' ? 'text-amber-400' : 'text-emerald-400'}>{activeItem.analysis?.provenanceRisk || 'Low'}</span></div>
+                  <div>Markers: {(activeItem.analysis?.detectedMarkers || []).join(', ') || 'none'}</div>
+                </div>
+              </div>
+
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6"><h3 className="font-bold mb-2">System Log</h3><div className="text-xs text-slate-400 space-y-1 max-h-40 overflow-y-auto">{activeItem.logs.map((l, i) => <div key={i}>{l}</div>)}</div></div>
 
               {/* Forensic report */}
               {activeItem.report && (
