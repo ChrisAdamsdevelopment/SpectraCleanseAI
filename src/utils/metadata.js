@@ -2,19 +2,37 @@ import ID3Writer from 'browser-id3-writer';
 
 const AI_MARKERS = ['ai','generated','suno','udio','boomy','aiva','soundraw','mubert','stable audio','provenance','c2pa','content credentials','watermark','synthetic','elevenlabs'];
 const MARKER_REGEX_CACHE = new Map();
+const MAX_BROWSER_PARSE_BYTES = 100 * 1024 * 1024;
+const PARSE_TIMEOUT_MS = 8000;
 
 let parseBlobLoader = null;
 
 async function getParseBlob() {
   if (parseBlobLoader) return parseBlobLoader;
-  parseBlobLoader = import('music-metadata-browser').then((mod) => {
+  parseBlobLoader = import('music-metadata').then((mod) => {
     const fn = mod?.parseBlob || mod?.default?.parseBlob;
     if (typeof fn !== 'function') {
-      throw new Error('music-metadata-browser parseBlob export not found');
+      throw new Error('music-metadata parseBlob export not found');
     }
     return fn;
   });
   return parseBlobLoader;
+}
+
+function withTimeout(promise, timeoutMs) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`Metadata parse timed out after ${timeoutMs}ms`)), timeoutMs);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timer);
+        reject(error);
+      }
+    );
+  });
 }
 
 function escapeRegex(value) {
@@ -53,8 +71,11 @@ export async function readFileMetadata(file) {
   let parseError = null;
 
   try {
+    if ((file?.size || 0) > MAX_BROWSER_PARSE_BYTES) {
+      throw new Error(`File too large for browser metadata analysis (${Math.round(file.size / (1024 * 1024))}MB > ${Math.round(MAX_BROWSER_PARSE_BYTES / (1024 * 1024))}MB)`);
+    }
     const parseBlob = await getParseBlob();
-    parsed = await parseBlob(file);
+    parsed = await withTimeout(parseBlob(file), PARSE_TIMEOUT_MS);
   } catch (error) {
     parseError = error;
   }

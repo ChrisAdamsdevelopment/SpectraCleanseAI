@@ -46,6 +46,9 @@ The source code is available at [github.com/ChrisAdamsdevelopment/SpectraCleanse
 
 For a step-by-step manual validation flow (local, API smoke, auth, billing, upload, cleanse, Docker, and production readiness), see [`docs/manual-qa-checklist.md`](docs/manual-qa-checklist.md).
 
+- Browser metadata analysis uses maintained `music-metadata` with graceful fallback (`parseError`) when parsing fails, times out, or is skipped for very large files.
+- Quick Cleanse metadata writing remains local/browser-side (MP3 via `browser-id3-writer`), while Full Server Cleanse still runs through `/api/process`.
+
 ---
 
 ## Contact
