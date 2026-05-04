@@ -36,7 +36,7 @@ interface QueueItem {
   downloadName: string | null;
   report: { removedCount: number; removedTags: string[]; timestamp: string } | null;
   error: string | null;
-  analysis: { format: string; title: string; artist: string; genre: string; provenanceRisk: RiskLevel; detectedMarkers: string[] } | null;
+  analysis: { format: string; title: string; artist: string; genre: string; provenanceRisk: RiskLevel; detectedMarkers: string[]; parseError?: string | null } | null;
   logs: string[];
 }
 
@@ -590,7 +590,7 @@ export default function App() {
       const parsed = await readFileMetadata(item.file);
       return {
         seo: { title: parsed.title, description: '', tags: parsed.genre || '' },
-        analysis: { format: parsed.format, title: parsed.title, artist: parsed.artist, genre: parsed.genre, provenanceRisk: parsed.provenanceRisk, detectedMarkers: parsed.detectedMarkers },
+        analysis: { format: parsed.format, title: parsed.title, artist: parsed.artist, genre: parsed.genre, provenanceRisk: parsed.provenanceRisk, detectedMarkers: parsed.detectedMarkers, parseError: parsed.parseError || null },
       };
     } catch { return {}; }
   };
@@ -691,6 +691,11 @@ export default function App() {
 
   const doneCount = queue.filter(i => i.status === 'done').length;
   const progress  = queue.length > 0 ? Math.round((doneCount / queue.length) * 100) : 0;
+  const isMp3 = activeItem ? activeItem.file.name.toLowerCase().endsWith('.mp3') : false;
+  const quickDisabledReason = !activeItem ? 'Select a file first.' : !isMp3 ? 'Quick Cleanse supports MP3 files only.' : '';
+  const seoDisabledReason = !activeItem ? 'Select a file to provide context first.' : '';
+  const serverDisabledReason = isBatching ? 'Server cleanse already running.' : queue.length === 0 ? 'Add at least one file first.' : queue.every(i => i.status === 'done') ? 'All files are already completed.' : '';
+  const resultSource = activeItem?.downloadName?.startsWith('quick_cleansed_') ? 'Browser Quick Cleanse' : 'Full Server Cleanse';
 
   // ── Render ───────────────────────────────────────────────────────────────────
   return (
@@ -967,7 +972,8 @@ export default function App() {
                     updateItem(activeItem.id, { error: errorMessage });
                     addLog(activeItem.id, `SEO generation failed: ${errorMessage}`);
                   }
-                }} className="px-3 py-1.5 text-xs bg-violet-700 hover:bg-violet-600 rounded-lg">Generate AI SEO Payload</button>
+                }} disabled={!activeItem} className="px-3 py-1.5 text-xs bg-violet-700 hover:bg-violet-600 disabled:bg-slate-700 disabled:text-slate-400 disabled:cursor-not-allowed rounded-lg">Generate AI SEO Payload</button>
+                {seoDisabledReason && <p className="text-[11px] text-slate-500">{seoDisabledReason}</p>}
                 <div>
                   <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Tags (comma-separated)</label>
                   <input type="text" value={activeItem.seo.tags}
@@ -979,8 +985,10 @@ export default function App() {
 
 
               <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">
-                <div className="flex gap-3">
-                  <button
+                <h3 className="font-bold">Cleanse Workflow</h3>
+                <div className="grid md:grid-cols-2 gap-3">
+                  <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-3">
+                    <button
                     onClick={async () => {
                       if (!activeItem.file.name.toLowerCase().endsWith('.mp3')) { updateItem(activeItem.id, { error: 'Quick Cleanse supports MP3 only.' }); return; }
                       updateItem(activeItem.id, { error: null });
@@ -992,26 +1000,44 @@ export default function App() {
                       updateItem(activeItem.id, { downloadUrl: url, downloadName: `quick_cleansed_${activeItem.file.name}`, status: 'done' });
                       addLog(activeItem.id, 'Browser quick cleanse complete');
                     }}
-                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 rounded-lg text-sm font-bold"
+                    disabled={!!quickDisabledReason || isBatching}
+                    className="w-full px-4 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-700 disabled:text-slate-400 disabled:cursor-not-allowed rounded-lg text-sm font-bold"
                   >Quick Cleanse (Browser)</button>
-                  <button onClick={runBatch} className="px-4 py-2 bg-cyan-600 hover:bg-cyan-500 rounded-lg text-sm font-bold">Full Server Cleanse</button>
+                    <p className="mt-2 text-xs text-emerald-200/80">MP3-only • local metadata rewrite • no server usage counted.</p>
+                    {quickDisabledReason && <p className="mt-1 text-[11px] text-amber-300">{quickDisabledReason}</p>}
+                  </div>
+                  <div className="rounded-xl border border-cyan-500/30 bg-cyan-500/5 p-3">
+                    <button onClick={runBatch} disabled={!!serverDisabledReason} className="w-full px-4 py-2 bg-cyan-600 hover:bg-cyan-500 disabled:bg-slate-700 disabled:text-slate-400 disabled:cursor-not-allowed rounded-lg text-sm font-bold">Full Server Cleanse</button>
+                    <p className="mt-2 text-xs text-cyan-200/80">Deeper forensic server pipeline • all supported formats • usage-counted.</p>
+                    {serverDisabledReason && <p className="mt-1 text-[11px] text-amber-300">{serverDisabledReason}</p>}
+                  </div>
                 </div>
                 {activeItem.downloadUrl && (
-                  <a href={activeItem.downloadUrl} download={activeItem.downloadName || `cleansed_${activeItem.file.name}`} className="inline-flex items-center gap-2 text-cyan-300 text-sm underline">Manual Download Link</a>
+                  <div className="rounded-xl border border-cyan-500/30 bg-cyan-500/10 p-3">
+                    <p className="text-[11px] uppercase tracking-wider text-cyan-300 font-bold mb-1">Result Source: {resultSource}</p>
+                    <a href={activeItem.downloadUrl} download={activeItem.downloadName || `cleansed_${activeItem.file.name}`} className="inline-flex items-center gap-2 text-cyan-200 text-base font-bold underline">Manual Download Link</a>
+                  </div>
                 )}
               </div>
 
               <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
                 <h3 className="font-bold mb-3">Analysis</h3>
-                <div className="grid grid-cols-2 gap-2 text-sm">
-                  <div>Format: {activeItem.analysis?.format || '—'}</div><div>Title: {activeItem.analysis?.title || '—'}</div>
-                  <div>Artist: {activeItem.analysis?.artist || '—'}</div><div>Genre: {activeItem.analysis?.genre || '—'}</div>
-                  <div>Provenance Risk: <span className={activeItem.analysis?.provenanceRisk === 'High' ? 'text-amber-400' : 'text-emerald-400'}>{activeItem.analysis?.provenanceRisk || 'Low'}</span></div>
-                  <div>Markers: {(activeItem.analysis?.detectedMarkers || []).join(', ') || 'none'}</div>
+                {activeItem.analysis?.parseError && (
+                  <div className="mb-3 text-xs text-amber-300 bg-amber-500/10 border border-amber-500/30 rounded-lg px-3 py-2">
+                    Metadata parser used fallback values for some fields.
+                  </div>
+                )}
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  <div className="p-2 rounded bg-slate-950 border border-slate-800"><span className="text-slate-500 text-xs uppercase">Format</span><p>{activeItem.analysis?.format || '—'}</p></div>
+                  <div className="p-2 rounded bg-slate-950 border border-slate-800"><span className="text-slate-500 text-xs uppercase">Title</span><p>{activeItem.analysis?.title || '—'}</p></div>
+                  <div className="p-2 rounded bg-slate-950 border border-slate-800"><span className="text-slate-500 text-xs uppercase">Artist</span><p>{activeItem.analysis?.artist || '—'}</p></div>
+                  <div className="p-2 rounded bg-slate-950 border border-slate-800"><span className="text-slate-500 text-xs uppercase">Genre</span><p>{activeItem.analysis?.genre || '—'}</p></div>
+                  <div className="p-2 rounded bg-slate-950 border border-slate-800"><span className="text-slate-500 text-xs uppercase">Provenance Risk</span><p className={activeItem.analysis?.provenanceRisk === 'High' ? 'text-rose-400 font-bold' : 'text-emerald-300'}>{activeItem.analysis?.provenanceRisk || 'Low'}{activeItem.analysis?.provenanceRisk === 'Low' ? ' (lower risk, not guaranteed)' : ''}</p></div>
+                  <div className="p-2 rounded bg-slate-950 border border-slate-800"><span className="text-slate-500 text-xs uppercase">Detected Markers</span><p>{(activeItem.analysis?.detectedMarkers || []).join(', ') || 'None detected'}</p></div>
                 </div>
               </div>
 
-              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6"><h3 className="font-bold mb-2">System Log</h3><div className="text-xs text-slate-400 space-y-1 max-h-40 overflow-y-auto">{activeItem.logs.map((l, i) => <div key={i}>{l}</div>)}</div></div>
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6"><h3 className="font-bold mb-2">System Log</h3><div className="text-xs space-y-1.5 max-h-40 overflow-y-auto">{activeItem.logs.map((l, i) => { const isErr = /failed|error/i.test(l); const isSuccess = /complete|generated|starting server cleanse/i.test(l); const m = l.match(/^\[(.*?)\]\s*(.*)$/); return <div key={i} className={`font-mono px-2 py-1 rounded border ${isErr ? 'text-red-300 border-red-500/30 bg-red-500/10' : isSuccess ? 'text-emerald-300 border-emerald-500/30 bg-emerald-500/10' : 'text-slate-300 border-slate-700 bg-slate-800/40'}`}><span className="text-slate-500 mr-2">{m ? m[1] : '--:--:--'}</span><span>{m ? m[2] : l}</span></div>; })}</div></div>
 
               {/* Forensic report */}
               {activeItem.report && (
