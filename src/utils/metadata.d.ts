@@ -6,6 +6,7 @@ export interface FileMetadataResult {
   detectedMarkers: string[];
   provenanceRisk: 'High' | 'Low';
   raw: unknown;
+  parseError?: string | null;
 }
 
 export function readFileMetadata(file: File): Promise<FileMetadataResult>;
