@@ -45,3 +45,52 @@ The source code is available at [github.com/ChrisAdamsdevelopment/SpectraCleanse
 ## Contact
 
 Questions, partnerships, or enterprise enquiries: [hello@spectracleanse.com](mailto:hello@spectracleanse.com)
+
+---
+
+## Docker production deployment
+
+This repository includes a multi-stage `Dockerfile` that builds the frontend and packages `dist/` into the final runtime image so `server.js` can serve the SPA in production.
+
+### Build image
+
+```bash
+docker build -t spectracleanseai:latest .
+```
+
+### Run container
+
+```bash
+docker run --rm -p 3001:3001 \
+  -e NODE_ENV=production \
+  -e JWT_SECRET=your_jwt_secret \
+  -e STRIPE_SECRET_KEY=sk_live_xxx \
+  -e STRIPE_WEBHOOK_SECRET=whsec_xxx \
+  -e STRIPE_CREATOR_PRICE_ID=price_xxx \
+  -e STRIPE_STUDIO_PRICE_ID=price_xxx \
+  -e GEMINI_API_KEY=your_gemini_api_key \
+  -e FRONTEND_URL=https://your-frontend-domain.example \
+  -e DB_PATH=/data/spectra.db \
+  -v spectracleanse_data:/data \
+  spectracleanseai:latest
+```
+
+### Required production environment variables
+
+- `NODE_ENV=production`
+- `JWT_SECRET`
+- `STRIPE_SECRET_KEY`
+- `STRIPE_WEBHOOK_SECRET`
+- `STRIPE_CREATOR_PRICE_ID`
+- `STRIPE_STUDIO_PRICE_ID`
+- `GEMINI_API_KEY`
+- `FRONTEND_URL`
+- `DB_PATH`
+- `REDIS_URL` (only if your deployment still uses Redis externally)
+
+### Stripe vs local mock checkout
+
+- Local development may use `ENABLE_MOCK_CHECKOUT=true` when Stripe variables are not set.
+- Production must use real Stripe configuration; do not rely on mock checkout in production.
+
+Never commit real secrets to source control.
