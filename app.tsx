@@ -931,8 +931,42 @@ export default function App() {
                     className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:border-cyan-500 outline-none resize-none" />
                 </div>
                 <button onClick={async ()=>{
-                  const res = await fetch(`${BACKEND_URL}/api/generate-seo`, { method:'POST', headers:{'Content-Type':'application/json', Authorization:`Bearer ${authToken}`}, body: JSON.stringify({ title: activeItem.seo.title, artist: activeItem.analysis?.artist || '', genre: activeItem.analysis?.genre || '', platform })});
-                  if (res.ok) { const d = await res.json(); updateItem(activeItem.id, { seo: { title: d.title || activeItem.seo.title, description: d.description || '', tags: d.tags || '' } }); addLog(activeItem.id, 'SEO payload generated'); }
+                  try {
+                    const res = await fetch(`${BACKEND_URL}/api/generate-seo`, {
+                      method:'POST',
+                      headers:{'Content-Type':'application/json', Authorization:`Bearer ${authToken}`},
+                      body: JSON.stringify({
+                        title: activeItem.seo.title,
+                        artist: activeItem.analysis?.artist || '',
+                        genre: activeItem.analysis?.genre || '',
+                        description: activeItem.seo.description || '',
+                        tags: activeItem.seo.tags || '',
+                        platform,
+                      }),
+                    });
+
+                    const payload = await res.json().catch(() => ({}));
+                    if (!res.ok) {
+                      const errorMessage = payload?.error || `SEO generation failed (${res.status})`;
+                      updateItem(activeItem.id, { error: errorMessage });
+                      addLog(activeItem.id, `SEO generation failed: ${errorMessage}`);
+                      return;
+                    }
+
+                    updateItem(activeItem.id, {
+                      error: null,
+                      seo: {
+                        title: payload.title || activeItem.seo.title,
+                        description: payload.description || activeItem.seo.description,
+                        tags: payload.tags || activeItem.seo.tags,
+                      },
+                    });
+                    addLog(activeItem.id, 'SEO payload generated');
+                  } catch {
+                    const errorMessage = 'Unable to generate SEO payload right now.';
+                    updateItem(activeItem.id, { error: errorMessage });
+                    addLog(activeItem.id, `SEO generation failed: ${errorMessage}`);
+                  }
                 }} className="px-3 py-1.5 text-xs bg-violet-700 hover:bg-violet-600 rounded-lg">Generate AI SEO Payload</button>
                 <div>
                   <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Tags (comma-separated)</label>

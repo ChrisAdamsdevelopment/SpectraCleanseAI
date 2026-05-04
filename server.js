@@ -354,10 +354,48 @@ fs.ensureDirSync('uploads');
 // ─────────────────────────────────────────────────────────────────────────────
 // Gemini SEO proxy
 // ─────────────────────────────────────────────────────────────────────────────
+function asCleanText(v, max = 2000) {
+  if (typeof v !== 'string') return '';
+  return v.trim().slice(0, max);
+}
+
+function buildSeoPrompt(payload = {}) {
+  const directPrompt = asCleanText(payload.promptText, 4000);
+  if (directPrompt) return directPrompt;
+
+  const fields = {
+    title: asCleanText(payload.title, 255),
+    artist: asCleanText(payload.artist, 255),
+    genre: asCleanText(payload.genre, 120),
+    platform: asCleanText(payload.platform, 120),
+    description: asCleanText(payload.description, 1000),
+    tags: asCleanText(payload.tags, 1000),
+    lyrics: asCleanText(payload.lyrics, 1200),
+    vibe: asCleanText(payload.vibe, 200),
+  };
+
+  const hasUsefulStructuredFields = Object.values(fields).some(Boolean);
+  if (!hasUsefulStructuredFields) return '';
+
+  return [
+    'You are an expert music marketing assistant.',
+    'Generate SEO metadata for a song as strict JSON with keys: title, description, tags.',
+    `Platform: ${fields.platform || 'General'}`,
+    `Current title: ${fields.title || 'Untitled'}`,
+    `Artist: ${fields.artist || 'Unknown artist'}`,
+    `Genre: ${fields.genre || 'Unknown genre'}`,
+    fields.vibe ? `Vibe: ${fields.vibe}` : null,
+    fields.description ? `Context description: ${fields.description}` : null,
+    fields.tags ? `Existing tags/context: ${fields.tags}` : null,
+    fields.lyrics ? `Lyrics excerpt/context: ${fields.lyrics}` : null,
+    'Keep title concise, description platform-friendly, and tags comma-separated.',
+  ].filter(Boolean).join('\n');
+}
+
 app.post('/api/generate-seo', requireAuth, async (req, res) => {
-  const { promptText } = req.body;
-  if (!promptText || typeof promptText !== 'string' || promptText.length > 4000) {
-    return res.status(400).json({ error: 'Invalid prompt' });
+  const promptText = buildSeoPrompt(req.body);
+  if (!promptText) {
+    return res.status(400).json({ error: 'Invalid prompt payload. Provide promptText or useful SEO fields.' });
   }
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) return res.status(500).json({ error: 'GEMINI_API_KEY not configured' });
@@ -387,7 +425,19 @@ app.post('/api/generate-seo', requireAuth, async (req, res) => {
     );
     if (!response.ok) throw new Error(`Gemini error ${response.status}: ${await response.text()}`);
     const data = await response.json();
-    res.json(JSON.parse(data?.candidates?.[0]?.content?.parts?.[0]?.text || '{}'));
+    const rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
+    let parsed;
+    try {
+      parsed = JSON.parse(rawText);
+    } catch {
+      return res.status(502).json({ error: 'Malformed JSON returned by Gemini' });
+    }
+
+    res.json({
+      title: typeof parsed?.title === 'string' ? parsed.title : '',
+      description: typeof parsed?.description === 'string' ? parsed.description : '',
+      tags: typeof parsed?.tags === 'string' ? parsed.tags : '',
+    });
   } catch (err) {
     console.error('Gemini proxy error:', err);
     res.status(500).json({ error: err.message });
