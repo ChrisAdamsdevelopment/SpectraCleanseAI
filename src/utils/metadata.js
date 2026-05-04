@@ -1,8 +1,21 @@
-import { parseBlob } from 'music-metadata-browser';
 import ID3Writer from 'browser-id3-writer';
 
 const AI_MARKERS = ['ai','generated','suno','udio','boomy','aiva','soundraw','mubert','stable audio','provenance','c2pa','content credentials','watermark','synthetic','elevenlabs'];
 const MARKER_REGEX_CACHE = new Map();
+
+let parseBlobLoader = null;
+
+async function getParseBlob() {
+  if (parseBlobLoader) return parseBlobLoader;
+  parseBlobLoader = import('music-metadata-browser').then((mod) => {
+    const fn = mod?.parseBlob || mod?.default?.parseBlob;
+    if (typeof fn !== 'function') {
+      throw new Error('music-metadata-browser parseBlob export not found');
+    }
+    return fn;
+  });
+  return parseBlobLoader;
+}
 
 function escapeRegex(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -18,7 +31,7 @@ function markerToRegex(marker) {
   return regex;
 }
 
-function collectStrings(metadata) {
+function collectStrings(metadata, fileName = '') {
   const common = metadata?.common || {};
   const native = metadata?.native || {};
   const values = [common.title,common.artist,common.album,...(common.genre || []),...(common.comment || []),common.encodedby,common.publisher]
@@ -31,6 +44,7 @@ function collectStrings(metadata) {
       if (frame?.value && typeof frame.value === 'object') values.push(JSON.stringify(frame.value));
     });
   });
+  if (fileName) values.push(String(fileName));
   return values.join(' | ').toLowerCase();
 }
 
@@ -39,12 +53,13 @@ export async function readFileMetadata(file) {
   let parseError = null;
 
   try {
+    const parseBlob = await getParseBlob();
     parsed = await parseBlob(file);
   } catch (error) {
     parseError = error;
   }
 
-  const searchable = collectStrings(parsed);
+  const searchable = collectStrings(parsed, file?.name || '');
   const detectedMarkers = AI_MARKERS.filter((marker) => markerToRegex(marker).test(searchable));
   return {
     format: parsed?.format?.container || file.type || 'unknown',
