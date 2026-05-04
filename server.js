@@ -542,6 +542,18 @@ app.get('/api/health', (_req, res) =>
   res.json({ status: 'ok', time: new Date().toISOString() })
 );
 
+
+const distPath = path.join(__dirname, 'dist');
+
+if (fs.existsSync(distPath)) {
+  app.use(express.static(distPath));
+
+  app.get('*', (req, res, next) => {
+    if (req.path.startsWith('/api/')) return next();
+    res.sendFile(path.join(distPath, 'index.html'));
+  });
+}
+
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => console.log(`SpectraCleanse backend on :${PORT}`));
 
