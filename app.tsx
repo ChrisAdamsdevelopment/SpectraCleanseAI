@@ -1,4 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { createRoot } from 'react-dom/client';
+import './src/main.css';
 import {
   ShieldCheck, Upload, Trash2, Zap, FileText,
   CheckCircle2, RefreshCw, AlertCircle, Download, XCircle,
@@ -978,3 +980,15 @@ export default function App() {
     </div>
   );
 }
+
+
+const rootElement = document.getElementById('root');
+if (!rootElement) {
+  throw new Error('Root element not found');
+}
+
+createRoot(rootElement).render(
+  <React.StrictMode>
+    <App />
+  </React.StrictMode>
+);

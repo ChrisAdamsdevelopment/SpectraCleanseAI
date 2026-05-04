@@ -119,9 +119,18 @@ function requireAuth(req, res, next) {
 // ─────────────────────────────────────────────────────────────────────────────
 const app = express();
 
-const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || FRONTEND_URL;
+const configuredOrigins = (process.env.ALLOWED_ORIGIN || FRONTEND_URL)
+  .split(',')
+  .map(s => s.trim())
+  .filter(Boolean);
+
 app.use(cors({
-  origin: ALLOWED_ORIGIN,
+  origin: (origin, cb) => {
+    if (!origin || configuredOrigins.includes('*') || configuredOrigins.includes(origin)) {
+      return cb(null, true);
+    }
+    return cb(new Error(`CORS blocked for origin: ${origin}`));
+  },
   methods: ['GET', 'POST'],
   allowedHeaders: ['Content-Type', 'Authorization'],
   exposedHeaders: [
@@ -538,11 +547,22 @@ app.use((err, req, res, _next) => {
   res.status(500).json({ error: 'Internal server error' });
 });
 
+
 app.get('/api/health', (_req, res) =>
   res.json({ status: 'ok', time: new Date().toISOString() })
 );
 
+const distPath = path.join(__dirname, 'dist');
+if (fs.existsSync(distPath)) {
+  app.use(express.static(distPath));
+  app.get('*', (req, res, next) => {
+    if (req.path.startsWith('/api/')) return next();
+    return res.sendFile(path.join(distPath, 'index.html'));
+  });
+}
+
 const PORT = process.env.PORT || 3001;
+
 app.listen(PORT, () => console.log(`SpectraCleanse backend on :${PORT}`));
 
 process.on('exit',    () => { exiftool.end(); db.close(); });
