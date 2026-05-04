@@ -42,6 +42,12 @@ The source code is available at [github.com/ChrisAdamsdevelopment/SpectraCleanse
 
 ---
 
+## QA / Deployment Testing
+
+For a step-by-step manual validation flow (local, API smoke, auth, billing, upload, cleanse, Docker, and production readiness), see [`docs/manual-qa-checklist.md`](docs/manual-qa-checklist.md).
+
+---
+
 ## Contact
 
 Questions, partnerships, or enterprise enquiries: [hello@spectracleanse.com](mailto:hello@spectracleanse.com)
