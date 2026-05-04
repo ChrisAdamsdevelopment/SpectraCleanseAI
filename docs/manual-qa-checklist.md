@@ -160,5 +160,6 @@ Run these checks against your local server:
 ## 13) Known warnings
 
 - `npm audit` currently reports vulnerabilities and should be triaged.
-- `music-metadata-browser` is deprecated; monitor and replace in a later maintenance cycle.
+- `music-metadata-browser` is deprecated and currently used only for browser-side metadata analysis; plan a replacement/redesign in a future PR.
+- Treat suspicious or corrupt media samples as high-risk during manual QA and verify metadata analysis paths carefully.
 - Docker build/runtime validation still requires a real Docker-capable environment.
