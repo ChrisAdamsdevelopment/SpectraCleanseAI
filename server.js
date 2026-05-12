@@ -451,6 +451,19 @@ app.post('/api/process', requireAuth, upload.single('file'), async (req, res) =>
   if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
 
   const userId = req.user.sub;
+  const inputPath = req.file.path;
+  const originalName = req.file.originalname || '';
+  const ext = path.extname(originalName).toLowerCase() || '.mp3';
+  const mime = (req.file.mimetype || '').toLowerCase();
+  const isMp3 = ext === '.mp3' || mime === 'audio/mpeg';
+
+  if (isMp3) {
+    await fs.remove(inputPath).catch(() => {});
+    return res.status(422).json({
+      error: 'MP3 server cleanse is not supported',
+      detail: 'Use Quick Cleanse (Browser) for MP3 metadata rewriting, or upload MP4/M4A/WAV/FLAC for Full Server Cleanse.',
+    });
+  }
 
   // ── Tier-based usage enforcement ─────────────────────────────────────────
   // Always re-read plan from DB so upgrades (via webhook) take effect
@@ -474,8 +487,6 @@ app.post('/api/process', requireAuth, upload.single('file'), async (req, res) =>
   // ── End enforcement ───────────────────────────────────────────────────────
 
   const { title, description, tags, artist, genre, lyrics, platform = 'General' } = req.body;
-  const inputPath  = req.file.path;
-  const ext        = path.extname(req.file.originalname).toLowerCase() || '.mp3';
   const outputPath = path.join('uploads', `out_${Date.now()}${ext}`);
 
   try {
@@ -490,16 +501,21 @@ app.post('/api/process', requireAuth, upload.single('file'), async (req, res) =>
     const beforeTags = await exiftool.read(outputPath);
     const beforeKeys = new Set(Object.keys(beforeTags));
 
-    // Phase 2: Nuclear wipe
+    // Phase 2: Nuclear wipe (supported exiftool-vendored path only)
     try {
-      await exiftool.execute('-all=', '-XMP:all=', '-IPTC:all=', '-overwrite_original', outputPath);
-    } catch (wipeErr) {
-      console.warn('Primary metadata wipe failed, retrying with exiftool.write fallback:', wipeErr.message);
       await exiftool.write(
         outputPath,
         {},
         ['-all=', '-XMP:all=', '-IPTC:all=', '-overwrite_original']
       );
+    } catch (wipeErr) {
+      console.warn('Primary metadata wipe failed:', wipeErr.message);
+      await fs.remove(inputPath).catch(() => {});
+      await fs.remove(outputPath).catch(() => {});
+      return res.status(422).json({
+        error: 'Server cleanse unsupported for this format',
+        detail: 'This file format cannot be safely metadata-wiped on the server. Use Quick Cleanse (Browser) for MP3 or try MP4/M4A/WAV/FLAC for Full Server Cleanse.',
+      });
     }
 
     // Phase 3: Platform-aware SEO injection

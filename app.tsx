@@ -654,7 +654,7 @@ export default function App() {
 
         if (!res.ok) {
           const errBody = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
-          throw new Error(errBody.error || `Server error ${res.status}`);
+          throw new Error(errBody.detail || errBody.error || `Server error ${res.status}`);
         }
 
         const blob         = await res.blob();

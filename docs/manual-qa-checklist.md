@@ -98,13 +98,17 @@ Run these checks against your local server:
 
 ## 9) Full Server Cleanse QA
 
-1. Run server cleanse on a supported file.
+1. Run server cleanse on a supported non-MP3 file.
 2. Verify `/api/process` returns downloadable file response.
-3. Verify usage meter/counter updates.
+3. Verify usage meter/counter updates only after successful delivered files.
 4. Verify forensic/report information appears when present.
-5. Force or simulate `401` from protected endpoint.
+5. Upload MP3 to Full Server Cleanse and verify HTTP `422` JSON:
+   - Expected error: `MP3 server cleanse is not supported`.
+   - Expected detail tells user to use Quick Cleanse (Browser) for MP3.
+   - Expected usage counter does **not** increment on this rejection.
+6. Force or simulate `401` from protected endpoint.
    - Expected: user is logged out/reauth requested.
-6. Force or simulate `402`.
+7. Force or simulate `402`.
    - Expected: upgrade modal opens.
 
 ## 10) Object URL / download safety QA

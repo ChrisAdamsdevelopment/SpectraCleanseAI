@@ -47,13 +47,24 @@ The source code is available at [github.com/ChrisAdamsdevelopment/SpectraCleanse
 For a step-by-step manual validation flow (local, API smoke, auth, billing, upload, cleanse, Docker, and production readiness), see [`docs/manual-qa-checklist.md`](docs/manual-qa-checklist.md).
 
 - Browser metadata analysis uses maintained `music-metadata` with graceful fallback (`parseError`) when parsing fails, times out, or is skipped for very large files.
-- Quick Cleanse metadata writing remains local/browser-side (MP3 via `browser-id3-writer`), while Full Server Cleanse still runs through `/api/process`.
+- Quick Cleanse metadata writing remains local/browser-side (MP3 via `browser-id3-writer`).
+- Full Server Cleanse runs through `/api/process` for supported non-MP3 formats; MP3 requests are rejected with HTTP `422` and guidance to use Quick Cleanse Browser.
 
 ---
 
 ## Contact
 
 Questions, partnerships, or enterprise enquiries: [hello@spectracleanse.com](mailto:hello@spectracleanse.com)
+
+---
+
+
+## Native Node deployment runtime
+
+- Native Render/Node deployments should use **Node 20.20.2** (recommended) or a Node version within the supported engines range: `>=18 <23`.
+- If Render defaults your service to a newer Node release, set `NODE_VERSION=20.20.2` in the service environment.
+- Node 24 is currently not supported for native installs in validation because `better-sqlite3` native compilation failed under Node 24.
+- Docker deployments already pin Node 18 via the repo Dockerfile.
 
 ---
 
