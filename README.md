@@ -48,7 +48,7 @@ For a step-by-step manual validation flow (local, API smoke, auth, billing, uplo
 
 - Browser metadata analysis uses maintained `music-metadata` with graceful fallback (`parseError`) when parsing fails, times out, or is skipped for very large files.
 - Quick Cleanse metadata writing remains local/browser-side (MP3 via `browser-id3-writer`).
-- Full Server Cleanse runs through `/api/process` for supported non-MP3 formats; MP3 requests are rejected with HTTP `422` and guidance to use Quick Cleanse Browser.
+- Full Server Cleanse runs through `/api/process`; MP3 requests are rejected with HTTP `422` and guidance that Full Server Cleanse is best supported for MP4/M4A, while WAV/FLAC may still be rejected when ExifTool cannot safely rewrite them.
 
 ---
 
@@ -119,5 +119,5 @@ Never commit real secrets to source control.
 
 - `POST /api/process-batch` (authenticated): processes up to 20 uploaded files sequentially for paid plans (Creator/Studio). Free plan returns `403`.
 - `GET /api/download/:token` (authenticated): one-time secure download for batch outputs.
-- MP3 server cleanse remains unsupported (`422` for single process, per-file error in batch); use Quick Cleanse Browser for MP3.
+- MP3 server cleanse remains unsupported (`422` for single process, per-file error in batch); use Quick Cleanse Browser for MP3. Full Server Cleanse is best supported for MP4/M4A, and WAV/FLAC may be rejected if ExifTool cannot safely rewrite them.
 - Batch requests enforce a 2GB post-upload soft guard; production deployments should still enforce proxy/body-size/disk limits.
