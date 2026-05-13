@@ -699,7 +699,7 @@ export default function App() {
 
   // ── Render ───────────────────────────────────────────────────────────────────
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans">
+    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans overflow-x-hidden">
 
       {/* Upgrade modal */}
       {showUpgrade && (
@@ -716,7 +716,7 @@ export default function App() {
       )}
 
       {/* Navbar */}
-      <nav className="h-16 border-b border-slate-800 bg-slate-900/50 backdrop-blur-xl flex items-center justify-between px-6 sticky top-0 z-40">
+      <nav className="min-h-[4.5rem] border-b border-slate-800/80 bg-slate-900/70 backdrop-blur-xl flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 px-4 sm:px-6 py-3 sticky top-0 z-40">
         <div className="flex items-center gap-2">
           <div className="w-8 h-8 bg-gradient-to-br from-cyan-500 to-blue-600 rounded-lg flex items-center justify-center shadow-lg shadow-cyan-500/20">
             <ShieldCheck className="text-white w-5 h-5" />
@@ -726,11 +726,11 @@ export default function App() {
           </span>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="w-full lg:w-auto flex flex-wrap items-center gap-2 sm:gap-3">
           <select
             value={platform}
             onChange={e => setPlatform(e.target.value as Platform)}
-            className="bg-slate-800 border border-slate-700 text-xs px-3 py-2 rounded-lg outline-none focus:border-cyan-500"
+            className="bg-slate-800/90 border border-slate-700 text-xs px-3 py-2.5 rounded-lg outline-none focus:border-cyan-500 min-w-[140px]"
           >
             {PLATFORMS.map(p => <option key={p} value={p}>{p} Preset</option>)}
           </select>
@@ -789,10 +789,10 @@ export default function App() {
         </div>
       )}
 
-      <div className="flex-1 flex overflow-hidden">
+      <div className="flex-1 grid grid-cols-1 xl:grid-cols-[18rem_minmax(0,1fr)] overflow-hidden">
 
         {/* Sidebar */}
-        <aside className="w-72 border-r border-slate-800 bg-slate-900/30 flex flex-col">
+        <aside className="xl:w-auto border-b xl:border-b-0 xl:border-r border-slate-800 bg-slate-900/30 flex flex-col max-h-[42vh] xl:max-h-none">
           <div className="p-4 border-b border-slate-800 flex items-center justify-between">
             <span className="text-xs font-bold uppercase tracking-widest text-slate-500">
               Queue ({queue.length}/20)
@@ -815,7 +815,7 @@ export default function App() {
           {/* Usage meter – sits just below the queue header for free users */}
           <UsageMeter usage={usage} onUpgrade={() => setShowUpgrade(true)} />
 
-          <div className="flex-1 overflow-y-auto">
+          <div className="flex-1 overflow-y-auto min-h-0">
             {queue.length === 0 ? (
               <div
                 className="p-8 text-center text-slate-600 text-sm cursor-pointer hover:text-slate-400 transition-colors"
@@ -874,7 +874,7 @@ export default function App() {
         </aside>
 
         {/* Main panel */}
-        <main className="flex-1 overflow-y-auto p-6 bg-slate-950">
+        <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 bg-slate-950">
           {!activeItem ? (
             <div
               className="h-full flex flex-col items-center justify-center text-slate-600 cursor-pointer hover:text-slate-500 transition-colors"
@@ -885,7 +885,7 @@ export default function App() {
               <p className="text-sm mt-1 opacity-60">MP3 · WAV · FLAC · M4A · MP4 · up to 20 files</p>
             </div>
           ) : (
-            <div className="max-w-3xl mx-auto space-y-6">
+            <div className="max-w-6xl mx-auto space-y-6">
               <div className="flex items-center gap-3">
                 <FileText className="text-cyan-400" size={20} />
                 <h1 className="font-bold text-lg truncate">{activeItem.file.name}</h1>
@@ -919,7 +919,7 @@ export default function App() {
               )}
 
               {/* SEO config */}
-              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">
+              <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 sm:p-6 space-y-4 shadow-xl shadow-black/20">
                 <h2 className="font-bold flex items-center gap-2">
                   <Zap size={16} className="text-yellow-400" /> SEO Configuration
                 </h2>
@@ -984,9 +984,9 @@ export default function App() {
               </div>
 
 
-              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">
+              <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 sm:p-6 space-y-4 shadow-xl shadow-black/20">
                 <h3 className="font-bold">Cleanse Workflow</h3>
-                <div className="grid md:grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-3">
                     <button
                     onClick={async () => {
@@ -1015,7 +1015,7 @@ export default function App() {
                 {activeItem.downloadUrl && (
                   <div className="rounded-xl border border-cyan-500/30 bg-cyan-500/10 p-3">
                     <p className="text-[11px] uppercase tracking-wider text-cyan-300 font-bold mb-1">Result Source: {resultSource}</p>
-                    <a href={activeItem.downloadUrl} download={activeItem.downloadName || `cleansed_${activeItem.file.name}`} className="inline-flex items-center gap-2 text-cyan-200 text-base font-bold underline">Manual Download Link</a>
+                    <a href={activeItem.downloadUrl} download={activeItem.downloadName || `cleansed_${activeItem.file.name}`} className="inline-flex items-center gap-2 text-cyan-200 text-base font-bold underline break-all">Manual Download Link</a>
                   </div>
                 )}
               </div>
@@ -1027,7 +1027,7 @@ export default function App() {
                     Metadata parser used fallback values for some fields.
                   </div>
                 )}
-                <div className="grid grid-cols-2 gap-3 text-sm">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
                   <div className="p-2 rounded bg-slate-950 border border-slate-800"><span className="text-slate-500 text-xs uppercase">Format</span><p>{activeItem.analysis?.format || '—'}</p></div>
                   <div className="p-2 rounded bg-slate-950 border border-slate-800"><span className="text-slate-500 text-xs uppercase">Title</span><p>{activeItem.analysis?.title || '—'}</p></div>
                   <div className="p-2 rounded bg-slate-950 border border-slate-800"><span className="text-slate-500 text-xs uppercase">Artist</span><p>{activeItem.analysis?.artist || '—'}</p></div>
@@ -1037,18 +1037,18 @@ export default function App() {
                 </div>
               </div>
 
-              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6"><h3 className="font-bold mb-2">System Log</h3><div className="text-xs space-y-1.5 max-h-40 overflow-y-auto">{activeItem.logs.map((l, i) => { const isErr = /failed|error/i.test(l); const isSuccess = /complete|generated|starting server cleanse/i.test(l); const m = l.match(/^\[(.*?)\]\s*(.*)$/); return <div key={i} className={`font-mono px-2 py-1 rounded border ${isErr ? 'text-red-300 border-red-500/30 bg-red-500/10' : isSuccess ? 'text-emerald-300 border-emerald-500/30 bg-emerald-500/10' : 'text-slate-300 border-slate-700 bg-slate-800/40'}`}><span className="text-slate-500 mr-2">{m ? m[1] : '--:--:--'}</span><span>{m ? m[2] : l}</span></div>; })}</div></div>
+              <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 sm:p-6"><h3 className="font-bold mb-2">System Log</h3><div className="text-xs space-y-1.5 max-h-48 overflow-y-auto">{activeItem.logs.map((l, i) => { const isErr = /failed|error/i.test(l); const isSuccess = /complete|generated|starting server cleanse/i.test(l); const m = l.match(/^\[(.*?)\]\s*(.*)$/); return <div key={i} className={`font-mono text-[11px] sm:text-xs px-2 py-1.5 rounded border break-words ${isErr ? 'text-red-300 border-red-500/30 bg-red-500/10' : isSuccess ? 'text-emerald-300 border-emerald-500/30 bg-emerald-500/10' : 'text-slate-300 border-slate-700 bg-slate-800/40'}`}><span className="text-slate-500 mr-2">{m ? m[1] : '--:--:--'}</span><span>{m ? m[2] : l}</span></div>; })}</div></div>
 
               {/* Forensic report */}
               {activeItem.report && (
-                <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-2xl p-6 space-y-4">
+                <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-2xl p-4 sm:p-6 space-y-4">
                   <div className="flex items-center justify-between">
                     <h3 className="text-emerald-400 font-bold flex items-center gap-2">
                       <CheckCircle2 size={16} /> Sanitization Complete
                     </h3>
                     <span className="text-[10px] text-slate-500 font-mono">{activeItem.report.timestamp}</span>
                   </div>
-                  <div className="grid grid-cols-2 gap-3 text-sm">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
                     <div className="p-3 bg-slate-950 rounded-lg border border-slate-800">
                       <p className="text-[10px] text-slate-500 uppercase font-bold mb-1">Tags Removed</p>
                       <p className="text-emerald-400 font-mono font-bold text-lg">{activeItem.report.removedCount}</p>
