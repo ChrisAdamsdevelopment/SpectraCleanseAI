@@ -114,3 +114,10 @@ docker run --rm -p 3001:3001 \
 - Production must use real Stripe configuration; do not rely on mock checkout in production.
 
 Never commit real secrets to source control.
+
+## Batch processing API
+
+- `POST /api/process-batch` (authenticated): processes up to 20 uploaded files sequentially for paid plans (Creator/Studio). Free plan returns `403`.
+- `GET /api/download/:token` (authenticated): one-time secure download for batch outputs.
+- MP3 server cleanse remains unsupported (`422` for single process, per-file error in batch); use Quick Cleanse Browser for MP3.
+- Batch requests enforce a 2GB post-upload soft guard; production deployments should still enforce proxy/body-size/disk limits.

@@ -5,6 +5,10 @@ const cors       = require('cors');
 const path       = require('path');
 const fs         = require('fs-extra');
 const { exiftool } = require('exiftool-vendored');
+const { processMediaFile } = require('./server/processor');
+const cleanup = require('./server/cleanup');
+const downloadTokens = require('./server/downloadTokens');
+const crypto = require('crypto');
 const bcrypt     = require('bcryptjs');
 const jwt        = require('jsonwebtoken');
 const Database   = require('better-sqlite3');
@@ -69,6 +73,9 @@ db.exec(`
   );
 `);
 
+
+cleanup.init(db);
+downloadTokens.init(db);
 // ─────────────────────────────────────────────────────────────────────────────
 // Usage helpers
 // ─────────────────────────────────────────────────────────────────────────────
@@ -449,147 +456,80 @@ app.post('/api/generate-seo', requireAuth, async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 app.post('/api/process', requireAuth, upload.single('file'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
-
   const userId = req.user.sub;
   const inputPath = req.file.path;
   const originalName = req.file.originalname || '';
   const ext = path.extname(originalName).toLowerCase() || '.mp3';
   const mime = (req.file.mimetype || '').toLowerCase();
   const isMp3 = ext === '.mp3' || mime === 'audio/mpeg';
-
   if (isMp3) {
     await fs.remove(inputPath).catch(() => {});
-    return res.status(422).json({
-      error: 'MP3 server cleanse is not supported',
-      detail: 'Use Quick Cleanse (Browser) for MP3 metadata rewriting, or upload MP4/M4A/WAV/FLAC for Full Server Cleanse.',
-    });
+    return res.status(422).json({ error: 'MP3 server cleanse is not supported', detail: 'Use Quick Cleanse (Browser) for MP3 metadata rewriting, or upload MP4/M4A/WAV/FLAC for Full Server Cleanse.' });
   }
-
-  // ── Tier-based usage enforcement ─────────────────────────────────────────
-  // Always re-read plan from DB so upgrades (via webhook) take effect
-  // immediately without forcing a re-login.
-  const dbUser   = db.prepare('SELECT plan FROM users WHERE id = ?').get(userId);
+  const dbUser = db.prepare('SELECT plan FROM users WHERE id = ?').get(userId);
   const userPlan = dbUser?.plan ?? 'free';
-
   if (userPlan === 'free') {
     const usedThisMonth = getMonthlyJobCount(userId);
     if (usedThisMonth >= FREE_MONTHLY_LIMIT) {
       await fs.remove(req.file.path).catch(() => {});
-      return res.status(402).json({
-        error:           'Monthly limit reached',
-        detail:          `Free accounts are limited to ${FREE_MONTHLY_LIMIT} files per month. Upgrade to continue processing.`,
-        usedThisMonth,
-        limit:           FREE_MONTHLY_LIMIT,
-        upgradeRequired: true,
-      });
+      return res.status(402).json({ error: 'Monthly limit reached', detail: `Free accounts are limited to ${FREE_MONTHLY_LIMIT} files per month. Upgrade to continue processing.`, usedThisMonth, limit: FREE_MONTHLY_LIMIT, upgradeRequired: true });
     }
   }
-  // ── End enforcement ───────────────────────────────────────────────────────
-
   const { title, description, tags, artist, genre, lyrics, platform = 'General' } = req.body;
   const outputPath = path.join('uploads', `out_${Date.now()}${ext}`);
-
+  try { await fs.copy(inputPath, outputPath); } catch { await fs.remove(inputPath).catch(() => {}); return res.status(500).json({ error: 'File copy failed' }); }
   try {
-    await fs.copy(inputPath, outputPath);
-  } catch (err) {
-    await fs.remove(inputPath).catch(() => {});
-    return res.status(500).json({ error: 'File copy failed' });
-  }
-
-  try {
-    // Phase 1: Forensic before-state
-    const beforeTags = await exiftool.read(outputPath);
-    const beforeKeys = new Set(Object.keys(beforeTags));
-
-    // Phase 2: Nuclear wipe (supported exiftool-vendored path only)
-    try {
-      await exiftool.write(
-        outputPath,
-        {},
-        ['-all=', '-XMP:all=', '-IPTC:all=', '-overwrite_original']
-      );
-    } catch (wipeErr) {
-      console.warn('Primary metadata wipe failed:', wipeErr.message);
-      await fs.remove(inputPath).catch(() => {});
-      await fs.remove(outputPath).catch(() => {});
-      return res.status(422).json({
-        error: 'Server cleanse unsupported for this format',
-        detail: 'This file format cannot be safely metadata-wiped on the server. Use Quick Cleanse (Browser) for MP3 or try MP4/M4A/WAV/FLAC for Full Server Cleanse.',
-      });
-    }
-
-    // Phase 3: Platform-aware SEO injection
-    const tagsArray      = (tags || '').split(',').map(t => t.trim()).filter(Boolean);
-    const year           = new Date().getFullYear();
-    const safeArtist     = (artist || 'Creator').substring(0, 255);
-    const safeTitle      = (title  || 'Untitled').substring(0, 255);
-    const safeDescription = (description || '').substring(0, 1000);
-    const safeGenre      = (genre  || '').substring(0, 100);
-
-    const metaToWrite = {
-      Title:     safeTitle,
-      Artist:    safeArtist,
-      Copyright: `© ${year} ${safeArtist}`,
-      Keywords:  tagsArray,
-      Genre:     safeGenre,
-    };
-
-    switch (platform) {
-      case 'YouTube':
-        metaToWrite.Description = safeDescription;
-        metaToWrite.Comment     = safeDescription;
-        break;
-      case 'Spotify':
-      case 'Apple Music':
-        metaToWrite.Description = safeDescription;
-        metaToWrite.Album       = safeTitle;
-        metaToWrite.Year        = year;
-        if (lyrics) metaToWrite['Lyrics-eng'] = lyrics.substring(0, 5000);
-        break;
-      case 'TikTok':
-        metaToWrite.Comment = `${safeTitle} ${tagsArray.map(t => `#${t.replace(/\s/g, '')}`).join(' ')}`.substring(0, 300);
-        break;
-      default:
-        metaToWrite.Description = safeDescription;
-        metaToWrite.Comment     = safeDescription;
-    }
-
-    await exiftool.write(outputPath, metaToWrite, ['-overwrite_original']);
-
-    // Phase 4: Forensic diff
-    const afterTags   = await exiftool.read(outputPath);
-    const afterKeys   = new Set(Object.keys(afterTags));
-    const removedKeys = [...beforeKeys].filter(k => !afterKeys.has(k));
-
-    // Phase 5: Record job (AFTER processing – only count successful deliveries)
-    try {
-      db.prepare(
-        'INSERT INTO jobs (user_id, filename, platform) VALUES (?, ?, ?)'
-      ).run(userId, req.file.originalname, platform);
-    } catch (dbErr) {
-      console.error('Job record failed (non-fatal):', dbErr);
-    }
-
-    // Phase 6: Send file with usage headers
+    const { report } = await processMediaFile({ outputPath, originalName: req.file.originalname, platform, metadata: { title, description, tags, artist, genre, lyrics } });
+    try { db.prepare('INSERT INTO jobs (user_id, filename, platform) VALUES (?, ?, ?)').run(userId, req.file.originalname, platform); } catch (dbErr) { console.error('Job record failed (non-fatal):', dbErr); }
     const usedNow = getMonthlyJobCount(userId);
-    res.setHeader('X-Forensic-Removed', removedKeys.length);
-    res.setHeader('X-Forensic-Tags',    JSON.stringify(removedKeys.slice(0, 50)));
-    res.setHeader('X-Forensic-Status',  'Sanitized');
+    res.setHeader('X-Forensic-Removed', report.removedCount);
+    res.setHeader('X-Forensic-Tags', JSON.stringify(report.removedTags.slice(0, 50)));
+    res.setHeader('X-Forensic-Status', report.status || 'Sanitized');
     res.setHeader('X-Usage-This-Month', usedNow);
-    res.setHeader('X-Usage-Limit',      userPlan === 'free' ? FREE_MONTHLY_LIMIT : 'unlimited');
-
-    res.download(outputPath, `cleansed_${req.file.originalname}`, async (err) => {
-      if (err) console.error('Download stream error:', err);
-      await fs.remove(inputPath).catch(() => {});
-      await fs.remove(outputPath).catch(() => {});
-    });
-
+    res.setHeader('X-Usage-Limit', userPlan === 'free' ? FREE_MONTHLY_LIMIT : 'unlimited');
+    cleanup.registerForCleanup([outputPath]);
+    res.download(outputPath, `cleansed_${req.file.originalname}`, async (err) => { if (err) console.error('Download stream error:', err); await fs.remove(inputPath).catch(() => {}); await cleanup.deleteImmediately(outputPath); });
   } catch (err) {
     console.error('Processing error:', err);
-    res.status(500).json({ error: 'Processing failed', detail: err.message });
+    const status = err.statusCode || 500;
+    res.status(status).json({ error: status === 422 ? err.message : 'Processing failed', detail: err.publicDetail || err.message });
     await fs.remove(inputPath).catch(() => {});
     await fs.remove(outputPath).catch(() => {});
   }
+});
+
+app.post('/api/process-batch', requireAuth, upload.array('files', 20), async (req, res) => {
+  const userId = req.user.sub;
+  const files = req.files || [];
+  const dbUser = db.prepare('SELECT plan FROM users WHERE id = ?').get(userId);
+  const userPlan = dbUser?.plan ?? 'free';
+  if (userPlan === 'free') { await Promise.all(files.map((f) => fs.remove(f.path).catch(() => {}))); return res.status(403).json({ error: 'Batch processing requires Creator or Studio plan.' }); }
+  const totalBytes = files.reduce((n, f) => n + (f.size || 0), 0);
+  // 2GB is a post-Multer soft guard; deployment/proxy/body-size limits are still required.
+  if (totalBytes > 2 * 1024 * 1024 * 1024) { await Promise.all(files.map((f) => fs.remove(f.path).catch(() => {}))); return res.status(400).json({ error: 'Batch total exceeds 2GB limit.' }); }
+  const { title, description, tags, artist, genre, lyrics, platform = 'General' } = req.body;
+  const results = [];
+  for (const file of files) {
+    const ext = path.extname(file.originalname || '').toLowerCase() || '.mp4';
+    const mime = (file.mimetype || '').toLowerCase();
+    const isMp3 = ext === '.mp3' || mime === 'audio/mpeg';
+    if (isMp3) { await fs.remove(file.path).catch(() => {}); results.push({ originalName: file.originalname, error: 'MP3 server cleanse is not supported. Use Quick Cleanse (Browser) for MP3.' }); continue; }
+    const outputPath = path.join('uploads', `out_batch_${Date.now()}_${crypto.randomUUID()}${ext}`);
+    try { await fs.copy(file.path, outputPath); const { report } = await processMediaFile({ outputPath, originalName: file.originalname, platform, metadata: { title, description, tags, artist, genre, lyrics } }); db.prepare('INSERT INTO jobs (user_id, filename, platform) VALUES (?, ?, ?)').run(userId, file.originalname, platform); cleanup.registerForCleanup([outputPath]); const token = downloadTokens.createToken({ userId, filePath: outputPath, downloadName: `cleansed_${file.originalname}` }); results.push({ originalName: file.originalname, report, downloadToken: token }); } catch (err) { await fs.remove(outputPath).catch(() => {}); results.push({ originalName: file.originalname, error: err.publicDetail || err.message }); } finally { await fs.remove(file.path).catch(() => {}); }
+  }
+  const usedNow = getMonthlyJobCount(userId);
+  res.setHeader('X-Usage-This-Month', usedNow);
+  res.setHeader('X-Usage-Limit', userPlan === 'free' ? FREE_MONTHLY_LIMIT : 'unlimited');
+  return res.json({ results, usage: { thisMonth: usedNow, limit: null } });
+});
+
+app.get('/api/download/:token', requireAuth, async (req, res) => {
+  const userId = req.user.sub;
+  const consumed = downloadTokens.consumeToken(req.params.token, userId);
+  if (consumed.error) return res.status(consumed.code).json({ error: consumed.error });
+  const { filePath, downloadName } = consumed;
+  if (!await fs.pathExists(filePath)) return res.status(410).json({ error: 'File is no longer available. It may have already been downloaded or cleaned up.' });
+  res.download(filePath, downloadName, async (err) => { if (err) console.error('Download stream error:', err); await cleanup.deleteImmediately(filePath); });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

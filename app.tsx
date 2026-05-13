@@ -27,6 +27,17 @@ interface UsageState {
   limit: number | null; // null = unlimited
 }
 
+interface MarkerHit { ruleId: string; category: string; severity: 'critical' | 'high' | 'medium'; matchedTag: string; matchedValue: string; }
+interface ResidualTag { tag: string; markerCategory: string; severity: string; }
+interface ForensicReport {
+  removedCount: number; removedTags: string[]; timestamp: string;
+  status?: 'clean' | 'clean_with_notes' | 'review_required'; summary?: string;
+  wipeVerificationPassed?: boolean; finalVerificationPassed?: boolean;
+  detectedMarkersBefore?: MarkerHit[]; detectedMarkersFinal?: MarkerHit[];
+  suspiciousResidual?: ResidualTag[]; unexpectedDescriptive?: string[];
+  allowedInjectedTags?: string[]; rewrittenTags?: string[];
+}
+
 interface QueueItem {
   id: string;
   file: File;
@@ -34,7 +45,7 @@ interface QueueItem {
   seo: { title: string; description: string; tags: string };
   downloadUrl: string | null;
   downloadName: string | null;
-  report: { removedCount: number; removedTags: string[]; timestamp: string } | null;
+  report: ForensicReport | null;
   error: string | null;
   analysis: { format: string; title: string; artist: string; genre: string; provenanceRisk: RiskLevel; detectedMarkers: string[]; parseError?: string | null } | null;
   logs: string[];
