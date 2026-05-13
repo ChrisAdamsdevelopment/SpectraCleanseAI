@@ -104,7 +104,7 @@ Run these checks against your local server:
 4. Verify forensic/report information appears when present.
 5. Upload MP3 to Full Server Cleanse and verify HTTP `422` JSON:
    - Expected error: `MP3 server cleanse is not supported`.
-   - Expected detail tells user to use Quick Cleanse (Browser) for MP3.
+   - Expected detail: `Use Quick Cleanse (Browser) for MP3. Full Server Cleanse is best supported for MP4/M4A; WAV/FLAC may be rejected if ExifTool cannot safely rewrite them.`
    - Expected usage counter does **not** increment on this rejection.
 6. Force or simulate `401` from protected endpoint.
    - Expected: user is logged out/reauth requested.

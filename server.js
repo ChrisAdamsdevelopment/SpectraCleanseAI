@@ -464,7 +464,7 @@ app.post('/api/process', requireAuth, upload.single('file'), async (req, res) =>
   const isMp3 = ext === '.mp3' || mime === 'audio/mpeg';
   if (isMp3) {
     await fs.remove(inputPath).catch(() => {});
-    return res.status(422).json({ error: 'MP3 server cleanse is not supported', detail: 'Use Quick Cleanse (Browser) for MP3 metadata rewriting, or upload MP4/M4A/WAV/FLAC for Full Server Cleanse.' });
+    return res.status(422).json({ error: 'MP3 server cleanse is not supported', detail: 'Use Quick Cleanse (Browser) for MP3. Full Server Cleanse is best supported for MP4/M4A; WAV/FLAC may be rejected if ExifTool cannot safely rewrite them.' });
   }
   const dbUser = db.prepare('SELECT plan FROM users WHERE id = ?').get(userId);
   const userPlan = dbUser?.plan ?? 'free';
