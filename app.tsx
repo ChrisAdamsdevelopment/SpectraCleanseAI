@@ -7,7 +7,13 @@ import {
 } from 'lucide-react';
 import { readFileMetadata, writeMP3Metadata } from './src/utils/metadata';
 
-const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
+const API_BASE_URL =
+  import.meta.env.VITE_API_URL ||
+  (import.meta.env.DEV ? 'http://localhost:3001' : '');
+
+if (!API_BASE_URL) {
+  throw new Error('Missing VITE_API_URL in production build');
+}
 const PLATFORMS = ['General', 'YouTube', 'Spotify', 'Apple Music', 'TikTok'] as const;
 type Platform = typeof PLATFORMS[number];
 type ItemStatus = 'pending' | 'analyzing' | 'processing' | 'done' | 'error';
@@ -311,15 +317,30 @@ function AuthScreen({ onAuth }: { onAuth: (token: string, user: AuthUser) => voi
     setLoading(true);
     const endpoint = mode === 'login' ? '/api/login' : '/api/register';
     try {
-      const res = await fetch(`${BACKEND_URL}${endpoint}`, {
+      const requestUrl = `${API_BASE_URL}${endpoint}`;
+      if (mode === 'signup') console.log('Register API URL:', `${API_BASE_URL}/api/register`);
+
+      const res = await fetch(requestUrl, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: email.trim(), password }),
       });
+
+      console.log(`[Auth] ${mode} status:`, res.status);
+
       const data = await res.json();
-      if (!res.ok) { setError(data.error || 'Something went wrong.'); return; }
+      if (!res.ok) {
+        if (mode === 'signup') {
+          console.error('Register request failed response body:', data);
+        }
+        setError(data.error || 'Something went wrong.');
+        return;
+      }
       onAuth(data.token, data.user);
-    } catch {
+    } catch (err) {
+      if (mode === 'signup') {
+        console.error('Register request network/CORS error:', err);
+      }
       setError('Cannot reach the server. Check your connection.');
     } finally {
       setLoading(false);
@@ -467,7 +488,7 @@ export default function App() {
     if (checkout === 'success') {
       setCheckoutBanner(mockCheckout === '1' ? 'mock' : 'success');
       // Re-fetch /api/me so the plan badge updates immediately after upgrade
-      fetch(`${BACKEND_URL}/api/me`, {
+      fetch(`${API_BASE_URL}/api/me`, {
         headers: { Authorization: `Bearer ${session.token}` },
       })
         .then(r => r.json())
@@ -504,7 +525,7 @@ export default function App() {
   // ── Helpers ─────────────────────────────────────────────────────────────────
   async function fetchUsage(token: string) {
     try {
-      const res  = await fetch(`${BACKEND_URL}/api/me`, {
+      const res  = await fetch(`${API_BASE_URL}/api/me`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!res.ok) return;
@@ -542,7 +563,7 @@ export default function App() {
     if (!authToken) return;
     setUpgradeLoading(true);
     try {
-      const res  = await fetch(`${BACKEND_URL}/api/create-checkout-session`, {
+      const res  = await fetch(`${API_BASE_URL}/api/create-checkout-session`, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
         body: JSON.stringify({ plan }),
@@ -643,7 +664,7 @@ export default function App() {
         formData.append('tags',        currentSeo.tags);
         formData.append('platform',    platform);
 
-        const res = await fetch(`${BACKEND_URL}/api/process`, {
+        const res = await fetch(`${API_BASE_URL}/api/process`, {
           method:  'POST',
           headers: { Authorization: `Bearer ${authToken}` },
           body:    formData,
@@ -950,7 +971,7 @@ export default function App() {
                 </div>
                 <button onClick={async ()=>{
                   try {
-                    const res = await fetch(`${BACKEND_URL}/api/generate-seo`, {
+                    const res = await fetch(`${API_BASE_URL}/api/generate-seo`, {
                       method:'POST',
                       headers:{'Content-Type':'application/json', Authorization:`Bearer ${authToken}`},
                       body: JSON.stringify({
