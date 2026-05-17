@@ -360,7 +360,7 @@ function AuthScreen({ onAuth }: { onAuth: (token: string, user: AuthUser) => voi
       <div className="w-full max-w-md relative z-10">
         <div className="flex flex-col items-center mb-10">
           <img
-            src="/assets/spectracleanse-login-emblem.png"
+            src="/assets/spectracleanse-login-emblem.svg"
             alt="SpectraCleanseAI emblem"
             className="mb-4 w-24 sm:w-28 md:w-32 lg:w-36 h-auto object-contain rounded-2xl shadow-[0_0_30px_rgba(34,211,238,0.18)]"
           />
