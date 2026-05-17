@@ -18,7 +18,11 @@ const Stripe     = require('stripe');
 // Environment validation – strict in production, developer-friendly locally
 // ─────────────────────────────────────────────────────────────────────────────
 const IS_PROD = process.env.NODE_ENV === 'production';
-const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
+const FRONTEND_URL = process.env.FRONTEND_URL || '';
+const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || '')
+  .split(',')
+  .map(origin => origin.trim())
+  .filter(Boolean);
 const JWT_SECRET = process.env.JWT_SECRET || (IS_PROD ? '' : 'dev_jwt_secret_change_me');
 const ENABLE_MOCK_CHECKOUT =
   process.env.ENABLE_MOCK_CHECKOUT === 'true' || !IS_PROD;
@@ -126,9 +130,31 @@ function requireAuth(req, res, next) {
 // ─────────────────────────────────────────────────────────────────────────────
 const app = express();
 
-const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || FRONTEND_URL;
+const LOCAL_DEV_ORIGINS = [
+  'http://localhost:5173',
+  'http://127.0.0.1:5173',
+  'http://localhost:3000',
+  'http://127.0.0.1:3000',
+];
+
+const configuredOrigins = [
+  ...ALLOWED_ORIGINS,
+  ...(FRONTEND_URL ? [FRONTEND_URL.trim()] : []),
+];
+
+const allowedOrigins = new Set(IS_PROD ? configuredOrigins : [...configuredOrigins, ...LOCAL_DEV_ORIGINS]);
+
+if (IS_PROD && allowedOrigins.size === 0) {
+  console.error('FATAL: set FRONTEND_URL or ALLOWED_ORIGINS for production CORS configuration.');
+  process.exit(1);
+}
+
 app.use(cors({
-  origin: ALLOWED_ORIGIN,
+  origin(origin, callback) {
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.has(origin)) return callback(null, true);
+    return callback(new Error(`CORS blocked for origin: ${origin}`));
+  },
   methods: ['GET', 'POST'],
   allowedHeaders: ['Content-Type', 'Authorization'],
   exposedHeaders: [
