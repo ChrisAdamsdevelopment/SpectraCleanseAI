@@ -4,7 +4,7 @@
 # SpectraCleanse AI – Production Dockerfile (builds frontend + backend runtime)
 # ─────────────────────────────────────────────────────────────────────────────
 
-FROM node:18-bookworm-slim AS builder
+FROM node:20-bookworm-slim AS builder
 WORKDIR /app
 
 COPY package.json package-lock.json ./
@@ -13,7 +13,7 @@ RUN npm ci
 COPY . .
 RUN npm run build
 
-FROM node:18-bookworm-slim AS runtime
+FROM node:20-bookworm-slim AS runtime
 ENV NODE_ENV=production
 WORKDIR /app
 

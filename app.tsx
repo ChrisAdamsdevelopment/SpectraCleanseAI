@@ -338,9 +338,11 @@ function AuthScreen({ onAuth }: { onAuth: (token: string, user: AuthUser) => voi
 
       <div className="w-full max-w-md relative z-10">
         <div className="flex flex-col items-center mb-10">
-          <div className="w-14 h-14 bg-gradient-to-br from-cyan-500 to-blue-600 rounded-2xl flex items-center justify-center shadow-2xl shadow-cyan-500/25 mb-4">
-            <ShieldCheck className="text-white w-8 h-8" />
-          </div>
+          <img
+            src="/assets/spectracleanse-login-emblem.png"
+            alt="SpectraCleanseAI emblem"
+            className="mb-4 w-24 sm:w-28 md:w-32 lg:w-36 h-auto object-contain rounded-2xl shadow-[0_0_30px_rgba(34,211,238,0.18)]"
+          />
           <h1 className="text-2xl font-bold tracking-tight text-slate-100">
             SpectraCleanse <span className="text-cyan-400">AI</span>
           </h1>
