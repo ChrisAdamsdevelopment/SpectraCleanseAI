@@ -123,11 +123,20 @@ export async function writeMP3Metadata(file, metadata) {
   const artist = safeText(metadata?.artist);
   const genre = safeText(metadata?.genre);
 
+  const safeSetFrame = (frameId, value) => {
+    try {
+      writer.setFrame(frameId, value);
+      return true;
+    } catch (error) {
+      console.warn('[quick-cleanse] skipped unsupported ID3 frame', { frameId, error });
+      return false;
+    }
+  };
+
   try {
-    if (title) writer.setFrame('TIT2', title);
-    if (artist) writer.setFrame('TPE1', [artist]);
-    if (genre) writer.setFrame('TCON', [genre]);
-    if (title || artist || genre) writer.setFrame('TENC', 'SpectraCleanseAI Browser Quick Cleanse');
+    if (title) safeSetFrame('TIT2', title);
+    if (artist) safeSetFrame('TPE1', [artist]);
+    if (genre) safeSetFrame('TCON', [genre]);
     writer.addTag();
   } catch (error) {
     throw new Error(`Failed while writing ID3 frames: ${error?.message || String(error)}`);
