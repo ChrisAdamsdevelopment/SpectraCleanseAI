@@ -2,7 +2,10 @@ export interface FileMetadataResult {
   format: string;
   title: string;
   artist: string;
+  producer?: string;
+  copyright?: string;
   genre: string;
+  lyrics?: string;
   detectedMarkers: string[];
   provenanceRisk: 'High' | 'Low';
   raw: unknown;

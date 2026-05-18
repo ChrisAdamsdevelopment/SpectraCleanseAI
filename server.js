@@ -510,6 +510,17 @@ app.post('/api/process', requireAuth, upload.single('file'), async (req, res) =>
     }
   }
   const { title, description, tags, artist, producer, copyright, genre, lyrics, platform = 'General' } = req.body;
+  console.info('[process] metadata received', {
+    title,
+    artist,
+    producer,
+    copyright,
+    genre,
+    hasDescription: Boolean(description),
+    hasTags: Boolean(tags),
+    hasLyrics: Boolean(lyrics),
+    platform,
+  });
   const outputPath = path.join('uploads', `out_${Date.now()}${ext}`);
   try { await fs.copy(inputPath, outputPath); } catch { await fs.remove(inputPath).catch(() => {}); return res.status(500).json({ error: 'File copy failed' }); }
   try {
@@ -544,6 +555,17 @@ app.post('/api/process-batch', requireAuth, upload.array('files', 20), async (re
   // 2GB is a post-Multer soft guard; deployment/proxy/body-size limits are still required.
   if (totalBytes > 2 * 1024 * 1024 * 1024) { await Promise.all(files.map((f) => fs.remove(f.path).catch(() => {}))); return res.status(400).json({ error: 'Batch total exceeds 2GB limit.' }); }
   const { title, description, tags, artist, producer, copyright, genre, lyrics, platform = 'General' } = req.body;
+  console.info('[process] metadata received', {
+    title,
+    artist,
+    producer,
+    copyright,
+    genre,
+    hasDescription: Boolean(description),
+    hasTags: Boolean(tags),
+    hasLyrics: Boolean(lyrics),
+    platform,
+  });
   const results = [];
   for (const file of files) {
     const ext = normalizeExt(file.originalname || '');

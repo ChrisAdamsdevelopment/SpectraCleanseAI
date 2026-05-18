@@ -19,6 +19,10 @@ type Platform = typeof PLATFORMS[number];
 type ItemStatus = 'pending' | 'analyzing' | 'processing' | 'done' | 'error';
 type RiskLevel = 'High' | 'Low';
 
+const DEFAULT_RELEASE_ARTIST = 'Sobelo';
+const DEFAULT_RELEASE_PRODUCER = 'Triple7';
+const DEFAULT_RELEASE_COPYRIGHT = `© ${new Date().getUTCFullYear()} Sobelo / Triple7 Music`;
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
 // ─────────────────────────────────────────────────────────────────────────────
@@ -47,11 +51,22 @@ interface ForensicReport {
   allowedInjectedTags?: string[]; rewrittenTags?: string[];
 }
 
+interface ReleaseMetadata {
+  title: string;
+  artist: string;
+  producer: string;
+  copyright: string;
+  genre: string;
+  description: string;
+  tags: string;
+  lyrics: string;
+}
+
 interface QueueItem {
   id: string;
   file: File;
   status: ItemStatus;
-  seo: { title: string; description: string; tags: string };
+  seo: ReleaseMetadata;
   downloadUrl: string | null;
   downloadName: string | null;
   report: ForensicReport | null;
@@ -78,6 +93,38 @@ function PlanBadge({ plan }: { plan: string }) {
     </span>
   );
 }
+
+const cleanMetadataField = (value: string | undefined | null) => String(value || '').trim();
+
+const getInitialReleaseMetadata = (file: File): ReleaseMetadata => ({
+  title: file.name.replace(/\.[^.]+$/, ''),
+  artist: DEFAULT_RELEASE_ARTIST,
+  producer: DEFAULT_RELEASE_PRODUCER,
+  copyright: DEFAULT_RELEASE_COPYRIGHT,
+  genre: '',
+  description: '',
+  tags: '',
+  lyrics: '',
+});
+
+const keepUserOrApplyParsed = (current: string, parsed: string | undefined | null, defaultValue = '') => {
+  const parsedValue = cleanMetadataField(parsed);
+  if (!parsedValue) return current;
+  const currentValue = cleanMetadataField(current);
+  if (!currentValue || (defaultValue && currentValue === defaultValue)) return parsedValue;
+  return current;
+};
+
+const resolveReleaseMetadata = (metadata: ReleaseMetadata): ReleaseMetadata => ({
+  title: cleanMetadataField(metadata.title) || 'Untitled',
+  artist: cleanMetadataField(metadata.artist) || DEFAULT_RELEASE_ARTIST,
+  producer: cleanMetadataField(metadata.producer) || DEFAULT_RELEASE_PRODUCER,
+  copyright: cleanMetadataField(metadata.copyright) || DEFAULT_RELEASE_COPYRIGHT,
+  genre: cleanMetadataField(metadata.genre),
+  description: cleanMetadataField(metadata.description),
+  tags: cleanMetadataField(metadata.tags),
+  lyrics: cleanMetadataField(metadata.lyrics),
+});
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Usage meter (shown in sidebar header for free users)
@@ -600,7 +647,7 @@ export default function App() {
         id: crypto.randomUUID(),
         file,
         status: 'pending' as ItemStatus,
-        seo: { title: file.name.replace(/\.[^.]+$/, ''), description: '', tags: '' },
+        seo: getInitialReleaseMetadata(file),
         downloadUrl: null, downloadName: null, report: null, error: null, analysis: null, logs: [],
       }));
     if (newItems.length === 0) return;
@@ -644,8 +691,17 @@ export default function App() {
     try {
       const parsed = await readFileMetadata(item.file);
       return {
-        seo: { title: parsed.title, description: '', tags: parsed.genre || '' },
-        analysis: { format: parsed.format, title: parsed.title, artist: parsed.artist, genre: parsed.genre, provenanceRisk: parsed.provenanceRisk, detectedMarkers: parsed.detectedMarkers, parseError: parsed.parseError || null },
+        seo: {
+          ...item.seo,
+          title: keepUserOrApplyParsed(item.seo.title, parsed.title),
+          artist: keepUserOrApplyParsed(item.seo.artist, parsed.artist, DEFAULT_RELEASE_ARTIST),
+          producer: keepUserOrApplyParsed(item.seo.producer, parsed.producer, DEFAULT_RELEASE_PRODUCER),
+          copyright: keepUserOrApplyParsed(item.seo.copyright, parsed.copyright, DEFAULT_RELEASE_COPYRIGHT),
+          genre: keepUserOrApplyParsed(item.seo.genre, parsed.genre),
+          tags: cleanMetadataField(item.seo.tags) ? item.seo.tags : (parsed.genre || ''),
+          lyrics: keepUserOrApplyParsed(item.seo.lyrics, parsed.lyrics),
+        },
+        analysis: { format: parsed.format, title: parsed.title, artist: parsed.artist, producer: parsed.producer, copyright: parsed.copyright, genre: parsed.genre, lyrics: parsed.lyrics, provenanceRisk: parsed.provenanceRisk, detectedMarkers: parsed.detectedMarkers, parseError: parsed.parseError || null },
       };
     } catch { return {}; }
   };
@@ -691,7 +747,7 @@ export default function App() {
       updateItem(item.id, { ...analyzed, status: 'processing' });
       addLog(item.id, 'Starting server cleanse via /api/process');
 
-      // Grab the latest SEO values from state (user may have edited them)
+      // Grab the latest editable release metadata from state (user may have edited it)
       const currentSeo = await new Promise<QueueItem['seo']>(resolve => {
         setQueue(prev => {
           const current = prev.find(i => i.id === item.id);
@@ -699,6 +755,7 @@ export default function App() {
           return prev;
         });
       });
+      const metadataPayload = resolveReleaseMetadata(currentSeo);
 
       try {
         const extension = getExt(item.file.name);
@@ -716,15 +773,26 @@ export default function App() {
         }
         const formData = new FormData();
         formData.append('file',        item.file);
-        formData.append('title',       currentSeo.title);
-        formData.append('artist',      item.analysis?.artist || '');
-        formData.append('producer',    item.analysis?.producer || '');
-        formData.append('copyright',   item.analysis?.copyright || '');
-        formData.append('genre',       item.analysis?.genre || '');
-        formData.append('description', currentSeo.description);
-        formData.append('tags',        currentSeo.tags);
-        formData.append('lyrics',      item.analysis?.lyrics || '');
+        formData.append('title',       metadataPayload.title);
+        formData.append('artist',      metadataPayload.artist);
+        formData.append('producer',    metadataPayload.producer);
+        formData.append('copyright',   metadataPayload.copyright);
+        formData.append('genre',       metadataPayload.genre);
+        formData.append('description', metadataPayload.description);
+        formData.append('tags',        metadataPayload.tags);
+        formData.append('lyrics',      metadataPayload.lyrics);
         formData.append('platform',    platform);
+        console.info('[process] metadata payload', {
+          title: metadataPayload.title,
+          artist: metadataPayload.artist,
+          producer: metadataPayload.producer,
+          copyright: metadataPayload.copyright,
+          genre: metadataPayload.genre,
+          hasDescription: Boolean(metadataPayload.description),
+          hasTags: Boolean(metadataPayload.tags),
+          hasLyrics: Boolean(metadataPayload.lyrics),
+          platform,
+        });
 
         const res = await fetch(`${API_BASE_URL}/api/process`, {
           method:  'POST',
@@ -1056,6 +1124,34 @@ export default function App() {
                     onChange={e => updateItem(activeItem.id, { seo: { ...activeItem.seo, title: e.target.value } })}
                     className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:border-cyan-500 outline-none transition-colors" />
                 </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Artist</label>
+                    <input type="text" value={activeItem.seo.artist}
+                      onChange={e => updateItem(activeItem.id, { seo: { ...activeItem.seo, artist: e.target.value } })}
+                      className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:border-cyan-500 outline-none transition-colors" />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Producer</label>
+                    <input type="text" value={activeItem.seo.producer}
+                      onChange={e => updateItem(activeItem.id, { seo: { ...activeItem.seo, producer: e.target.value } })}
+                      className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:border-cyan-500 outline-none transition-colors" />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Copyright</label>
+                    <input type="text" value={activeItem.seo.copyright}
+                      onChange={e => updateItem(activeItem.id, { seo: { ...activeItem.seo, copyright: e.target.value } })}
+                      className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:border-cyan-500 outline-none transition-colors" />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Genre</label>
+                    <input type="text" value={activeItem.seo.genre}
+                      onChange={e => updateItem(activeItem.id, { seo: { ...activeItem.seo, genre: e.target.value } })}
+                      placeholder="trap, metal, cinematic…"
+                      className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:border-cyan-500 outline-none transition-colors" />
+                  </div>
+                </div>
+                <p className="text-[11px] text-slate-500">Sobelo / Triple7 values are editable defaults used only when release fields are left blank.</p>
                 <div>
                   <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Description</label>
                   <textarea rows={3} value={activeItem.seo.description}
@@ -1069,8 +1165,8 @@ export default function App() {
                       headers:{'Content-Type':'application/json', Authorization:`Bearer ${authToken}`},
                       body: JSON.stringify({
                         title: activeItem.seo.title,
-                        artist: activeItem.analysis?.artist || '',
-                        genre: activeItem.analysis?.genre || '',
+                        artist: activeItem.seo.artist || activeItem.analysis?.artist || '',
+                        genre: activeItem.seo.genre || activeItem.analysis?.genre || '',
                         description: activeItem.seo.description || '',
                         tags: activeItem.seo.tags || '',
                         platform,
@@ -1088,6 +1184,7 @@ export default function App() {
                     updateItem(activeItem.id, {
                       error: null,
                       seo: {
+                        ...activeItem.seo,
                         title: payload.title || activeItem.seo.title,
                         description: payload.description || activeItem.seo.description,
                         tags: payload.tags || activeItem.seo.tags,
@@ -1107,6 +1204,13 @@ export default function App() {
                     onChange={e => updateItem(activeItem.id, { seo: { ...activeItem.seo, tags: e.target.value } })}
                     placeholder="trap, heavy metal, original…"
                     className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:border-cyan-500 outline-none transition-colors" />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Lyrics</label>
+                  <textarea rows={3} value={activeItem.seo.lyrics}
+                    onChange={e => updateItem(activeItem.id, { seo: { ...activeItem.seo, lyrics: e.target.value } })}
+                    placeholder="Optional lyrics to write when available…"
+                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:border-cyan-500 outline-none resize-none" />
                 </div>
               </div>
 
@@ -1147,7 +1251,7 @@ export default function App() {
                           addLog(itemId, 'Removing/replacing metadata');
                           let rewrittenBlob: Blob;
                           try {
-                            rewrittenBlob = await writeMP3Metadata(file, { title: activeItem.seo.title, artist: activeItem.analysis?.artist || '', genre: activeItem.analysis?.genre || '' });
+                            rewrittenBlob = await writeMP3Metadata(file, { title: activeItem.seo.title, artist: activeItem.seo.artist || activeItem.analysis?.artist || '', genre: activeItem.seo.genre || activeItem.analysis?.genre || '' });
                           } catch (err) {
                             console.error('[quick-cleanse] failed while removing/replacing metadata', err);
                             throw new Error(`Unable to rewrite MP3 metadata: ${err instanceof Error ? err.message : String(err)}`);
