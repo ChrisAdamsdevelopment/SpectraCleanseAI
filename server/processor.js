@@ -6,6 +6,15 @@ function unsupportedCleanseError(message, detail) {
   const err = new Error(message);
   err.statusCode = 422;
   err.publicDetail = detail;
+  err.reason = 'unsupported_file_type';
+  return err;
+}
+
+function exiftoolFailureError(detail) {
+  const err = new Error('Server metadata processing failed');
+  err.statusCode = 500;
+  err.publicDetail = detail;
+  err.reason = 'exiftool_failure';
   return err;
 }
 
@@ -46,7 +55,11 @@ async function processMediaFile({ outputPath, platform = 'General', metadata = {
   const wipeMarkers = detectMarkers(wipeTags);
   const wipeVerificationPassed = wipeMarkers.length === 0;
   const metaToWrite = buildMetaToWrite(platform, metadata);
-  await exiftool.write(outputPath, metaToWrite, ['-overwrite_original']);
+  try {
+    await exiftool.write(outputPath, metaToWrite, ['-overwrite_original']);
+  } catch {
+    throw exiftoolFailureError('Server metadata rewrite failed while applying sanitized fields.');
+  }
   const finalTags = await exiftool.read(outputPath);
   const finalMarkers = detectMarkers(finalTags);
   const verification = verifyFinalState(finalTags);
