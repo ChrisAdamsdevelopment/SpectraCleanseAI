@@ -619,6 +619,24 @@ export default function App() {
     updateItem(id, { logs: [...(queue.find(i => i.id === id)?.logs || []), `[${stamp}] ${message}`] });
   };
 
+  const withOperationTimeout = async <T,>(promise: Promise<T>, timeoutMs: number, timeoutMessage: string): Promise<T> => {
+    return new Promise<T>((resolve, reject) => {
+      const timer = window.setTimeout(() => {
+        reject(new Error(timeoutMessage));
+      }, timeoutMs);
+      promise.then(
+        (value) => {
+          window.clearTimeout(timer);
+          resolve(value);
+        },
+        (error) => {
+          window.clearTimeout(timer);
+          reject(error);
+        },
+      );
+    });
+  };
+
   const analyzeFile = async (item: QueueItem): Promise<Partial<QueueItem>> => {
     try {
       const parsed = await readFileMetadata(item.file);
@@ -1088,14 +1106,63 @@ export default function App() {
                     <button
                     onClick={async () => {
                       if (!activeItem.file.name.toLowerCase().endsWith('.mp3')) { updateItem(activeItem.id, { error: 'Quick Cleanse supports MP3 only.' }); return; }
-                      updateItem(activeItem.id, { error: null });
-                      addLog(activeItem.id, 'Starting browser quick cleanse');
-                      const blob = await writeMP3Metadata(activeItem.file, { title: activeItem.seo.title, artist: activeItem.analysis?.artist || '', genre: activeItem.analysis?.genre || '' });
-                      const old = activeItem.downloadUrl;
-                      if (old) URL.revokeObjectURL(old);
-                      const url = URL.createObjectURL(blob);
-                      updateItem(activeItem.id, { downloadUrl: url, downloadName: `quick_cleansed_${activeItem.file.name}`, status: 'done' });
-                      addLog(activeItem.id, 'Browser quick cleanse complete');
+                      const itemId = activeItem.id;
+                      const file = activeItem.file;
+                      const previousDownloadUrl = activeItem.downloadUrl;
+                      updateItem(itemId, { error: null, status: 'processing' });
+                      addLog(itemId, 'Starting browser quick cleanse');
+                      console.info('[quick-cleanse] start', { fileName: file.name, size: file.size, type: file.type });
+                      const timeoutMessage = 'Quick Cleanse timed out while processing this MP3. Try a smaller file or use a freshly exported MP3.';
+
+                      try {
+                        const quickBlob = await withOperationTimeout((async () => {
+                          addLog(itemId, 'Reading MP3 file into memory');
+                          try {
+                            await file.arrayBuffer();
+                          } catch (err) {
+                            console.error('[quick-cleanse] failed while reading file into memory', err);
+                            throw new Error(`Unable to read MP3 in browser: ${err instanceof Error ? err.message : String(err)}`);
+                          }
+
+                          addLog(itemId, 'Parsing existing metadata');
+                          try {
+                            await readFileMetadata(file);
+                          } catch (err) {
+                            console.error('[quick-cleanse] failed while parsing existing metadata', err);
+                            throw new Error(`Unable to parse MP3 metadata: ${err instanceof Error ? err.message : String(err)}`);
+                          }
+
+                          addLog(itemId, 'Removing/replacing metadata');
+                          let rewrittenBlob: Blob;
+                          try {
+                            rewrittenBlob = await writeMP3Metadata(file, { title: activeItem.seo.title, artist: activeItem.analysis?.artist || '', genre: activeItem.analysis?.genre || '' });
+                          } catch (err) {
+                            console.error('[quick-cleanse] failed while removing/replacing metadata', err);
+                            throw new Error(`Unable to rewrite MP3 metadata: ${err instanceof Error ? err.message : String(err)}`);
+                          }
+
+                          addLog(itemId, 'Creating cleansed MP3 blob');
+                          return rewrittenBlob;
+                        })(), 30_000, timeoutMessage);
+
+                        addLog(itemId, 'Creating download URL');
+                        const url = URL.createObjectURL(quickBlob);
+                        if (previousDownloadUrl) URL.revokeObjectURL(previousDownloadUrl);
+                        updateItem(itemId, {
+                          downloadUrl: url,
+                          downloadName: `quick_cleansed_${file.name}`,
+                          report: { removedCount: 0, removedTags: ['ID3 metadata rewritten locally'], timestamp: new Date().toLocaleTimeString() },
+                          status: 'done',
+                          error: null,
+                        });
+                        addLog(itemId, 'Quick cleanse complete');
+                        console.info('[quick-cleanse] complete', { fileName: file.name, outputSize: quickBlob.size });
+                      } catch (err) {
+                        const message = err instanceof Error ? err.message : String(err);
+                        console.error('[quick-cleanse] failed', err);
+                        addLog(itemId, `Quick cleanse failed: ${message}`);
+                        updateItem(itemId, { status: 'error', error: message });
+                      }
                     }}
                     disabled={!!quickDisabledReason || isBatching}
                     className="w-full px-4 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-700 disabled:text-slate-400 disabled:cursor-not-allowed rounded-lg text-sm font-bold"

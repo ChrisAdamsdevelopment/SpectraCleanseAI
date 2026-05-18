@@ -95,9 +95,24 @@ export async function readFileMetadata(file) {
 }
 
 export async function writeMP3Metadata(file, metadata) {
-  const buffer = await file.arrayBuffer();
-  const writer = new ID3Writer(buffer);
-  writer.removeTag();
+  let buffer;
+  try {
+    buffer = await file.arrayBuffer();
+  } catch (error) {
+    throw new Error(`Failed to read MP3 data: ${error?.message || String(error)}`);
+  }
+
+  if (!(buffer instanceof ArrayBuffer) || buffer.byteLength === 0) {
+    throw new Error('MP3 file is empty or unreadable.');
+  }
+
+  let writer;
+  try {
+    writer = new ID3Writer(buffer);
+    writer.removeTag();
+  } catch (error) {
+    throw new Error(`Failed to initialize MP3 metadata writer: ${error?.message || String(error)}`);
+  }
 
   const safeText = (value) => {
     if (typeof value !== 'string') return '';
@@ -108,10 +123,26 @@ export async function writeMP3Metadata(file, metadata) {
   const artist = safeText(metadata?.artist);
   const genre = safeText(metadata?.genre);
 
-  if (title) writer.setFrame('TIT2', title);
-  if (artist) writer.setFrame('TPE1', [artist]);
-  if (genre) writer.setFrame('TCON', [genre]);
-  if (title || artist || genre) writer.setFrame('TENC', 'SpectraCleanseAI Browser Quick Cleanse');
-  writer.addTag();
-  return new Blob([writer.getBlob()], { type: 'audio/mpeg' });
+  try {
+    if (title) writer.setFrame('TIT2', title);
+    if (artist) writer.setFrame('TPE1', [artist]);
+    if (genre) writer.setFrame('TCON', [genre]);
+    if (title || artist || genre) writer.setFrame('TENC', 'SpectraCleanseAI Browser Quick Cleanse');
+    writer.addTag();
+  } catch (error) {
+    throw new Error(`Failed while writing ID3 frames: ${error?.message || String(error)}`);
+  }
+
+  let cleanedBlob;
+  try {
+    cleanedBlob = writer.getBlob();
+  } catch (error) {
+    throw new Error(`Failed to generate cleansed MP3 blob: ${error?.message || String(error)}`);
+  }
+
+  if (!cleanedBlob) {
+    throw new Error('MP3 metadata rewrite produced no output.');
+  }
+
+  return new Blob([cleanedBlob], { type: 'audio/mpeg' });
 }
