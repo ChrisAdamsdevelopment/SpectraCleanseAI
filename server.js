@@ -159,7 +159,7 @@ app.use(cors({
   methods: ['GET', 'POST'],
   allowedHeaders: ['Content-Type', 'Authorization'],
   exposedHeaders: [
-    'X-Forensic-Removed', 'X-Forensic-Tags', 'X-Forensic-Status',
+    'X-Forensic-Removed', 'X-Forensic-Tags', 'X-Forensic-Status', 'X-Forensic-Report',
     'X-Usage-This-Month', 'X-Usage-Limit',
   ],
 }));
@@ -509,16 +509,17 @@ app.post('/api/process', requireAuth, upload.single('file'), async (req, res) =>
       return res.status(402).json({ error: 'Monthly limit reached', detail: `Free accounts are limited to ${FREE_MONTHLY_LIMIT} files per month. Upgrade to continue processing.`, reason: 'usage_limit', usedThisMonth, limit: FREE_MONTHLY_LIMIT, upgradeRequired: true });
     }
   }
-  const { title, description, tags, artist, genre, lyrics, platform = 'General' } = req.body;
+  const { title, description, tags, artist, producer, copyright, genre, lyrics, platform = 'General' } = req.body;
   const outputPath = path.join('uploads', `out_${Date.now()}${ext}`);
   try { await fs.copy(inputPath, outputPath); } catch { await fs.remove(inputPath).catch(() => {}); return res.status(500).json({ error: 'File copy failed' }); }
   try {
-    const { report } = await processMediaFile({ outputPath, originalName: req.file.originalname, platform, metadata: { title, description, tags, artist, genre, lyrics } });
+    const { report } = await processMediaFile({ outputPath, originalName: req.file.originalname, platform, metadata: { title, description, tags, artist, producer, copyright, genre, lyrics } });
     try { db.prepare('INSERT INTO jobs (user_id, filename, platform) VALUES (?, ?, ?)').run(userId, req.file.originalname, platform); } catch (dbErr) { console.error('Job record failed (non-fatal):', dbErr); }
     const usedNow = getMonthlyJobCount(userId);
     res.setHeader('X-Forensic-Removed', report.removedCount);
     res.setHeader('X-Forensic-Tags', JSON.stringify(report.removedTags.slice(0, 50)));
     res.setHeader('X-Forensic-Status', report.status || 'Sanitized');
+    res.setHeader('X-Forensic-Report', JSON.stringify(report));
     res.setHeader('X-Usage-This-Month', usedNow);
     res.setHeader('X-Usage-Limit', userPlan === 'free' ? FREE_MONTHLY_LIMIT : 'unlimited');
     cleanup.registerForCleanup([outputPath]);
@@ -542,14 +543,14 @@ app.post('/api/process-batch', requireAuth, upload.array('files', 20), async (re
   const totalBytes = files.reduce((n, f) => n + (f.size || 0), 0);
   // 2GB is a post-Multer soft guard; deployment/proxy/body-size limits are still required.
   if (totalBytes > 2 * 1024 * 1024 * 1024) { await Promise.all(files.map((f) => fs.remove(f.path).catch(() => {}))); return res.status(400).json({ error: 'Batch total exceeds 2GB limit.' }); }
-  const { title, description, tags, artist, genre, lyrics, platform = 'General' } = req.body;
+  const { title, description, tags, artist, producer, copyright, genre, lyrics, platform = 'General' } = req.body;
   const results = [];
   for (const file of files) {
     const ext = normalizeExt(file.originalname || '');
     const mime = (file.mimetype || '').toLowerCase();
     if (!isServerSupportedFormat(file.originalname || '', mime)) { await fs.remove(file.path).catch(() => {}); results.push({ originalName: file.originalname, error: 'Full Server Cleanse currently supports MP4 and M4A only. Use Quick Cleanse (Browser) for MP3, or convert WAV/FLAC to M4A/MP4.', reason: 'unsupported_file_type' }); continue; }
     const outputPath = path.join('uploads', `out_batch_${Date.now()}_${crypto.randomUUID()}${ext}`);
-    try { await fs.copy(file.path, outputPath); const { report } = await processMediaFile({ outputPath, originalName: file.originalname, platform, metadata: { title, description, tags, artist, genre, lyrics } }); db.prepare('INSERT INTO jobs (user_id, filename, platform) VALUES (?, ?, ?)').run(userId, file.originalname, platform); cleanup.registerForCleanup([outputPath]); const token = downloadTokens.createToken({ userId, filePath: outputPath, downloadName: `cleansed_${file.originalname}` }); results.push({ originalName: file.originalname, report, downloadToken: token }); } catch (err) { await fs.remove(outputPath).catch(() => {}); results.push({ originalName: file.originalname, error: err.publicDetail || err.message }); } finally { await fs.remove(file.path).catch(() => {}); }
+    try { await fs.copy(file.path, outputPath); const { report } = await processMediaFile({ outputPath, originalName: file.originalname, platform, metadata: { title, description, tags, artist, producer, copyright, genre, lyrics } }); db.prepare('INSERT INTO jobs (user_id, filename, platform) VALUES (?, ?, ?)').run(userId, file.originalname, platform); cleanup.registerForCleanup([outputPath]); const token = downloadTokens.createToken({ userId, filePath: outputPath, downloadName: `cleansed_${file.originalname}` }); results.push({ originalName: file.originalname, report, downloadToken: token }); } catch (err) { await fs.remove(outputPath).catch(() => {}); results.push({ originalName: file.originalname, error: err.publicDetail || err.message }); } finally { await fs.remove(file.path).catch(() => {}); }
   }
   const usedNow = getMonthlyJobCount(userId);
   res.setHeader('X-Usage-This-Month', usedNow);
