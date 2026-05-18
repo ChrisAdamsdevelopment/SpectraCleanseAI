@@ -6,6 +6,7 @@ const path       = require('path');
 const fs         = require('fs-extra');
 const { exiftool } = require('exiftool-vendored');
 const { processMediaFile } = require('./server/processor');
+const { CLEANSE_POLICY, normalizeExt, isServerSupportedFormat } = require('./server/cleansePolicy');
 const cleanup = require('./server/cleanup');
 const downloadTokens = require('./server/downloadTokens');
 const crypto = require('crypto');
@@ -485,20 +486,27 @@ app.post('/api/process', requireAuth, upload.single('file'), async (req, res) =>
   const userId = req.user.sub;
   const inputPath = req.file.path;
   const originalName = req.file.originalname || '';
-  const ext = path.extname(originalName).toLowerCase() || '.mp3';
+  const ext = normalizeExt(originalName);
   const mime = (req.file.mimetype || '').toLowerCase();
-  const isMp3 = ext === '.mp3' || mime === 'audio/mpeg';
-  if (isMp3) {
-    await fs.remove(inputPath).catch(() => {});
-    return res.status(422).json({ error: 'MP3 server cleanse is not supported', detail: 'Use Quick Cleanse (Browser) for MP3. Full Server Cleanse is best supported for MP4/M4A; WAV/FLAC may be rejected if ExifTool cannot safely rewrite them.' });
-  }
   const dbUser = db.prepare('SELECT plan FROM users WHERE id = ?').get(userId);
   const userPlan = dbUser?.plan ?? 'free';
+  console.info('[process] request', { fileName: originalName, mime, extension: ext || '(none)', mode: 'server', userPlan });
+  if (!isServerSupportedFormat(originalName, mime)) {
+    await fs.remove(inputPath).catch(() => {});
+    console.info('[process] rejected', { reason: 'unsupported_file_type', extension: ext || '(none)', mime, userPlan });
+    return res.status(422).json({
+      error: 'Unsupported file type for Full Server Cleanse',
+      detail: 'Full Server Cleanse currently supports MP4 and M4A only. Use Quick Cleanse (Browser) for MP3, or convert WAV/FLAC to M4A/MP4.',
+      reason: 'unsupported_file_type',
+      supportedServerFormats: CLEANSE_POLICY.server.supportedExtensions,
+    });
+  }
   if (userPlan === 'free') {
     const usedThisMonth = getMonthlyJobCount(userId);
     if (usedThisMonth >= FREE_MONTHLY_LIMIT) {
       await fs.remove(req.file.path).catch(() => {});
-      return res.status(402).json({ error: 'Monthly limit reached', detail: `Free accounts are limited to ${FREE_MONTHLY_LIMIT} files per month. Upgrade to continue processing.`, usedThisMonth, limit: FREE_MONTHLY_LIMIT, upgradeRequired: true });
+      console.info('[process] rejected', { reason: 'usage_limit', userPlan, usedThisMonth, limit: FREE_MONTHLY_LIMIT });
+      return res.status(402).json({ error: 'Monthly limit reached', detail: `Free accounts are limited to ${FREE_MONTHLY_LIMIT} files per month. Upgrade to continue processing.`, reason: 'usage_limit', usedThisMonth, limit: FREE_MONTHLY_LIMIT, upgradeRequired: true });
     }
   }
   const { title, description, tags, artist, genre, lyrics, platform = 'General' } = req.body;
@@ -518,7 +526,8 @@ app.post('/api/process', requireAuth, upload.single('file'), async (req, res) =>
   } catch (err) {
     console.error('Processing error:', err);
     const status = err.statusCode || 500;
-    res.status(status).json({ error: status === 422 ? err.message : 'Processing failed', detail: err.publicDetail || err.message });
+    const reason = err.reason || (status === 422 ? 'unsupported_file_type' : 'server_processing_failure');
+    res.status(status).json({ error: status === 422 ? err.message : 'Processing failed', detail: err.publicDetail || err.message, reason });
     await fs.remove(inputPath).catch(() => {});
     await fs.remove(outputPath).catch(() => {});
   }
@@ -529,17 +538,16 @@ app.post('/api/process-batch', requireAuth, upload.array('files', 20), async (re
   const files = req.files || [];
   const dbUser = db.prepare('SELECT plan FROM users WHERE id = ?').get(userId);
   const userPlan = dbUser?.plan ?? 'free';
-  if (userPlan === 'free') { await Promise.all(files.map((f) => fs.remove(f.path).catch(() => {}))); return res.status(403).json({ error: 'Batch processing requires Creator or Studio plan.' }); }
+  if (userPlan === 'free') { await Promise.all(files.map((f) => fs.remove(f.path).catch(() => {}))); return res.status(403).json({ error: 'Batch processing requires Creator or Studio plan.', reason: 'plan_restriction' }); }
   const totalBytes = files.reduce((n, f) => n + (f.size || 0), 0);
   // 2GB is a post-Multer soft guard; deployment/proxy/body-size limits are still required.
   if (totalBytes > 2 * 1024 * 1024 * 1024) { await Promise.all(files.map((f) => fs.remove(f.path).catch(() => {}))); return res.status(400).json({ error: 'Batch total exceeds 2GB limit.' }); }
   const { title, description, tags, artist, genre, lyrics, platform = 'General' } = req.body;
   const results = [];
   for (const file of files) {
-    const ext = path.extname(file.originalname || '').toLowerCase() || '.mp4';
+    const ext = normalizeExt(file.originalname || '');
     const mime = (file.mimetype || '').toLowerCase();
-    const isMp3 = ext === '.mp3' || mime === 'audio/mpeg';
-    if (isMp3) { await fs.remove(file.path).catch(() => {}); results.push({ originalName: file.originalname, error: 'MP3 server cleanse is not supported. Use Quick Cleanse (Browser) for MP3.' }); continue; }
+    if (!isServerSupportedFormat(file.originalname || '', mime)) { await fs.remove(file.path).catch(() => {}); results.push({ originalName: file.originalname, error: 'Full Server Cleanse currently supports MP4 and M4A only. Use Quick Cleanse (Browser) for MP3, or convert WAV/FLAC to M4A/MP4.', reason: 'unsupported_file_type' }); continue; }
     const outputPath = path.join('uploads', `out_batch_${Date.now()}_${crypto.randomUUID()}${ext}`);
     try { await fs.copy(file.path, outputPath); const { report } = await processMediaFile({ outputPath, originalName: file.originalname, platform, metadata: { title, description, tags, artist, genre, lyrics } }); db.prepare('INSERT INTO jobs (user_id, filename, platform) VALUES (?, ?, ?)').run(userId, file.originalname, platform); cleanup.registerForCleanup([outputPath]); const token = downloadTokens.createToken({ userId, filePath: outputPath, downloadName: `cleansed_${file.originalname}` }); results.push({ originalName: file.originalname, report, downloadToken: token }); } catch (err) { await fs.remove(outputPath).catch(() => {}); results.push({ originalName: file.originalname, error: err.publicDetail || err.message }); } finally { await fs.remove(file.path).catch(() => {}); }
   }
