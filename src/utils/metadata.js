@@ -49,6 +49,28 @@ function markerToRegex(marker) {
   return regex;
 }
 
+function textFromValue(value) {
+  if (!value) return '';
+  if (typeof value === 'string') return value;
+  if (Array.isArray(value)) return value.map(textFromValue).filter(Boolean).join(', ');
+  if (typeof value === 'object') return Object.values(value).map(textFromValue).filter(Boolean).join(', ');
+  return String(value);
+}
+
+function findNativeValue(metadata, patterns) {
+  const native = metadata?.native || {};
+  for (const frames of Object.values(native)) {
+    for (const frame of frames || []) {
+      const id = String(frame?.id || '').toLowerCase();
+      if (patterns.some((pattern) => pattern.test(id))) {
+        const value = textFromValue(frame?.value).trim();
+        if (value) return value;
+      }
+    }
+  }
+  return '';
+}
+
 function collectStrings(metadata, fileName = '') {
   const common = metadata?.common || {};
   const native = metadata?.native || {};
@@ -86,7 +108,10 @@ export async function readFileMetadata(file) {
     format: parsed?.format?.container || file.type || 'unknown',
     title: parsed?.common?.title || file.name.replace(/\.[^.]+$/, ''),
     artist: parsed?.common?.artist || '',
+    producer: parsed?.common?.producer || findNativeValue(parsed, [/producer/, /©prd/, /com\.apple\.quicktime\.producer/]),
+    copyright: parsed?.common?.copyright || findNativeValue(parsed, [/copyright/, /cprt/, /©cpy/]),
     genre: parsed?.common?.genre?.[0] || '',
+    lyrics: parsed?.common?.lyrics || findNativeValue(parsed, [/lyrics/, /lyric/]),
     detectedMarkers,
     provenanceRisk: detectedMarkers.length > 0 ? 'High' : 'Low',
     raw: parsed,

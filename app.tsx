@@ -35,12 +35,15 @@ interface UsageState {
 
 interface MarkerHit { ruleId: string; category: string; severity: 'critical' | 'high' | 'medium'; matchedTag: string; matchedValue: string; }
 interface ResidualTag { tag: string; markerCategory: string; severity: string; }
+interface QualityFinding { code: string; field?: string; message: string; }
+interface QualityVerification { passed: boolean; failures: QualityFinding[]; warnings: QualityFinding[]; expected?: Record<string, string>; }
 interface ForensicReport {
-  removedCount: number; removedTags: string[]; timestamp: string;
+  removedCount: number; removedTags: string[]; timestamp: string; exportTimestamp?: string;
   status?: 'clean' | 'clean_with_notes' | 'review_required'; summary?: string;
   wipeVerificationPassed?: boolean; finalVerificationPassed?: boolean;
   detectedMarkersBefore?: MarkerHit[]; detectedMarkersFinal?: MarkerHit[];
   suspiciousResidual?: ResidualTag[]; unexpectedDescriptive?: string[];
+  qualityVerification?: QualityVerification; verificationFindings?: QualityFinding[];
   allowedInjectedTags?: string[]; rewrittenTags?: string[];
 }
 
@@ -53,7 +56,7 @@ interface QueueItem {
   downloadName: string | null;
   report: ForensicReport | null;
   error: string | null;
-  analysis: { format: string; title: string; artist: string; genre: string; provenanceRisk: RiskLevel; detectedMarkers: string[]; parseError?: string | null } | null;
+  analysis: { format: string; title: string; artist: string; producer?: string; copyright?: string; genre: string; lyrics?: string; provenanceRisk: RiskLevel; detectedMarkers: string[]; parseError?: string | null } | null;
   logs: string[];
 }
 
@@ -714,8 +717,13 @@ export default function App() {
         const formData = new FormData();
         formData.append('file',        item.file);
         formData.append('title',       currentSeo.title);
+        formData.append('artist',      item.analysis?.artist || '');
+        formData.append('producer',    item.analysis?.producer || '');
+        formData.append('copyright',   item.analysis?.copyright || '');
+        formData.append('genre',       item.analysis?.genre || '');
         formData.append('description', currentSeo.description);
         formData.append('tags',        currentSeo.tags);
+        formData.append('lyrics',      item.analysis?.lyrics || '');
         formData.append('platform',    platform);
 
         const res = await fetch(`${API_BASE_URL}/api/process`, {
@@ -760,11 +768,15 @@ export default function App() {
         const newLimit    = limitHeader === 'unlimited' ? null : parseInt(limitHeader || '3', 10);
         setUsage({ thisMonth: usedNow, limit: newLimit });
 
+        const reportHeader = res.headers.get('X-Forensic-Report');
+        let report: ForensicReport = { removedCount, removedTags, timestamp: new Date().toLocaleTimeString() };
+        try { if (reportHeader) report = JSON.parse(reportHeader); } catch {}
+
         updateItem(item.id, {
           status: 'done',
           downloadUrl,
           downloadName,
-          report: { removedCount, removedTags, timestamp: new Date().toLocaleTimeString() },
+          report,
         });
 
       } catch (err: any) {
