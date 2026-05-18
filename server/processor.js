@@ -120,8 +120,9 @@ function buildQualityVerification(tags = {}, metadata = {}, timestampWriteWarnin
   };
   if (tags.XMPToolkit) failures.push({ code: 'xmp_toolkit_present', field: 'XMPToolkit', message: 'XMPToolkit remains in final output.' });
   if (valuesContain(tags, 'Image::ExifTool')) failures.push({ code: 'exiftool_trace_present', message: 'An Image::ExifTool trace value remains in final output.' });
-  const artist = stringifyValue(readAnyTag(tags, ['Artist']));
-  const copyright = stringifyValue(readAnyTag(tags, ['Copyright']));
+  const artist = stringifyValue(readAnyTag(tags, ['Artist', 'ItemList:Artist']));
+  const producer = stringifyValue(readAnyTag(tags, ['Producer', 'ItemList:Producer']));
+  const copyright = stringifyValue(readAnyTag(tags, ['Copyright', 'ItemList:Copyright']));
   if (expected.artist && expected.artist !== 'Creator' && artist === 'Creator') failures.push({ code: 'generic_artist_injected', field: 'Artist', message: 'Generic Creator artist remains despite user-provided artist metadata.' });
   if ((expected.artist && expected.artist !== 'Creator') || (expected.copyright && expected.copyright !== `© ${new Date().getUTCFullYear()} Creator`)) {
     if (copyright === `© ${new Date().getUTCFullYear()} Creator`) failures.push({ code: 'generic_copyright_injected', field: 'Copyright', message: 'Generic Creator copyright remains despite user-provided metadata.' });
@@ -132,7 +133,7 @@ function buildQualityVerification(tags = {}, metadata = {}, timestampWriteWarnin
   if (expected.title && !stringifyValue(readAnyTag(tags, ['Title']))) failures.push({ code: 'expected_title_missing', field: 'Title', message: 'Expected title is missing.' });
   if (expected.artist && !artist) failures.push({ code: 'expected_artist_missing', field: 'Artist', message: 'Expected artist is missing.' });
   if (expected.copyright && !copyright) failures.push({ code: 'expected_copyright_missing', field: 'Copyright', message: 'Expected copyright is missing.' });
-  if (expected.producer && !stringifyValue(readAnyTag(tags, ['Producer']))) failures.push({ code: 'expected_producer_missing', field: 'Producer', message: 'Expected producer is missing.' });
+  if (expected.producer && !producer) failures.push({ code: 'expected_producer_missing', field: 'Producer', message: 'Expected producer is missing.' });
   return { passed: failures.length === 0, failures, warnings, expected };
 }
 
