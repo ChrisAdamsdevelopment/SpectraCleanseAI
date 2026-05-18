@@ -632,6 +632,29 @@ export default function App() {
   const runBatch = async () => {
     const snapshot = queue.filter(i => i.status !== 'done');
     if (snapshot.length === 0) return;
+    const getExt = (name: string) => {
+      const i = name.lastIndexOf('.');
+      return i >= 0 ? name.slice(i).toLowerCase() : '';
+    };
+    const unsupportedItems = snapshot.filter(item => {
+      const ext = getExt(item.file.name);
+      return ext !== '.mp4' && ext !== '.m4a';
+    });
+    if (unsupportedItems.length > 0) {
+      unsupportedItems.forEach((item) => {
+        const extension = getExt(item.file.name) || '(none)';
+        console.warn("[client] blocked unsupported server cleanse format", { fileName: item.file.name, extension });
+        updateItem(item.id, {
+          status: 'error',
+          error: extension === '.mp3'
+            ? 'MP3 files use Quick Cleanse (Browser). Full Server Cleanse currently supports MP4/M4A only.'
+            : (extension === '.wav' || extension === '.flac')
+              ? 'WAV/FLAC server cleanse is currently not enabled. Convert to M4A/MP4 for Full Server Cleanse.'
+              : 'Full Server Cleanse currently supports MP4/M4A only.',
+        });
+      });
+      return;
+    }
 
     setIsBatching(true);
     cancelRef.cancelled = false;
@@ -657,6 +680,19 @@ export default function App() {
       });
 
       try {
+        const extension = getExt(item.file.name);
+        if (extension !== '.mp4' && extension !== '.m4a') {
+          console.warn("[client] blocked unsupported server cleanse format", { fileName: item.file.name, extension: extension || '(none)' });
+          updateItem(item.id, {
+            status: 'error',
+            error: extension === '.mp3'
+              ? 'MP3 files use Quick Cleanse (Browser). Full Server Cleanse currently supports MP4/M4A only.'
+              : (extension === '.wav' || extension === '.flac')
+                ? 'WAV/FLAC server cleanse is currently not enabled. Convert to M4A/MP4 for Full Server Cleanse.'
+                : 'Full Server Cleanse currently supports MP4/M4A only.',
+          });
+          continue;
+        }
         const formData = new FormData();
         formData.append('file',        item.file);
         formData.append('title',       currentSeo.title);
@@ -725,10 +761,37 @@ export default function App() {
 
   const doneCount = queue.filter(i => i.status === 'done').length;
   const progress  = queue.length > 0 ? Math.round((doneCount / queue.length) * 100) : 0;
-  const isMp3 = activeItem ? activeItem.file.name.toLowerCase().endsWith('.mp3') : false;
+  const getExt = (name: string) => {
+    const i = name.lastIndexOf('.');
+    return i >= 0 ? name.slice(i).toLowerCase() : '';
+  };
+  const activeExt = activeItem ? getExt(activeItem.file.name) : '';
+  const isMp3 = activeExt === '.mp3';
+  const isServerSupportedFormat = activeExt === '.mp4' || activeExt === '.m4a';
   const quickDisabledReason = !activeItem ? 'Select a file first.' : !isMp3 ? 'Quick Cleanse supports MP3 files only.' : '';
   const seoDisabledReason = !activeItem ? 'Select a file to provide context first.' : '';
-  const serverDisabledReason = isBatching ? 'Server cleanse already running.' : queue.length === 0 ? 'Add at least one file first.' : queue.every(i => i.status === 'done') ? 'All files are already completed.' : '';
+  const pendingItems = queue.filter(i => i.status !== 'done');
+  const hasUnsupportedPending = pendingItems.some((item) => {
+    const ext = getExt(item.file.name);
+    return ext !== '.mp4' && ext !== '.m4a';
+  });
+  const serverDisabledReason = isBatching
+    ? 'Server cleanse already running.'
+    : queue.length === 0
+      ? 'Add at least one file first.'
+      : queue.every(i => i.status === 'done')
+        ? 'All files are already completed.'
+        : hasUnsupportedPending
+          ? (activeExt === '.mp3'
+            ? 'MP3 files use Quick Cleanse (Browser). Full Server Cleanse currently supports MP4/M4A only.'
+            : (activeExt === '.wav' || activeExt === '.flac')
+              ? 'WAV/FLAC server cleanse is currently not enabled. Convert to M4A/MP4 for Full Server Cleanse.'
+              : 'Full Server Cleanse currently supports MP4/M4A only.')
+          : !activeItem
+            ? 'Select a file first.'
+            : !isServerSupportedFormat
+              ? 'Full Server Cleanse currently supports MP4/M4A only.'
+              : '';
   const resultSource = activeItem?.downloadName?.startsWith('quick_cleansed_') ? 'Browser Quick Cleanse' : 'Full Server Cleanse';
 
   // ── Render ───────────────────────────────────────────────────────────────────
@@ -1042,10 +1105,15 @@ export default function App() {
                   </div>
                   <div className="rounded-xl border border-cyan-500/30 bg-cyan-500/5 p-3">
                     <button onClick={runBatch} disabled={!!serverDisabledReason} className="w-full px-4 py-2 bg-cyan-600 hover:bg-cyan-500 disabled:bg-slate-700 disabled:text-slate-400 disabled:cursor-not-allowed rounded-lg text-sm font-bold">Full Server Cleanse</button>
-                    <p className="mt-2 text-xs text-cyan-200/80">Deeper forensic server pipeline • all supported formats • usage-counted.</p>
+                    <p className="mt-2 text-xs text-cyan-200/80">Recommended for MP4/M4A • usage-counted • free plan allowed up to monthly limit.</p>
                     {serverDisabledReason && <p className="mt-1 text-[11px] text-amber-300">{serverDisabledReason}</p>}
                   </div>
                 </div>
+                {activeItem && (activeExt === '.wav' || activeExt === '.flac') && (
+                  <p className="text-[11px] text-amber-300">
+                    WAV/FLAC server cleanse is currently not enabled. Convert to M4A/MP4 for Full Server Cleanse.
+                  </p>
+                )}
                 {activeItem.downloadUrl && (
                   <div className="rounded-xl border border-cyan-500/30 bg-cyan-500/10 p-3">
                     <p className="text-[11px] uppercase tracking-wider text-cyan-300 font-bold mb-1">Result Source: {resultSource}</p>
