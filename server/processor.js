@@ -65,7 +65,10 @@ function buildMetaToWrite(platform, metadata = {}) {
   const copyright = safeCopyright || (safeArtist ? `© ${year} ${safeArtist}` : '');
   const metaToWrite = { 'ItemList:Title': safeTitle };
   if (safeArtist) metaToWrite['ItemList:Artist'] = safeArtist;
-  if (safeProducer) metaToWrite['ItemList:Producer'] = safeProducer;
+  if (safeProducer) {
+    metaToWrite['ItemList:Producer'] = safeProducer;
+    metaToWrite['Keys:Producer'] = safeProducer;
+  }
   if (copyright) metaToWrite['ItemList:Copyright'] = copyright;
   if (tagsArray.length) metaToWrite['ItemList:Keyword'] = tagsArray;
   if (safeGenre) metaToWrite['ItemList:Genre'] = safeGenre;
@@ -121,7 +124,7 @@ function buildQualityVerification(tags = {}, metadata = {}, timestampWriteWarnin
   if (tags.XMPToolkit) failures.push({ code: 'xmp_toolkit_present', field: 'XMPToolkit', message: 'XMPToolkit remains in final output.' });
   if (valuesContain(tags, 'Image::ExifTool')) failures.push({ code: 'exiftool_trace_present', message: 'An Image::ExifTool trace value remains in final output.' });
   const artist = stringifyValue(readAnyTag(tags, ['Artist', 'ItemList:Artist']));
-  const producer = stringifyValue(readAnyTag(tags, ['Producer', 'ItemList:Producer']));
+  const producer = stringifyValue(readAnyTag(tags, ['Producer', 'ItemList:Producer', 'Keys:Producer']));
   const copyright = stringifyValue(readAnyTag(tags, ['Copyright', 'ItemList:Copyright']));
   if (expected.artist && expected.artist !== 'Creator' && artist === 'Creator') failures.push({ code: 'generic_artist_injected', field: 'Artist', message: 'Generic Creator artist remains despite user-provided artist metadata.' });
   if ((expected.artist && expected.artist !== 'Creator') || (expected.copyright && expected.copyright !== `© ${new Date().getUTCFullYear()} Creator`)) {
@@ -158,6 +161,8 @@ async function processMediaFile({ outputPath, platform = 'General', metadata = {
   const wipeMarkers = detectMarkers(wipeTags);
   const wipeVerificationPassed = wipeMarkers.length === 0;
   const metaToWrite = buildMetaToWrite(platform, metadata);
+  const metaToWriteWithoutLyrics = Object.fromEntries(Object.entries(metaToWrite).filter(([key]) => !/lyrics/i.test(key)));
+  console.info('[process] metadata write map', metaToWriteWithoutLyrics);
   try {
     await exiftool.write(outputPath, metaToWrite, ['-overwrite_original']);
     await exiftool.write(outputPath, {}, ['-XMP:all=', '-overwrite_original']);
