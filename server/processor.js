@@ -189,15 +189,25 @@ function hasDescriptiveMetadata(snapshot = {}) {
   return Boolean(snapshot.Title || snapshot.Artist || snapshot.Producer || snapshot.Copyright || snapshot.Genre || snapshot.Keyword || snapshot.Keywords || snapshot.Description || snapshot.Comment);
 }
 
-function classifyMetadataPersistenceStage(snapshots = {}, hashes = {}) {
+function hasExpectedCoreMetadata(snapshot = {}) {
+  return Boolean(snapshot.Title && snapshot.Artist && snapshot.Producer && snapshot.Copyright);
+}
+
+function classifyMetadataPersistenceStage(snapshots = {}, hashes = {}, mismatchEvidence = {}) {
   const hasAfterWrite = hasDescriptiveMetadata(snapshots.after_descriptive_metadata_write);
   const hasAfterXmp = hasDescriptiveMetadata(snapshots.after_xmp_cleanup);
   const hasFinal = hasDescriptiveMetadata(snapshots.after_timestamp_write_final);
+  const finalHasExpectedCore = hasExpectedCoreMetadata(snapshots.after_timestamp_write_final);
   if (!hasAfterWrite) return 'metadata_missing_after_descriptive_write';
   if (hasAfterWrite && !hasAfterXmp) return 'metadata_removed_by_xmp_cleanup';
   if (hasAfterXmp && !hasFinal) return 'metadata_removed_by_timestamp_write';
-  const mismatch = hashes.after_xmp_cleanup && hashes.after_timestamp_write_final && hashes.after_xmp_cleanup !== hashes.after_timestamp_write_final && hasAfterXmp && hasFinal;
-  if (mismatch) return 'metadata_present_in_snapshots_but_report_or_download_mismatch';
+  if (finalHasExpectedCore) return 'metadata_present_and_verified';
+  const hasExternalMismatchEvidence = Boolean(
+    mismatchEvidence.clientHashMismatch
+      || mismatchEvidence.externalReportContradictsFinalSnapshot
+      || mismatchEvidence.downloadVerificationMismatch
+  );
+  if (hasExternalMismatchEvidence) return 'metadata_present_in_snapshots_but_report_or_download_mismatch';
   return 'metadata_present_and_verified';
 }
 
@@ -212,16 +222,35 @@ async function deepSnapshot(stage, outputPath, runId, exiftoolVersion) {
   const includePrefixes = ['ItemList:', 'Keys:', 'UserData:', 'QuickTime:', 'Track1:', 'Track2:', 'XMP-', 'XMP:'];
   const includeFields = ['Title', 'DisplayName', 'Artist', 'AlbumArtist', 'Author', 'Producer', 'Copyright', 'Genre', 'Keyword', 'Keywords', 'Description', 'Comment', 'CreateDate', 'ModifyDate', 'TrackCreateDate', 'TrackModifyDate', 'MediaCreateDate', 'MediaModifyDate', 'XMPToolkit', 'Image::ExifTool'];
   const selectedMetadata = [];
+  const seenSelected = new Set();
+  const addSelected = (entry) => {
+    if (!entry || seenSelected.has(entry) || /lyrics/i.test(entry)) return;
+    seenSelected.add(entry);
+    selectedMetadata.push(entry);
+  };
   for (const line of lines) {
     if (!line || !line.includes(':')) continue;
     const isMatch = includePrefixes.some((p) => line.includes(p)) || includeFields.some((f) => line.includes(f));
     if (!isMatch || /lyrics/i.test(line)) continue;
     if (/Description|Comment/.test(line)) {
       const [, rawValue = ''] = line.split(/:\s+(.+)/);
-      selectedMetadata.push(`${line.split(/:\s+/)[0]}: [redacted length=${rawValue.length} sha256=${sha256Text(rawValue)}]`);
+      addSelected(`${line.split(/:\s+/)[0]}: [redacted length=${rawValue.length} sha256=${sha256Text(rawValue)}]`);
       continue;
     }
-    selectedMetadata.push(line);
+    addSelected(line);
+  }
+  if (selectedMetadata.length === 0 && raw && !Array.isArray(raw) && typeof raw === 'object') {
+    for (const [key, value] of Object.entries(raw)) {
+      if (!key || /lyrics/i.test(key)) continue;
+      const isMatch = includePrefixes.some((p) => key.includes(p)) || includeFields.some((f) => key.includes(f));
+      if (!isMatch) continue;
+      if (/Description|Comment/.test(key)) {
+        const redacted = redactLongTextField(value);
+        addSelected(`${key}: [redacted length=${redacted.length} sha256=${redacted.sha256}]`);
+      } else {
+        addSelected(`${key}: ${stringifyValue(value)}`);
+      }
+    }
   }
   return {
     runId,
@@ -367,7 +396,7 @@ async function processMediaFile({ outputPath, platform = 'General', metadata = {
     after_descriptive_metadata_write: afterMetadataWriteSnapshot,
     after_xmp_cleanup: afterXmpCleanupSnapshot,
     after_timestamp_write_final: finalMetadataSnapshot,
-  }, fileHashesByStage);
+  }, fileHashesByStage, {});
   // Future fallback options (diagnostics-first): GPAC/MP4Box (strong candidate for descriptive QT/iTunes tags incl. producer),
   // AtomicParsley (good iTunes-style coverage, producer may be limited), FFmpeg mdta remux (easy but mapping can vary),
   // Bento4 (low-level ISO BMFF control via custom sidecar strategy).
