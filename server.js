@@ -160,6 +160,7 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization'],
   exposedHeaders: [
     'X-Forensic-Removed', 'X-Forensic-Tags', 'X-Forensic-Status', 'X-Forensic-Report',
+    'X-Process-Run-Id', 'X-Output-SHA256', 'X-Download-Name',
     'X-Usage-This-Month', 'X-Usage-Limit',
   ],
 }));
@@ -527,14 +528,18 @@ app.post('/api/process', requireAuth, upload.single('file'), async (req, res) =>
     const { report } = await processMediaFile({ outputPath, originalName: req.file.originalname, platform, metadata: { title, description, tags, artist, producer, copyright, genre, lyrics } });
     try { db.prepare('INSERT INTO jobs (user_id, filename, platform) VALUES (?, ?, ?)').run(userId, req.file.originalname, platform); } catch (dbErr) { console.error('Job record failed (non-fatal):', dbErr); }
     const usedNow = getMonthlyJobCount(userId);
+    const downloadName = `cleansed_${req.file.originalname}`;
     res.setHeader('X-Forensic-Removed', report.removedCount);
     res.setHeader('X-Forensic-Tags', JSON.stringify(report.removedTags.slice(0, 50)));
     res.setHeader('X-Forensic-Status', report.status || 'Sanitized');
     res.setHeader('X-Forensic-Report', JSON.stringify(report));
+    if (report.runId) res.setHeader('X-Process-Run-Id', report.runId);
+    if (report.fileHashesByStage?.after_timestamp_write_final) res.setHeader('X-Output-SHA256', report.fileHashesByStage.after_timestamp_write_final);
+    res.setHeader('X-Download-Name', downloadName);
     res.setHeader('X-Usage-This-Month', usedNow);
     res.setHeader('X-Usage-Limit', userPlan === 'free' ? FREE_MONTHLY_LIMIT : 'unlimited');
     cleanup.registerForCleanup([outputPath]);
-    res.download(outputPath, `cleansed_${req.file.originalname}`, async (err) => { if (err) console.error('Download stream error:', err); await fs.remove(inputPath).catch(() => {}); await cleanup.deleteImmediately(outputPath); });
+    res.download(outputPath, downloadName, async (err) => { if (err) console.error('Download stream error:', err); await fs.remove(inputPath).catch(() => {}); await cleanup.deleteImmediately(outputPath); });
   } catch (err) {
     console.error('Processing error:', err);
     const status = err.statusCode || 500;

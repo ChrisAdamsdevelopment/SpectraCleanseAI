@@ -1,5 +1,8 @@
 "use strict";
 const { exiftool } = require('exiftool-vendored');
+const crypto = require('crypto');
+const fs = require('fs');
+const path = require('path');
 const { MARKER_RULES, isBenign, isAllowedInjected } = require('./metadataRules');
 
 const ZERO_QUICKTIME_DATE = '0000:00:00 00:00:00';
@@ -162,6 +165,74 @@ function buildMetadataSnapshot(tags = {}) {
   };
 }
 
+function sha256Text(value = '') {
+  return crypto.createHash('sha256').update(String(value)).digest('hex');
+}
+
+function sha256File(filePath) {
+  return new Promise((resolve, reject) => {
+    const hash = crypto.createHash('sha256');
+    const stream = fs.createReadStream(filePath);
+    stream.on('data', (chunk) => hash.update(chunk));
+    stream.on('end', () => resolve(hash.digest('hex')));
+    stream.on('error', reject);
+  });
+}
+
+function redactLongTextField(value) {
+  const text = stringifyValue(value);
+  return { length: text.length, sha256: sha256Text(text) };
+}
+
+function hasDescriptiveMetadata(snapshot = {}) {
+  return Boolean(snapshot.Title || snapshot.Artist || snapshot.Producer || snapshot.Copyright || snapshot.Genre || snapshot.Keyword || snapshot.Keywords || snapshot.Description || snapshot.Comment);
+}
+
+function classifyMetadataPersistenceStage(snapshots = {}, hashes = {}) {
+  const hasAfterWrite = hasDescriptiveMetadata(snapshots.after_descriptive_metadata_write);
+  const hasAfterXmp = hasDescriptiveMetadata(snapshots.after_xmp_cleanup);
+  const hasFinal = hasDescriptiveMetadata(snapshots.after_timestamp_write_final);
+  if (!hasAfterWrite) return 'metadata_missing_after_descriptive_write';
+  if (hasAfterWrite && !hasAfterXmp) return 'metadata_removed_by_xmp_cleanup';
+  if (hasAfterXmp && !hasFinal) return 'metadata_removed_by_timestamp_write';
+  const mismatch = hashes.after_xmp_cleanup && hashes.after_timestamp_write_final && hashes.after_xmp_cleanup !== hashes.after_timestamp_write_final && hasAfterXmp && hasFinal;
+  if (mismatch) return 'metadata_present_in_snapshots_but_report_or_download_mismatch';
+  return 'metadata_present_and_verified';
+}
+
+async function deepSnapshot(stage, outputPath, runId, exiftoolVersion) {
+  const stats = await fs.promises.stat(outputPath);
+  // Prefer readRaw for deep diagnostics with explicit ExifTool args. If unavailable in older exiftool-vendored versions,
+  // fallback to read() so diagnostics remain functional.
+  const raw = typeof exiftool.readRaw === 'function'
+    ? await exiftool.readRaw(outputPath, ['-a', '-u', '-ee3', '-api', 'RequestAll=3', '-G1', '-s'])
+    : await exiftool.read(outputPath);
+  const lines = Array.isArray(raw) ? raw.map((line) => String(line)) : String(raw || '').split(/\r?\n/);
+  const includePrefixes = ['ItemList:', 'Keys:', 'UserData:', 'QuickTime:', 'Track1:', 'Track2:', 'XMP-', 'XMP:'];
+  const includeFields = ['Title', 'DisplayName', 'Artist', 'AlbumArtist', 'Author', 'Producer', 'Copyright', 'Genre', 'Keyword', 'Keywords', 'Description', 'Comment', 'CreateDate', 'ModifyDate', 'TrackCreateDate', 'TrackModifyDate', 'MediaCreateDate', 'MediaModifyDate', 'XMPToolkit', 'Image::ExifTool'];
+  const selectedMetadata = [];
+  for (const line of lines) {
+    if (!line || !line.includes(':')) continue;
+    const isMatch = includePrefixes.some((p) => line.includes(p)) || includeFields.some((f) => line.includes(f));
+    if (!isMatch || /lyrics/i.test(line)) continue;
+    if (/Description|Comment/.test(line)) {
+      const [, rawValue = ''] = line.split(/:\s+(.+)/);
+      selectedMetadata.push(`${line.split(/:\s+/)[0]}: [redacted length=${rawValue.length} sha256=${sha256Text(rawValue)}]`);
+      continue;
+    }
+    selectedMetadata.push(line);
+  }
+  return {
+    runId,
+    stage,
+    outputBasename: path.basename(outputPath),
+    exiftoolVersion,
+    sha256: await sha256File(outputPath),
+    fileStats: { size: stats.size, mtimeMs: stats.mtimeMs, ctimeMs: stats.ctimeMs, inode: stats.ino ?? null },
+    selectedMetadata,
+  };
+}
+
 function readAnyTag(tags, keys) {
   for (const key of keys) if (tags[key] != null && tags[key] !== '') return tags[key];
   return '';
@@ -211,6 +282,13 @@ async function writeQuickTimeTimestamps(outputPath, timestamp) {
 }
 
 async function processMediaFile({ outputPath, platform = 'General', metadata = {} }) {
+  const runId = crypto.randomUUID();
+  const exiftoolVersion = await exiftool.version();
+  console.info('[process] start', { runId, outputBasename: path.basename(outputPath), exiftoolVersion });
+  const fileHashesByStage = {};
+  const deepSnapshotsByStage = {};
+  fileHashesByStage.before = await sha256File(outputPath);
+  deepSnapshotsByStage.before = await deepSnapshot('before', outputPath, runId, exiftoolVersion);
   const beforeTags = await exiftool.read(outputPath);
   const beforeKeys = Object.keys(beforeTags);
   const beforeMarkers = detectMarkers(beforeTags);
@@ -227,10 +305,18 @@ async function processMediaFile({ outputPath, platform = 'General', metadata = {
     await exiftool.write(outputPath, metaToWrite, ['-overwrite_original']);
     const afterMetadataWriteTags = await exiftool.read(outputPath);
     afterMetadataWriteSnapshot = buildMetadataSnapshot(afterMetadataWriteTags);
+    afterMetadataWriteSnapshot.Description = afterMetadataWriteSnapshot.Description == null ? undefined : redactLongTextField(afterMetadataWriteSnapshot.Description);
+    afterMetadataWriteSnapshot.Comment = afterMetadataWriteSnapshot.Comment == null ? undefined : redactLongTextField(afterMetadataWriteSnapshot.Comment);
+    fileHashesByStage.after_descriptive_metadata_write = await sha256File(outputPath);
+    deepSnapshotsByStage.after_descriptive_metadata_write = await deepSnapshot('after_descriptive_metadata_write', outputPath, runId, exiftoolVersion);
     console.info('[process] after metadata write snapshot', afterMetadataWriteSnapshot);
     await exiftool.write(outputPath, {}, ['-XMP:XMPToolkit=', '-overwrite_original']);
     const afterXmpCleanupTags = await exiftool.read(outputPath);
     afterXmpCleanupSnapshot = buildMetadataSnapshot(afterXmpCleanupTags);
+    afterXmpCleanupSnapshot.Description = afterXmpCleanupSnapshot.Description == null ? undefined : redactLongTextField(afterXmpCleanupSnapshot.Description);
+    afterXmpCleanupSnapshot.Comment = afterXmpCleanupSnapshot.Comment == null ? undefined : redactLongTextField(afterXmpCleanupSnapshot.Comment);
+    fileHashesByStage.after_xmp_cleanup = await sha256File(outputPath);
+    deepSnapshotsByStage.after_xmp_cleanup = await deepSnapshot('after_xmp_cleanup', outputPath, runId, exiftoolVersion);
     console.info('[process] after XMP cleanup snapshot', afterXmpCleanupSnapshot);
   } catch {
     throw exiftoolFailureError('Server metadata rewrite failed while applying sanitized fields.');
@@ -239,6 +325,10 @@ async function processMediaFile({ outputPath, platform = 'General', metadata = {
   const timestampWriteWarnings = await writeQuickTimeTimestamps(outputPath, exportTimestamp);
   const finalTags = await exiftool.read(outputPath);
   const finalMetadataSnapshot = buildMetadataSnapshot(finalTags);
+  finalMetadataSnapshot.Description = finalMetadataSnapshot.Description == null ? undefined : redactLongTextField(finalMetadataSnapshot.Description);
+  finalMetadataSnapshot.Comment = finalMetadataSnapshot.Comment == null ? undefined : redactLongTextField(finalMetadataSnapshot.Comment);
+  fileHashesByStage.after_timestamp_write_final = await sha256File(outputPath);
+  deepSnapshotsByStage.after_timestamp_write_final = await deepSnapshot('after_timestamp_write_final', outputPath, runId, exiftoolVersion);
   console.info('[process] final metadata snapshot', finalMetadataSnapshot);
   const finalMarkers = detectMarkers(finalTags);
   const verification = verifyFinalState(finalTags);
@@ -266,7 +356,15 @@ async function processMediaFile({ outputPath, platform = 'General', metadata = {
     : status === 'clean_with_notes'
       ? `${removedCount} marker(s) removed. Some non-standard tags or timestamp-write notes remain.${seo}`
       : `${removedCount} forensic marker(s) removed. Verification passed.${seo}`;
-  return { report: { removedCount, removedTags, timestamp: new Date().toISOString(), exportTimestamp, status, summary, wipeVerificationPassed, finalVerificationPassed: verification.passed && qualityVerification.passed, detectedMarkersBefore: beforeMarkers, detectedMarkersFinal: finalMarkers, suspiciousResidual: verification.suspiciousResidual, unexpectedDescriptive: verification.unexpectedDescriptive, qualityVerification, verificationFindings: [...qualityVerification.failures, ...qualityVerification.warnings], afterMetadataWriteSnapshot, afterXmpCleanupSnapshot, finalMetadataSnapshot, allowedInjectedTags: Object.keys(metaToWrite).map((tag) => tag.replace(/^.*:/, '')).filter(isAllowedInjected), rewrittenTags: [...Object.keys(metaToWrite), ...QUICKTIME_TIMESTAMP_FIELDS] } };
+  const metadataPersistenceStage = classifyMetadataPersistenceStage({
+    after_descriptive_metadata_write: afterMetadataWriteSnapshot,
+    after_xmp_cleanup: afterXmpCleanupSnapshot,
+    after_timestamp_write_final: finalMetadataSnapshot,
+  }, fileHashesByStage);
+  // Future fallback options (diagnostics-first): GPAC/MP4Box (strong candidate for descriptive QT/iTunes tags incl. producer),
+  // AtomicParsley (good iTunes-style coverage, producer may be limited), FFmpeg mdta remux (easy but mapping can vary),
+  // Bento4 (low-level ISO BMFF control via custom sidecar strategy).
+  return { report: { runId, exiftoolVersion, fileHashesByStage, deepSnapshotsByStage, metadataPersistenceStage, removedCount, removedTags, timestamp: new Date().toISOString(), exportTimestamp, status, summary, wipeVerificationPassed, finalVerificationPassed: verification.passed && qualityVerification.passed, detectedMarkersBefore: beforeMarkers, detectedMarkersFinal: finalMarkers, suspiciousResidual: verification.suspiciousResidual, unexpectedDescriptive: verification.unexpectedDescriptive, qualityVerification, verificationFindings: [...qualityVerification.failures, ...qualityVerification.warnings], afterMetadataWriteSnapshot, afterXmpCleanupSnapshot, finalMetadataSnapshot, allowedInjectedTags: Object.keys(metaToWrite).map((tag) => tag.replace(/^.*:/, '')).filter(isAllowedInjected), rewrittenTags: [...Object.keys(metaToWrite), ...QUICKTIME_TIMESTAMP_FIELDS] } };
 }
 
-module.exports = { processMediaFile, detectMarkers, verifyFinalState, buildMetaToWrite, buildQualityVerification, formatQuickTimeTimestamp, unsupportedCleanseError };
+module.exports = { processMediaFile, detectMarkers, verifyFinalState, buildMetaToWrite, buildQualityVerification, formatQuickTimeTimestamp, unsupportedCleanseError, classifyMetadataPersistenceStage };
