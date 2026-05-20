@@ -63,33 +63,78 @@ function buildMetaToWrite(platform, metadata = {}) {
     .map((t) => cleanText(t, 100))
     .filter(Boolean);
   const copyright = safeCopyright || (safeArtist ? `© ${year} ${safeArtist}` : '');
-  const metaToWrite = { 'ItemList:Title': safeTitle };
-  if (safeArtist) metaToWrite['ItemList:Artist'] = safeArtist;
+  const metaToWrite = {
+    'ItemList:Title': safeTitle,
+    'QuickTime:Title': safeTitle,
+    Title: safeTitle,
+  };
+  if (safeArtist) {
+    metaToWrite['ItemList:Artist'] = safeArtist;
+    metaToWrite['QuickTime:Artist'] = safeArtist;
+    metaToWrite.Artist = safeArtist;
+    metaToWrite.Author = safeArtist;
+    metaToWrite.AlbumArtist = safeArtist;
+  }
   if (safeProducer) {
     metaToWrite['ItemList:Producer'] = safeProducer;
     metaToWrite['Keys:Producer'] = safeProducer;
+    metaToWrite.Producer = safeProducer;
   }
-  if (copyright) metaToWrite['ItemList:Copyright'] = copyright;
-  if (tagsArray.length) metaToWrite['ItemList:Keyword'] = tagsArray;
-  if (safeGenre) metaToWrite['ItemList:Genre'] = safeGenre;
+  if (copyright) {
+    metaToWrite['ItemList:Copyright'] = copyright;
+    metaToWrite['QuickTime:Copyright'] = copyright;
+    metaToWrite.Copyright = copyright;
+  }
+  if (tagsArray.length) {
+    metaToWrite['ItemList:Keyword'] = tagsArray;
+    metaToWrite.Keywords = tagsArray;
+  }
+  if (safeGenre) {
+    metaToWrite['ItemList:Genre'] = safeGenre;
+    metaToWrite['QuickTime:Genre'] = safeGenre;
+    metaToWrite.Genre = safeGenre;
+  }
   switch (platform) {
     case 'YouTube':
-      if (safeDescription) { metaToWrite['ItemList:Description'] = safeDescription; metaToWrite['ItemList:Comment'] = safeDescription; }
+      if (safeDescription) {
+        metaToWrite['ItemList:Description'] = safeDescription;
+        metaToWrite['ItemList:Comment'] = safeDescription;
+        metaToWrite['QuickTime:Description'] = safeDescription;
+        metaToWrite['QuickTime:Comment'] = safeDescription;
+        metaToWrite.Description = safeDescription;
+        metaToWrite.Comment = safeDescription;
+      }
       break;
     case 'Spotify':
     case 'Apple Music':
-      if (safeDescription) metaToWrite['ItemList:Description'] = safeDescription;
+      if (safeDescription) {
+        metaToWrite['ItemList:Description'] = safeDescription;
+        metaToWrite['QuickTime:Description'] = safeDescription;
+        metaToWrite.Description = safeDescription;
+      }
       metaToWrite['ItemList:Album'] = safeTitle;
       metaToWrite['ItemList:ContentCreateDate'] = String(year);
       if (safeLyrics) metaToWrite['ItemList:Lyrics'] = safeLyrics;
       break;
     case 'TikTok': {
       const comment = `${safeTitle} ${tagsArray.map((t) => `#${t.replace(/\s/g, '')}`).join(' ')}`.trim();
-      if (comment) metaToWrite['ItemList:Comment'] = comment.substring(0, 300);
+      if (comment) {
+        const safeComment = comment.substring(0, 300);
+        metaToWrite['ItemList:Comment'] = safeComment;
+        metaToWrite['QuickTime:Comment'] = safeComment;
+        metaToWrite.Comment = safeComment;
+      }
       break;
     }
     default:
-      if (safeDescription) { metaToWrite['ItemList:Description'] = safeDescription; metaToWrite['ItemList:Comment'] = safeDescription; }
+      if (safeDescription) {
+        metaToWrite['ItemList:Description'] = safeDescription;
+        metaToWrite['ItemList:Comment'] = safeDescription;
+        metaToWrite['QuickTime:Description'] = safeDescription;
+        metaToWrite['QuickTime:Comment'] = safeDescription;
+        metaToWrite.Description = safeDescription;
+        metaToWrite.Comment = safeDescription;
+      }
   }
   return metaToWrite;
 }
@@ -101,6 +146,20 @@ function formatQuickTimeTimestamp(date = new Date()) {
 
 function stringifyValue(value) {
   return Array.isArray(value) ? value.map(String).join(', ') : String(value || '');
+}
+
+function buildMetadataSnapshot(tags = {}) {
+  return {
+    Title: tags.Title,
+    Artist: tags.Artist,
+    Producer: tags.Producer,
+    Copyright: tags.Copyright,
+    Genre: tags.Genre,
+    Keyword: tags.Keyword,
+    Keywords: tags.Keywords,
+    Description: tags.Description,
+    Comment: tags.Comment,
+  };
 }
 
 function readAnyTag(tags, keys) {
@@ -142,12 +201,11 @@ function buildQualityVerification(tags = {}, metadata = {}, timestampWriteWarnin
 
 async function writeQuickTimeTimestamps(outputPath, timestamp) {
   const warnings = [];
-  for (const field of QUICKTIME_TIMESTAMP_FIELDS) {
-    try {
-      await exiftool.write(outputPath, { [field]: timestamp }, ['-overwrite_original']);
-    } catch {
-      warnings.push(field);
-    }
+  const timestampMap = Object.fromEntries(QUICKTIME_TIMESTAMP_FIELDS.map((field) => [field, timestamp]));
+  try {
+    await exiftool.write(outputPath, timestampMap, ['-overwrite_original']);
+  } catch {
+    warnings.push(...QUICKTIME_TIMESTAMP_FIELDS);
   }
   return warnings;
 }
@@ -163,18 +221,40 @@ async function processMediaFile({ outputPath, platform = 'General', metadata = {
   const metaToWrite = buildMetaToWrite(platform, metadata);
   const metaToWriteWithoutLyrics = Object.fromEntries(Object.entries(metaToWrite).filter(([key]) => !/lyrics/i.test(key)));
   console.info('[process] metadata write map', metaToWriteWithoutLyrics);
+  let afterMetadataWriteSnapshot = {};
+  let afterXmpCleanupSnapshot = {};
   try {
     await exiftool.write(outputPath, metaToWrite, ['-overwrite_original']);
-    await exiftool.write(outputPath, {}, ['-XMP:all=', '-overwrite_original']);
+    const afterMetadataWriteTags = await exiftool.read(outputPath);
+    afterMetadataWriteSnapshot = buildMetadataSnapshot(afterMetadataWriteTags);
+    console.info('[process] after metadata write snapshot', afterMetadataWriteSnapshot);
+    await exiftool.write(outputPath, {}, ['-XMP:XMPToolkit=', '-overwrite_original']);
+    const afterXmpCleanupTags = await exiftool.read(outputPath);
+    afterXmpCleanupSnapshot = buildMetadataSnapshot(afterXmpCleanupTags);
+    console.info('[process] after XMP cleanup snapshot', afterXmpCleanupSnapshot);
   } catch {
     throw exiftoolFailureError('Server metadata rewrite failed while applying sanitized fields.');
   }
   const exportTimestamp = formatQuickTimeTimestamp();
   const timestampWriteWarnings = await writeQuickTimeTimestamps(outputPath, exportTimestamp);
   const finalTags = await exiftool.read(outputPath);
+  const finalMetadataSnapshot = buildMetadataSnapshot(finalTags);
+  console.info('[process] final metadata snapshot', finalMetadataSnapshot);
   const finalMarkers = detectMarkers(finalTags);
   const verification = verifyFinalState(finalTags);
   const qualityVerification = buildQualityVerification(finalTags, metadata, timestampWriteWarnings);
+  if (!finalMetadataSnapshot.Artist || !finalMetadataSnapshot.Producer || !finalMetadataSnapshot.Copyright) {
+    qualityVerification.failures.push({
+      code: 'final_metadata_snapshot_missing_required_fields',
+      message: 'Final metadata snapshot is missing Artist, Producer, or Copyright.',
+      fields: {
+        Artist: finalMetadataSnapshot.Artist || '',
+        Producer: finalMetadataSnapshot.Producer || '',
+        Copyright: finalMetadataSnapshot.Copyright || '',
+      },
+    });
+    qualityVerification.passed = false;
+  }
   const removedTags = beforeKeys.filter((k) => !(k in finalTags));
   const removedCount = beforeMarkers.length;
   const status = (!wipeVerificationPassed || finalMarkers.length > 0 || !qualityVerification.passed)
@@ -186,7 +266,7 @@ async function processMediaFile({ outputPath, platform = 'General', metadata = {
     : status === 'clean_with_notes'
       ? `${removedCount} marker(s) removed. Some non-standard tags or timestamp-write notes remain.${seo}`
       : `${removedCount} forensic marker(s) removed. Verification passed.${seo}`;
-  return { report: { removedCount, removedTags, timestamp: new Date().toISOString(), exportTimestamp, status, summary, wipeVerificationPassed, finalVerificationPassed: verification.passed && qualityVerification.passed, detectedMarkersBefore: beforeMarkers, detectedMarkersFinal: finalMarkers, suspiciousResidual: verification.suspiciousResidual, unexpectedDescriptive: verification.unexpectedDescriptive, qualityVerification, verificationFindings: [...qualityVerification.failures, ...qualityVerification.warnings], allowedInjectedTags: Object.keys(metaToWrite).map((tag) => tag.replace(/^.*:/, '')).filter(isAllowedInjected), rewrittenTags: [...Object.keys(metaToWrite), ...QUICKTIME_TIMESTAMP_FIELDS] } };
+  return { report: { removedCount, removedTags, timestamp: new Date().toISOString(), exportTimestamp, status, summary, wipeVerificationPassed, finalVerificationPassed: verification.passed && qualityVerification.passed, detectedMarkersBefore: beforeMarkers, detectedMarkersFinal: finalMarkers, suspiciousResidual: verification.suspiciousResidual, unexpectedDescriptive: verification.unexpectedDescriptive, qualityVerification, verificationFindings: [...qualityVerification.failures, ...qualityVerification.warnings], afterMetadataWriteSnapshot, afterXmpCleanupSnapshot, finalMetadataSnapshot, allowedInjectedTags: Object.keys(metaToWrite).map((tag) => tag.replace(/^.*:/, '')).filter(isAllowedInjected), rewrittenTags: [...Object.keys(metaToWrite), ...QUICKTIME_TIMESTAMP_FIELDS] } };
 }
 
 module.exports = { processMediaFile, detectMarkers, verifyFinalState, buildMetaToWrite, buildQualityVerification, formatQuickTimeTimestamp, unsupportedCleanseError };
