@@ -69,33 +69,34 @@ function buildMetaToWrite(platform, metadata = {}) {
   const metaToWrite = {
     'ItemList:Title': safeTitle,
     'QuickTime:Title': safeTitle,
-    Title: safeTitle,
+    'Keys:Title': safeTitle,
+    'Keys:DisplayName': safeTitle,
   };
   if (safeArtist) {
     metaToWrite['ItemList:Artist'] = safeArtist;
     metaToWrite['QuickTime:Artist'] = safeArtist;
-    metaToWrite.Artist = safeArtist;
-    metaToWrite.Author = safeArtist;
-    metaToWrite.AlbumArtist = safeArtist;
+    metaToWrite['ItemList:Author'] = safeArtist;
+    metaToWrite['ItemList:AlbumArtist'] = safeArtist;
+    metaToWrite['Keys:Artist'] = safeArtist;
+    metaToWrite['Keys:Author'] = safeArtist;
   }
   if (safeProducer) {
     metaToWrite['ItemList:Producer'] = safeProducer;
     metaToWrite['Keys:Producer'] = safeProducer;
-    metaToWrite.Producer = safeProducer;
   }
   if (copyright) {
     metaToWrite['ItemList:Copyright'] = copyright;
     metaToWrite['QuickTime:Copyright'] = copyright;
-    metaToWrite.Copyright = copyright;
+    metaToWrite['Keys:Copyright'] = copyright;
   }
   if (tagsArray.length) {
     metaToWrite['ItemList:Keyword'] = tagsArray;
-    metaToWrite.Keywords = tagsArray;
+    metaToWrite['Keys:Keywords'] = tagsArray;
   }
   if (safeGenre) {
     metaToWrite['ItemList:Genre'] = safeGenre;
     metaToWrite['QuickTime:Genre'] = safeGenre;
-    metaToWrite.Genre = safeGenre;
+    metaToWrite['Keys:Genre'] = safeGenre;
   }
   switch (platform) {
     case 'YouTube':
@@ -104,8 +105,8 @@ function buildMetaToWrite(platform, metadata = {}) {
         metaToWrite['ItemList:Comment'] = safeDescription;
         metaToWrite['QuickTime:Description'] = safeDescription;
         metaToWrite['QuickTime:Comment'] = safeDescription;
-        metaToWrite.Description = safeDescription;
-        metaToWrite.Comment = safeDescription;
+        metaToWrite['Keys:Description'] = safeDescription;
+        metaToWrite['Keys:Comment'] = safeDescription;
       }
       break;
     case 'Spotify':
@@ -113,7 +114,7 @@ function buildMetaToWrite(platform, metadata = {}) {
       if (safeDescription) {
         metaToWrite['ItemList:Description'] = safeDescription;
         metaToWrite['QuickTime:Description'] = safeDescription;
-        metaToWrite.Description = safeDescription;
+        metaToWrite['Keys:Description'] = safeDescription;
       }
       metaToWrite['ItemList:Album'] = safeTitle;
       metaToWrite['ItemList:ContentCreateDate'] = String(year);
@@ -125,7 +126,7 @@ function buildMetaToWrite(platform, metadata = {}) {
         const safeComment = comment.substring(0, 300);
         metaToWrite['ItemList:Comment'] = safeComment;
         metaToWrite['QuickTime:Comment'] = safeComment;
-        metaToWrite.Comment = safeComment;
+        metaToWrite['Keys:Comment'] = safeComment;
       }
       break;
     }
@@ -135,8 +136,8 @@ function buildMetaToWrite(platform, metadata = {}) {
         metaToWrite['ItemList:Comment'] = safeDescription;
         metaToWrite['QuickTime:Description'] = safeDescription;
         metaToWrite['QuickTime:Comment'] = safeDescription;
-        metaToWrite.Description = safeDescription;
-        metaToWrite.Comment = safeDescription;
+        metaToWrite['Keys:Description'] = safeDescription;
+        metaToWrite['Keys:Comment'] = safeDescription;
       }
   }
   return metaToWrite;
@@ -310,9 +311,15 @@ async function processMediaFile({ outputPath, platform = 'General', metadata = {
     fileHashesByStage.after_descriptive_metadata_write = await sha256File(outputPath);
     deepSnapshotsByStage.after_descriptive_metadata_write = await deepSnapshot('after_descriptive_metadata_write', outputPath, runId, exiftoolVersion);
     console.info('[process] after metadata write snapshot', afterMetadataWriteSnapshot);
-    await exiftool.write(outputPath, {}, ['-XMP:XMPToolkit=', '-overwrite_original']);
+    await exiftool.write(outputPath, {}, ['-XMP:all=', '-XMP:XMPToolkit=', '-overwrite_original']);
     const afterXmpCleanupTags = await exiftool.read(outputPath);
-    afterXmpCleanupSnapshot = buildMetadataSnapshot(afterXmpCleanupTags);
+    const preservedAfterXmpCleanup = hasDescriptiveMetadata(buildMetadataSnapshot(afterXmpCleanupTags));
+    if (!preservedAfterXmpCleanup) {
+      await exiftool.write(outputPath, metaToWrite, ['-overwrite_original']);
+      await exiftool.write(outputPath, {}, ['-XMP-dc:all=', '-XMP-pdf:all=', '-XMP-tiff:all=', '-XMP-xmpDM:all=', '-XMP-x:XMPToolkit=', '-overwrite_original']);
+    }
+    const finalXmpCleanupTags = preservedAfterXmpCleanup ? afterXmpCleanupTags : await exiftool.read(outputPath);
+    afterXmpCleanupSnapshot = buildMetadataSnapshot(finalXmpCleanupTags);
     afterXmpCleanupSnapshot.Description = afterXmpCleanupSnapshot.Description == null ? undefined : redactLongTextField(afterXmpCleanupSnapshot.Description);
     afterXmpCleanupSnapshot.Comment = afterXmpCleanupSnapshot.Comment == null ? undefined : redactLongTextField(afterXmpCleanupSnapshot.Comment);
     fileHashesByStage.after_xmp_cleanup = await sha256File(outputPath);
