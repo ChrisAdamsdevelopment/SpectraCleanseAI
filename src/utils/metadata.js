@@ -139,21 +139,37 @@ export async function writeMP3Metadata(file, metadata) {
     throw new Error(`Failed to initialize MP3 metadata writer: ${error?.message || String(error)}`);
   }
 
-  const safeText = (value) => {
+  const safeText = (value, maxLen = 500) => {
     if (typeof value !== 'string') return '';
-    return value.replace(/\u0000/g, '').trim().slice(0, 500);
+    return value.replace(/\u0000/g, '').trim().slice(0, maxLen);
   };
 
   const title = safeText(metadata?.title);
   const artist = safeText(metadata?.artist);
   const genre = safeText(metadata?.genre);
+  const albumArtist = safeText(metadata?.albumArtist) || artist;
+  const description = safeText(metadata?.description, 2000);
+  const comment = safeText(metadata?.comment, 2000);
+  const commentText = comment || description;
+  const lyrics = safeText(metadata?.lyrics, 20000);
+  const producer = safeText(metadata?.producer);
+  const publisher = safeText(metadata?.publisher || metadata?.label);
+  const tags = safeText(metadata?.tags, 1000);
+  const computedCopyright = safeText(metadata?.copyright) || (artist ? `© ${new Date().getUTCFullYear()} ${artist}` : '');
 
-  const safeSetFrame = (frameId, value) => {
+  const attemptedFrames = [];
+  const writtenFrames = [];
+  const skippedFrames = [];
+
+  const safeSetFrame = (frameId, value, { optional = false } = {}) => {
+    attemptedFrames.push(frameId);
     try {
       writer.setFrame(frameId, value);
+      writtenFrames.push(frameId);
       return true;
     } catch (error) {
-      console.warn('[quick-cleanse] skipped unsupported ID3 frame', { frameId, error });
+      skippedFrames.push(frameId);
+      console.warn('[quick-cleanse] skipped unsupported ID3 frame', { frameId, optional, error });
       return false;
     }
   };
@@ -161,7 +177,47 @@ export async function writeMP3Metadata(file, metadata) {
   try {
     if (title) safeSetFrame('TIT2', title);
     if (artist) safeSetFrame('TPE1', [artist]);
+    if (albumArtist) safeSetFrame('TPE2', [albumArtist]);
     if (genre) safeSetFrame('TCON', [genre]);
+
+    let finalComment = commentText;
+    if (producer && !finalComment.toLowerCase().includes('producer:')) {
+      finalComment = finalComment ? `${finalComment} | Producer: ${producer}` : `Producer: ${producer}`;
+    }
+    if (tags && !finalComment.toLowerCase().includes('tags:')) {
+      finalComment = finalComment ? `${finalComment} | Tags: ${tags}` : `Tags: ${tags}`;
+    }
+
+    if (finalComment) {
+      safeSetFrame('COMM', {
+        description: 'Comment',
+        language: 'eng',
+        text: finalComment.slice(0, 4000),
+      });
+    }
+
+    if (lyrics) {
+      safeSetFrame('USLT', {
+        description: 'Lyrics',
+        language: 'eng',
+        text: lyrics,
+      }, { optional: true });
+    }
+
+    if (computedCopyright) safeSetFrame('TCOP', computedCopyright, { optional: true });
+    if (publisher) safeSetFrame('TPUB', [publisher], { optional: true });
+    if (producer) safeSetFrame('TXXX', { description: 'Producer', value: producer }, { optional: true });
+
+    console.info('[quick-cleanse] mp3 metadata summary', {
+      hasLyrics: Boolean(lyrics),
+      hasComment: Boolean(commentText),
+      hasDescription: Boolean(description),
+      hasProducer: Boolean(producer),
+      attemptedFrames,
+      writtenFrames,
+      skippedFrames,
+    });
+
     writer.addTag();
   } catch (error) {
     throw new Error(`Failed while writing ID3 frames: ${error?.message || String(error)}`);
@@ -178,5 +234,8 @@ export async function writeMP3Metadata(file, metadata) {
     throw new Error('MP3 metadata rewrite produced no output.');
   }
 
-  return new Blob([cleanedBlob], { type: 'audio/mpeg' });
+  return {
+    blob: new Blob([cleanedBlob], { type: 'audio/mpeg' }),
+    frameReport: { attemptedFrames, writtenFrames, skippedFrames },
+  };
 }

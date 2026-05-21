@@ -54,10 +54,12 @@ interface ForensicReport {
 interface ReleaseMetadata {
   title: string;
   artist: string;
+  albumArtist: string;
   producer: string;
   copyright: string;
   genre: string;
   description: string;
+  comment: string;
   tags: string;
   lyrics: string;
 }
@@ -99,10 +101,12 @@ const cleanMetadataField = (value: string | undefined | null) => String(value ||
 const getInitialReleaseMetadata = (file: File): ReleaseMetadata => ({
   title: file.name.replace(/\.[^.]+$/, ''),
   artist: DEFAULT_RELEASE_ARTIST,
+  albumArtist: DEFAULT_RELEASE_ARTIST,
   producer: DEFAULT_RELEASE_PRODUCER,
   copyright: DEFAULT_RELEASE_COPYRIGHT,
   genre: '',
   description: '',
+  comment: '',
   tags: '',
   lyrics: '',
 });
@@ -118,10 +122,12 @@ const keepUserOrApplyParsed = (current: string, parsed: string | undefined | nul
 const resolveReleaseMetadata = (metadata: ReleaseMetadata): ReleaseMetadata => ({
   title: cleanMetadataField(metadata.title) || 'Untitled',
   artist: cleanMetadataField(metadata.artist) || DEFAULT_RELEASE_ARTIST,
+  albumArtist: cleanMetadataField(metadata.albumArtist) || cleanMetadataField(metadata.artist) || DEFAULT_RELEASE_ARTIST,
   producer: cleanMetadataField(metadata.producer) || DEFAULT_RELEASE_PRODUCER,
   copyright: cleanMetadataField(metadata.copyright) || DEFAULT_RELEASE_COPYRIGHT,
   genre: cleanMetadataField(metadata.genre),
   description: cleanMetadataField(metadata.description),
+  comment: cleanMetadataField(metadata.comment),
   tags: cleanMetadataField(metadata.tags),
   lyrics: cleanMetadataField(metadata.lyrics),
 });
@@ -1251,7 +1257,21 @@ export default function App() {
                           addLog(itemId, 'Removing/replacing metadata');
                           let rewrittenBlob: Blob;
                           try {
-                            rewrittenBlob = await writeMP3Metadata(file, { title: activeItem.seo.title, artist: activeItem.seo.artist || activeItem.analysis?.artist || '', genre: activeItem.seo.genre || activeItem.analysis?.genre || '' });
+                            const { blob, frameReport } = await writeMP3Metadata(file, {
+                              title: activeItem.seo.title,
+                              artist: activeItem.seo.artist || activeItem.analysis?.artist || '',
+                              albumArtist: activeItem.seo.albumArtist || activeItem.seo.artist || activeItem.analysis?.artist || '',
+                              producer: activeItem.seo.producer,
+                              copyright: activeItem.seo.copyright,
+                              genre: activeItem.seo.genre || activeItem.analysis?.genre || '',
+                              description: activeItem.seo.description,
+                              comment: activeItem.seo.comment,
+                              lyrics: activeItem.seo.lyrics || activeItem.analysis?.lyrics || '',
+                              tags: activeItem.seo.tags,
+                              publisher: 'Triple7 Music',
+                            });
+                            rewrittenBlob = blob;
+                            addLog(itemId, `ID3 frames written: ${frameReport.writtenFrames.join(', ') || 'none'}${frameReport.skippedFrames.length ? ` | skipped: ${frameReport.skippedFrames.join(', ')}` : ''}`);
                           } catch (err) {
                             console.error('[quick-cleanse] failed while removing/replacing metadata', err);
                             throw new Error(`Unable to rewrite MP3 metadata: ${err instanceof Error ? err.message : String(err)}`);
@@ -1267,7 +1287,7 @@ export default function App() {
                         updateItem(itemId, {
                           downloadUrl: url,
                           downloadName: `quick_cleansed_${file.name}`,
-                          report: { removedCount: 0, removedTags: ['ID3 metadata rewritten locally'], timestamp: new Date().toLocaleTimeString() },
+                          report: { removedCount: 0, removedTags: ['ID3 metadata rewritten locally', 'Core frames attempted: TIT2,TPE1,TPE2,TCON,COMM,USLT,TCOP'], timestamp: new Date().toLocaleTimeString() },
                           status: 'done',
                           error: null,
                         });
