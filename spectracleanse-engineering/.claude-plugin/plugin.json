@@ -1,0 +1,60 @@
+{
+  "name": "spectracleanse-engineering",
+  "description": "SpectraCleanse-specific engineering plugin. Covers code review, Render deploy readiness, auth/billing debugging, media-processing pipeline safety, incident response, technical documentation, testing strategy, and founder operating reviews. All skills are calibrated to the SpectraCleanse stack: React + Vite frontend, Node.js/Express backend, SQLite (better-sqlite3), ExifTool (exiftool-vendored), Google Gemini (gemini-2.5-flash), Stripe checkout, and Render/Hyperlift deployment.",
+  "skills": [
+    {
+      "name": "spectracleanse-code-review",
+      "path": "skills/spectracleanse-code-review/SKILL.md"
+    },
+    {
+      "name": "spectracleanse-architecture",
+      "path": "skills/spectracleanse-architecture/SKILL.md"
+    },
+    {
+      "name": "spectracleanse-deploy-readiness",
+      "path": "skills/spectracleanse-deploy-readiness/SKILL.md"
+    },
+    {
+      "name": "spectracleanse-processing-pipeline",
+      "path": "skills/spectracleanse-processing-pipeline/SKILL.md"
+    },
+    {
+      "name": "spectracleanse-auth-billing",
+      "path": "skills/spectracleanse-auth-billing/SKILL.md"
+    },
+    {
+      "name": "spectracleanse-incident-response",
+      "path": "skills/spectracleanse-incident-response/SKILL.md"
+    },
+    {
+      "name": "spectracleanse-documentation",
+      "path": "skills/spectracleanse-documentation/SKILL.md"
+    },
+    {
+      "name": "spectracleanse-testing-strategy",
+      "path": "skills/spectracleanse-testing-strategy/SKILL.md"
+    },
+    {
+      "name": "spectracleanse-founder-operating-review",
+      "path": "skills/spectracleanse-founder-operating-review/SKILL.md"
+    }
+  ],
+  "agents": [
+    {
+      "name": "spectracleanse-repo-researcher",
+      "path": "agents/spectracleanse-repo-researcher.md"
+    },
+    {
+      "name": "spectracleanse-incident-commander",
+      "path": "agents/spectracleanse-incident-commander.md"
+    }
+  ],
+  "docs": [
+    "docs/product-context.md",
+    "docs/render-deploy-checklist.md",
+    "docs/mcp-roadmap.md",
+    "docs/supported-formats-and-processing-boundaries.md",
+    "docs/env-and-secrets-reference.md",
+    "docs/plugin-validation.md"
+  ]
+}
