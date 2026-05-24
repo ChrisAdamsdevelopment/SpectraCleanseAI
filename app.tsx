@@ -6,6 +6,18 @@ import {
   ArrowUpCircle, Crown, Star, X,
 } from 'lucide-react';
 import { readFileMetadata, writeMP3Metadata } from './src/utils/metadata';
+import {
+  DEFAULT_RELEASE_ARTIST,
+  DEFAULT_RELEASE_PRODUCER,
+  DEFAULT_RELEASE_COPYRIGHT,
+  RELEASE_DEFAULTS_STORAGE_KEY,
+  cleanMetadataField,
+  getSavedReleaseDefaults,
+  getInitialReleaseMetadata,
+  resolveReleaseMetadata,
+  type ReleaseMetadata,
+  type SavedReleaseDefaults,
+} from './src/utils/releaseDefaults';
 
 const API_BASE_URL =
   import.meta.env.VITE_API_URL ||
@@ -18,11 +30,6 @@ const PLATFORMS = ['General', 'YouTube', 'Spotify', 'Apple Music', 'TikTok'] as 
 type Platform = typeof PLATFORMS[number];
 type ItemStatus = 'pending' | 'analyzing' | 'processing' | 'done' | 'error';
 type RiskLevel = 'High' | 'Low';
-
-const DEFAULT_RELEASE_ARTIST = '';
-const RELEASE_DEFAULTS_STORAGE_KEY = 'spectracleanse_release_defaults';
-const DEFAULT_RELEASE_PRODUCER = '';
-const DEFAULT_RELEASE_COPYRIGHT = '';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -51,20 +58,6 @@ interface ForensicReport {
   qualityVerification?: QualityVerification; verificationFindings?: QualityFinding[];
   allowedInjectedTags?: string[]; rewrittenTags?: string[];
 }
-
-interface ReleaseMetadata {
-  title: string;
-  artist: string;
-  albumArtist: string;
-  producer: string;
-  copyright: string;
-  genre: string;
-  description: string;
-  comment: string;
-  tags: string;
-  lyrics: string;
-}
-type SavedReleaseDefaults = Pick<ReleaseMetadata, 'artist' | 'albumArtist' | 'producer' | 'copyright' | 'genre' | 'description' | 'comment' | 'tags'>;
 
 interface QueueItem {
   id: string;
@@ -98,41 +91,6 @@ function PlanBadge({ plan }: { plan: string }) {
   );
 }
 
-const cleanMetadataField = (value: string | undefined | null) => String(value || '').trim();
-
-const getSavedReleaseDefaults = (): SavedReleaseDefaults | null => {
-  try {
-    const raw = localStorage.getItem(RELEASE_DEFAULTS_STORAGE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as Partial<SavedReleaseDefaults>;
-    return {
-      artist: cleanMetadataField(parsed.artist),
-      albumArtist: cleanMetadataField(parsed.albumArtist),
-      producer: cleanMetadataField(parsed.producer),
-      copyright: cleanMetadataField(parsed.copyright),
-      genre: cleanMetadataField(parsed.genre),
-      description: cleanMetadataField(parsed.description),
-      comment: cleanMetadataField(parsed.comment),
-      tags: cleanMetadataField(parsed.tags),
-    };
-  } catch {
-    return null;
-  }
-};
-
-const getInitialReleaseMetadata = (file: File, savedDefaults: SavedReleaseDefaults | null): ReleaseMetadata => ({
-  title: file.name.replace(/\.[^.]+$/, ''),
-  artist: savedDefaults?.artist || DEFAULT_RELEASE_ARTIST,
-  albumArtist: savedDefaults?.albumArtist || savedDefaults?.artist || DEFAULT_RELEASE_ARTIST,
-  producer: savedDefaults?.producer || DEFAULT_RELEASE_PRODUCER,
-  copyright: savedDefaults?.copyright || DEFAULT_RELEASE_COPYRIGHT,
-  genre: savedDefaults?.genre || '',
-  description: savedDefaults?.description || '',
-  comment: savedDefaults?.comment || '',
-  tags: savedDefaults?.tags || '',
-  lyrics: '',
-});
-
 const keepUserOrApplyParsed = (current: string, parsed: string | undefined | null, defaultValue = '') => {
   const parsedValue = cleanMetadataField(parsed);
   if (!parsedValue) return current;
@@ -140,19 +98,6 @@ const keepUserOrApplyParsed = (current: string, parsed: string | undefined | nul
   if (!currentValue || (defaultValue && currentValue === defaultValue)) return parsedValue;
   return current;
 };
-
-const resolveReleaseMetadata = (metadata: ReleaseMetadata): ReleaseMetadata => ({
-  title: cleanMetadataField(metadata.title) || 'Untitled',
-  artist: cleanMetadataField(metadata.artist) || DEFAULT_RELEASE_ARTIST,
-  albumArtist: cleanMetadataField(metadata.albumArtist) || cleanMetadataField(metadata.artist) || DEFAULT_RELEASE_ARTIST,
-  producer: cleanMetadataField(metadata.producer) || DEFAULT_RELEASE_PRODUCER,
-  copyright: cleanMetadataField(metadata.copyright) || DEFAULT_RELEASE_COPYRIGHT,
-  genre: cleanMetadataField(metadata.genre),
-  description: cleanMetadataField(metadata.description),
-  comment: cleanMetadataField(metadata.comment),
-  tags: cleanMetadataField(metadata.tags),
-  lyrics: cleanMetadataField(metadata.lyrics),
-});
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Usage meter (shown in sidebar header for free users)
