@@ -21,7 +21,7 @@ Read-only SpectraCleanse repo exploration agent. Finds actual files, confirms re
 - `server/downloadTokens.js` — one-time download token management for batch outputs.
 - `app.tsx` — entire React frontend. Single file. API base URL: `import.meta.env.VITE_API_URL`.
 - `package.json` — dependencies, scripts, Node engine range (`20.x`). No test runner.
-- `.env.example` — env var documentation. Note: lists `VITE_BACKEND_URL` but `app.tsx` reads `VITE_API_URL` — confirmed conflict.
+- `.env.example` — env var documentation. Note: lists `VITE_API_URL` but `app.tsx` reads `VITE_API_URL` — confirmed conflict.
 - `.nvmrc` / `.node-version` — both pin `20.20.2`.
 - `.github/workflows/ci.yml` — smoke test on Node 18. Confirmed mismatch with production pin.
 - `docs/manual-qa-checklist.md` — manual QA process.

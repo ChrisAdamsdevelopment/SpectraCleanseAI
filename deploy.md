@@ -79,7 +79,7 @@ Hyperlift injects secrets at runtime so they never appear in your image or repos
 The React frontend (`app.tsx`) is a separate Vite build. Before building, set the following environment variable in your frontend build environment:
 
 ```
-VITE_BACKEND_URL=https://spectracleanse.com
+VITE_API_URL=https://spectracleanse.com
 ```
 
 Build the frontend with `vite build` and deploy the resulting `dist/` directory to any static host (Cloudflare Pages, Netlify, Vercel, or Hyperlift Static). Point it at the same custom domain or a subdomain of your choice.

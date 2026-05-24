@@ -47,7 +47,7 @@
 - [ ] `ENABLE_MOCK_CHECKOUT` — NOT set to `true` in production
 
 ### Environment variables — frontend (Vite build environment)
-- [ ] `VITE_API_URL` — set to `https://api.spectracleanse.com` or the correct backend URL (⚠️ note: `.env.example` lists `VITE_BACKEND_URL` but `app.tsx` reads `VITE_API_URL` — use `VITE_API_URL`)
+- [ ] `VITE_API_URL` — set to `https://api.spectracleanse.com` or the correct backend URL (⚠️ note: `.env.example` lists `VITE_API_URL` but `app.tsx` reads `VITE_API_URL` — use `VITE_API_URL`)
 - [ ] This variable must be available at **build time**, not just runtime
 
 ### CORS and origins
@@ -163,7 +163,7 @@ Note: SpectraCleanse currently has no automated DB migration system. Schema chan
 ---
 
 ## Do not assume
-- Do not assume `VITE_BACKEND_URL` is the correct frontend env var — the code uses `VITE_API_URL`.
+- Do not assume `VITE_API_URL` is the correct frontend env var — the code uses `VITE_API_URL`.
 - Do not assume Node 18 compatibility from CI means Node 18 is the production target — production uses 20.20.2.
 - Do not assume Render's default disk is persistent — it must be explicitly configured.
 - Do not assume mock checkout is safe to leave enabled in production.

@@ -20,7 +20,7 @@ No credit card required. Free accounts include 3 files per month. Upgrade to Cre
 
 ## How it works
 
-1. **Upload** — drag in any MP3, WAV, FLAC, M4A, or MP4 file (up to 500 MB).
+1. **Upload** — Quick Cleanse supports MP3 (browser-side). Full Server Cleanse supports MP4 and M4A (server-side). WAV and FLAC are planned but not currently supported.
 2. **Analyse** — the forensic engine reads every embedded tag and identifies provenance markers.
 3. **Cleanse** — a nuclear wipe removes all XMP, IPTC, and ID3 fields that could trigger algorithmic detection.
 4. **Inject** — Gemini generates an SEO-optimised title, description, and tag set tuned to your chosen platform.
@@ -48,7 +48,7 @@ For a step-by-step manual validation flow (local, API smoke, auth, billing, uplo
 
 - Browser metadata analysis uses maintained `music-metadata` with graceful fallback (`parseError`) when parsing fails, times out, or is skipped for very large files.
 - Quick Cleanse metadata writing remains local/browser-side (MP3 via `browser-id3-writer`).
-- Full Server Cleanse runs through `/api/process`; MP3 requests are rejected with HTTP `422` and guidance that Full Server Cleanse is best supported for MP4/M4A, while WAV/FLAC may still be rejected when ExifTool cannot safely rewrite them.
+- Full Server Cleanse runs through `/api/process`; MP3 requests are rejected with HTTP `422`. Full Server Cleanse currently supports MP4/M4A only; WAV/FLAC are planned but not currently supported.
 
 ---
 
@@ -118,5 +118,5 @@ Never commit real secrets to source control.
 
 - `POST /api/process-batch` (authenticated): processes up to 20 uploaded files sequentially for paid plans (Creator/Studio). Free plan returns `403`.
 - `GET /api/download/:token` (authenticated): one-time secure download for batch outputs.
-- MP3 server cleanse remains unsupported (`422` for single process, per-file error in batch); use Quick Cleanse Browser for MP3. Full Server Cleanse is best supported for MP4/M4A, and WAV/FLAC may be rejected if ExifTool cannot safely rewrite them.
+- MP3 server cleanse remains unsupported (`422` for single process, per-file error in batch); use Quick Cleanse Browser for MP3. Full Server Cleanse currently supports MP4/M4A only; WAV/FLAC are planned but not currently supported.
 - Batch requests enforce a 2GB post-upload soft guard; production deployments should still enforce proxy/body-size/disk limits.
