@@ -123,6 +123,9 @@ jobs:
       - name: Type-check
         run: npx tsc --noEmit
 
+      - name: Run unit tests
+        run: npm run test:run
+
       - name: Build frontend
         env:
           VITE_API_URL: https://spectracleanse.com
