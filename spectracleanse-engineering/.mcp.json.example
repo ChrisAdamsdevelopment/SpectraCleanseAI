@@ -1,0 +1,58 @@
+{
+  "_comment": "SpectraCleanse Engineering Plugin – MCP configuration example. Copy to .mcp.json and fill in real values. NEVER commit .mcp.json to version control.",
+
+  "mcpServers": {
+
+    "github": {
+      "_status": "planned",
+      "_description": "GitHub MCP for repo context, PRs, issues, and commit history. Install from https://github.com/github/github-mcp-server",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-github"],
+      "env": {
+        "GITHUB_PERSONAL_ACCESS_TOKEN": "REPLACE_WITH_YOUR_GITHUB_PAT"
+      }
+    },
+
+    "sentry": {
+      "_status": "planned – configure if/when Sentry is added to SpectraCleanse",
+      "_description": "Sentry MCP for production error context during incident response.",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-sentry"],
+      "env": {
+        "SENTRY_AUTH_TOKEN": "REPLACE_WITH_YOUR_SENTRY_TOKEN",
+        "SENTRY_ORG": "REPLACE_WITH_YOUR_ORG_SLUG",
+        "SENTRY_PROJECT": "spectracleanse"
+      }
+    },
+
+    "playwright": {
+      "_status": "planned – for UI smoke test automation",
+      "_description": "Playwright MCP for browser-based smoke tests: upload flow, auth, checkout modal, download.",
+      "command": "npx",
+      "args": ["-y", "@playwright/mcp"],
+      "env": {
+        "PLAYWRIGHT_BASE_URL": "https://spectracleanse.com"
+      }
+    },
+
+    "spectracleanse-admin": {
+      "_status": "planned – does not exist yet; see docs/mcp-roadmap.md for spec",
+      "_description": "Future SpectraCleanse Admin MCP. Exposes deploy health, env validation, smoke checks, usage stats, and release notes generation. To be built as a remote MCP server backed by the Render deployment.",
+      "url": "REPLACE_WITH_SPECTRACLEANSE_ADMIN_MCP_URL",
+      "headers": {
+        "Authorization": "Bearer REPLACE_WITH_ADMIN_MCP_SECRET"
+      },
+      "_tools": [
+        "get_deploy_health",
+        "validate_env",
+        "run_smoke_checks",
+        "list_recent_processing_failures",
+        "get_checkout_failures",
+        "get_usage_and_plan_stats",
+        "list_supported_formats",
+        "draft_release_notes_from_commits"
+      ]
+    }
+
+  }
+}
