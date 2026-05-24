@@ -86,6 +86,9 @@ jobs:
       - name: Type-check
         run: npx tsc --noEmit
 
+      - name: Run unit tests
+        run: npm run test:run
+
       - name: Build
         env:
           # Placeholder – real URL is injected at deploy time via Hyperlift env
