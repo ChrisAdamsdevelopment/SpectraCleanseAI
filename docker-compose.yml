@@ -1,0 +1,57 @@
+version: "3.9"
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    container_name: spectracleanse-api
+    ports:
+      - "3001:3001"
+    environment:
+      NODE_ENV: development
+      PORT: 3001
+      JWT_SECRET: dev-secret-key-change-in-production
+      STRIPE_SECRET_KEY: sk_test_dev_placeholder
+      STRIPE_WEBHOOK_SECRET: whsec_dev_placeholder
+      STRIPE_CREATOR_PRICE_ID: price_dev_creator
+      STRIPE_STUDIO_PRICE_ID: price_dev_studio
+      GEMINI_API_KEY: dev_gemini_key
+      FRONTEND_URL: http://localhost:5173
+      DB_PATH: /data/spectra.db
+    volumes:
+      - ./src:/app/src:ro
+      - ./server.js:/app/server.js:ro
+      - spectra-data:/data
+    develop:
+      watch:
+        - action: sync
+          path: ./src
+          target: /app/src
+        - action: sync
+          path: ./server.js
+          target: /app/server.js
+        - action: rebuild
+          path: ./package.json
+    depends_on:
+      - db
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:3001/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  db:
+    image: alpine:latest
+    container_name: spectracleanse-db
+    volumes:
+      - spectra-data:/data
+    command: sleep infinity
+    profiles:
+      - storage
+
+volumes:
+  spectra-data:
+    driver: local
