@@ -41,7 +41,7 @@ This plugin is **not** a generic engineering assistant. Every skill, checklist, 
 - **AI**: Google Gemini `gemini-2.5-flash` via REST (`/api/generate-seo`)
 - **Billing**: Stripe 16, subscription checkout, webhook at `/api/stripe-webhook`
 - **Auth**: email/password + bcrypt, JWT 7-day expiry, Bearer token
-- **Frontend env var**: `VITE_API_URL` (used in `app.tsx`) — note: `.env.example` lists `VITE_BACKEND_URL` but the frontend reads `VITE_API_URL`
+- **Frontend env var**: `VITE_API_URL` (used in `app.tsx`) — `.env.example` and `app.tsx` both use `VITE_API_URL`.
 - **Deployment**: Render / Spaceship Hyperlift (both documented); Docker support present
 
 ---

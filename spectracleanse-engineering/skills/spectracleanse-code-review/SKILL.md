@@ -15,7 +15,7 @@
 - Free tier: 3 files/month (checked in `/api/process` and `/api/process-batch`). Free users get `402` with `upgradeRequired: true`.
 - Batch upload: `/api/process-batch`, paid plans only, up to 20 files, 2 GB total. Download uses one-time tokens from `server/downloadTokens.js`.
 - CORS: strict in production. If `FRONTEND_URL` and `ALLOWED_ORIGINS` are both missing in prod, the server exits at startup. Changes to allowed origins or methods must be tested end-to-end.
-- Frontend API base URL is `VITE_API_URL` (confirmed in `app.tsx` line 11). `.env.example` incorrectly lists `VITE_BACKEND_URL` — this discrepancy must not be introduced into new code.
+- Frontend API base URL is `VITE_API_URL` (confirmed in `app.tsx` line 11). `.env.example` is aligned with `app.tsx`.
 - Response headers from `/api/process`: `X-Forensic-Removed`, `X-Forensic-Tags`, `X-Forensic-Status`, `X-Forensic-Report`, `X-Process-Run-Id`, `X-Output-SHA256`, `X-Download-Name`, `X-Usage-This-Month`, `X-Usage-Limit`. Frontend reads these — removing or renaming them is a breaking change.
 
 ---
@@ -65,7 +65,7 @@
 **Frontend / UI state**
 - [ ] Does the change affect the upload queue, processing state, or download flow? Verify queue state cannot get stuck (uploaded but never cleared).
 - [ ] Does any new `fetch` call handle 401 (re-auth) and 402 (upgrade modal) responses?
-- [ ] Is `VITE_API_URL` used as the API base URL — not `VITE_BACKEND_URL` or a hardcoded `localhost`?
+- [ ] Is `VITE_API_URL` used as the API base URL — not the legacy backend env var or a hardcoded `localhost`?
 - [ ] Do plan badge, usage meter, and upgrade modal still reflect live data from `/api/me`?
 
 **Render / deployment compatibility**
@@ -80,7 +80,7 @@
 - Do not assume Quick Cleanse runs server-side — it uses `browser-id3-writer` in the browser.
 - Do not assume the JWT `plan` field is live — it reflects plan at login time. Use `/api/me` for current plan.
 - Do not assume Stripe mock checkout works in production — `ENABLE_MOCK_CHECKOUT` is false-by-default in prod.
-- Do not assume the frontend env var is `VITE_BACKEND_URL` — the frontend reads `VITE_API_URL`.
+- Frontend build-time API variable is `VITE_API_URL`.
 
 ---
 

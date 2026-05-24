@@ -173,5 +173,5 @@ Note: Node version in CI is currently 18, but production uses 20.20.2. Recommend
 - Do not assume a test runner (Jest, Vitest, etc.) is installed — check `package.json` devDependencies first.
 - Do not assume a `test` script exists in `package.json` — it does not currently.
 - Do not assume ExifTool test fixtures exist — they must be created.
-- Do not assume CI uses Node 20 — it currently uses Node 18.
+- Do not assume CI/runtime alignment from memory — verify `.nvmrc` and workflow files directly before reporting.
 - Do not recommend tests that require live Stripe or Gemini API keys in CI — use mocks or env-gated skips.

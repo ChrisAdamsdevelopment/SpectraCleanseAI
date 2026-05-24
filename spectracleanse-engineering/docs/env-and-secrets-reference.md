@@ -69,7 +69,7 @@ Do not store real values in this file. Use Render/Hyperlift dashboard secrets ma
 |---|---|---|---|---|
 | `VITE_API_URL` | string | **Yes** | **Build time** | Base URL for all API calls from the frontend. Example: `https://api.spectracleanse.com`. If missing at build time, the frontend throws "Missing VITE_API_URL in production build" on first API call. |
 
-⚠️ **Known discrepancy**: `.env.example` lists `VITE_BACKEND_URL` but `app.tsx` line 11 reads `VITE_API_URL`. The correct variable name is `VITE_API_URL`. The `.env.example` entry is incorrect and should be updated.
+Historical note: a previous `legacy backend env var` vs `VITE_API_URL` mismatch existed. That discrepancy is resolved: `.env.example` and `app.tsx` now both use `VITE_API_URL`. Do not use `legacy backend env var`.
 
 ---
 

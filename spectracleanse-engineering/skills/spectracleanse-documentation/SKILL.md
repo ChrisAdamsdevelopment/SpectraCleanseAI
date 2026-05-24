@@ -13,7 +13,7 @@ SpectraCleanse has a small but real documentation footprint:
 - `PIPELINE.md` — GitHub Actions CI/CD pipeline documentation
 
 Known accuracy issues to preserve (do not silently "fix" without flagging):
-- `.env.example` lists `VITE_BACKEND_URL` but `app.tsx` reads `VITE_API_URL`. Any doc that references the frontend env var must use `VITE_API_URL` and note the discrepancy in `.env.example`.
+- `.env.example` and `app.tsx` both use `VITE_API_URL`. Any doc that references the frontend env var should use `VITE_API_URL`.
 - `README.md` says "drag in any MP3, WAV, FLAC, M4A, or MP4 file" in the marketing copy but the server only supports MP4 and M4A for Full Server Cleanse. Quick Cleanse handles MP3 browser-side. WAV/FLAC are rejected at the processor. This overclaim must be corrected in any updated README.
 - `PIPELINE.md` documents CI using Node 18, but `.nvmrc` pins Node 20.20.2. Any deploy doc must reference Node 20.20.2 for production.
 
@@ -44,7 +44,7 @@ Known accuracy issues to preserve (do not silently "fix" without flagging):
    - `POST /api/generate-seo`
    - `GET /api/download/:token`
 
-4. **Verify env var names before documenting.** Backend vars: `PORT`, `FRONTEND_URL`, `ALLOWED_ORIGINS`, `JWT_SECRET`, `DB_PATH`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_CREATOR_PRICE_ID`, `STRIPE_STUDIO_PRICE_ID`, `ENABLE_MOCK_CHECKOUT`, `GEMINI_API_KEY`, `NODE_ENV`. Frontend build var: `VITE_API_URL` (not `VITE_BACKEND_URL`).
+4. **Verify env var names before documenting.** Backend vars: `PORT`, `FRONTEND_URL`, `ALLOWED_ORIGINS`, `JWT_SECRET`, `DB_PATH`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_CREATOR_PRICE_ID`, `STRIPE_STUDIO_PRICE_ID`, `ENABLE_MOCK_CHECKOUT`, `GEMINI_API_KEY`, `NODE_ENV`. Frontend build var: `VITE_API_URL` (not the legacy backend env var).
 
 5. **Prefer clear user-facing language** over technical jargon in user docs. "Removes embedded tags that signal AI-generated origin" not "writes null to QuickTime atom fields."
 
@@ -64,7 +64,7 @@ Must not include: fake endpoints, unsupported formats claimed as supported, prod
 
 Audience: engineer or founder setting up a new Render/Hyperlift deployment.
 Must include: Node version pin (20.20.2), build command (`npm ci && tsc && vite build`), start command (`node server.js`), all required env vars, persistent disk configuration for SQLite, CORS setup, Stripe webhook registration, smoke test commands.
-Must not include: `VITE_BACKEND_URL` (use `VITE_API_URL`), `ENABLE_MOCK_CHECKOUT=true` in production instructions.
+Must not include: `legacy backend env var` (use `VITE_API_URL`), `ENABLE_MOCK_CHECKOUT=true` in production instructions.
 
 ### Env var reference
 
@@ -119,7 +119,7 @@ What to cover: what metadata is removed (all ExifTool-readable tags except those
 - [ ] Have endpoint names been verified from `server.js`?
 - [ ] Have env var names been verified from `server.js` and `app.tsx`?
 - [ ] Does the doc distinguish currently supported from planned?
-- [ ] Is `VITE_API_URL` used (not `VITE_BACKEND_URL`) where the frontend env var is mentioned?
+- [ ] Is `VITE_API_URL` used (not `legacy backend env var`) where the frontend env var is mentioned?
 - [ ] Is Node 20.20.2 referenced as the production target (not Node 18)?
 - [ ] Is mock checkout described as dev-only?
 - [ ] Is the format support matrix accurate (MP3=Quick Cleanse only, MP4/M4A=Server Cleanse, WAV/FLAC=rejected)?
@@ -153,7 +153,7 @@ What to cover: what metadata is removed (all ExifTool-readable tags except those
 
 ## Do not assume
 - Do not claim WAV or FLAC are supported by Full Server Cleanse.
-- Do not use `VITE_BACKEND_URL` as the frontend env var — the code reads `VITE_API_URL`.
+- Do not use `legacy backend env var` as the frontend env var — the code reads `VITE_API_URL`.
 - Do not document Node 18 as the production runtime target.
 - Do not document features as "current" if they are not confirmed in the codebase (e.g., email verification, password reset, OAuth).
 - Do not document the Stripe webhook path as anything other than `/api/stripe-webhook`.

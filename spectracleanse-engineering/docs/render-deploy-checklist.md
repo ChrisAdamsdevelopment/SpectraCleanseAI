@@ -63,7 +63,7 @@ All of these must be set as secrets or env vars in the Render/Hyperlift dashboar
 |---|---|---|
 | `VITE_API_URL` | `https://api.spectracleanse.com` (or your actual backend URL) | [ ] |
 
-**Critical**: The frontend reads `VITE_API_URL` (confirmed in `app.tsx` line 11). `.env.example` incorrectly lists `VITE_BACKEND_URL` — do not use that name. If `VITE_API_URL` is missing at build time, the frontend will throw "Missing VITE_API_URL in production build" on first load.
+**Critical**: The frontend reads `VITE_API_URL` (confirmed in `app.tsx` line 11), and `.env.example` is aligned. Do not use `legacy backend env var`. If `VITE_API_URL` is missing at build time, the frontend will throw "Missing VITE_API_URL in production build" on first load.
 
 ---
 

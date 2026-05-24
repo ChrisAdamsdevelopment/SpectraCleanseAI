@@ -26,7 +26,7 @@ All changes to this plugin are documented here.
 - `docs/plugin-validation.md`: local install and manual validation checklist
 - `.mcp.json.example`: safe placeholder MCP config (no real secrets)
 - `README.md`: plugin overview, stack reference, install instructions
-- Documented VITE_API_URL vs VITE_BACKEND_URL discrepancy between app.tsx and .env.example
+- Resolved previous legacy backend env var vs VITE_API_URL discrepancy.
 - Documented Node 18 in ci.yml vs Node 20.20.2 in .nvmrc — noted as known conflict
 
 ### Notes

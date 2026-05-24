@@ -41,7 +41,7 @@
         { "@type": "Offer", "name": "Creator", "price": "9.99", "priceCurrency": "USD" },
         { "@type": "Offer", "name": "Studio", "price": "29.99", "priceCurrency": "USD" }
       ],
-      "featureList": ["Forensic AI provenance marker detection", "Nuclear XMP/IPTC/ID3 wipe", "Gemini-powered SEO metadata generation", "Platform presets for YouTube, Spotify, Apple Music, TikTok", "Batch processing up to 20 files", "MP3, WAV, FLAC, M4A, MP4 up to 500MB"]
+      "featureList": ["Forensic marker detection for C2PA/JUMBF/XMP metadata", "Nuclear XMP/IPTC/ID3 wipe", "Gemini-powered SEO metadata generation", "Platform presets for YouTube, Spotify, Apple Music, TikTok", "Batch processing up to 20 files", "MP3 Quick Cleanse (browser-side)", "MP4/M4A Full Server Cleanse (server-side via ExifTool)"]
     }
     </script>
     <script type="application/ld+json">
@@ -50,7 +50,7 @@
       "@type": "FAQPage",
       "mainEntity": [
         { "@type": "Question", "name": "Why is my AI-generated music getting suppressed on Spotify and YouTube?", "acceptedAnswer": { "@type": "Answer", "text": "Platforms use embedded metadata markers including C2PA provenance data and XMP tags to identify AI-generated content and restrict its algorithmic reach. SpectraCleanse AI forensically detects and removes these markers so your music is treated like any other upload." } },
-        { "@type": "Question", "name": "What file formats does SpectraCleanse AI support?", "acceptedAnswer": { "@type": "Answer", "text": "SpectraCleanse AI supports MP3, WAV, FLAC, M4A, and MP4 files up to 500MB. MP3 files use Quick Cleanse (browser-side); MP4 and M4A use Full Server Cleanse with ExifTool-powered deep metadata removal." } },
+        { "@type": "Question", "name": "What file formats does SpectraCleanse AI support?", "acceptedAnswer": { "@type": "Answer", "text": "SpectraCleanse AI currently supports MP3 via Quick Cleanse (browser-side) and MP4/M4A via Full Server Cleanse (server-side, ExifTool-powered). WAV and FLAC support is planned but not currently available." } },
         { "@type": "Question", "name": "Is SpectraCleanse AI free?", "acceptedAnswer": { "@type": "Answer", "text": "Yes. Free accounts process 3 files per month with no credit card required. Creator ($9.99/mo) and Studio ($29.99/mo) plans offer unlimited processing and additional features." } },
         { "@type": "Question", "name": "How does SpectraCleanse AI inject SEO metadata?", "acceptedAnswer": { "@type": "Answer", "text": "After wiping provenance markers, SpectraCleanse uses Google Gemini to generate an SEO-optimised title, description, and tag set tuned to your chosen platform, then writes that metadata directly into the output file." } }
       ]

@@ -14,7 +14,7 @@
 - **CORS**: If `NODE_ENV=production` and both `FRONTEND_URL` and `ALLOWED_ORIGINS` are empty, the server calls `process.exit(1)` at startup. This is a silent fail on Render if env vars are misconfigured.
 - **Stripe**: All four Stripe vars must be set in production or the server exits at startup: `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_CREATOR_PRICE_ID`, `STRIPE_STUDIO_PRICE_ID`.
 - **Frontend env var**: The frontend build reads `VITE_API_URL`. This must be set in the **build environment** (not just runtime). If missing in the build, the frontend will throw a runtime error: "Missing VITE_API_URL in production build."
-- **CI**: GitHub Actions (`.github/workflows/ci.yml`) runs audit + smoke test on push to `main`. Node 18 is used in CI — note this diverges from the production pin of 20.20.2. ⚠️ Known discrepancy.
+- **CI**: GitHub Actions (`.github/workflows/ci.yml`) runs audit + smoke test on push to `main`, and now uses `.nvmrc` (Node 20.20.2).
 - **Hyperlift**: `deploy.md` documents Spaceship Hyperlift as a deployment target with `hyperlift.toml` present in the repo. The `.env.example` also references Render terminology. Both are valid deployment paths; this checklist covers both.
 
 ---
@@ -47,7 +47,7 @@
 - [ ] `ENABLE_MOCK_CHECKOUT` — NOT set to `true` in production
 
 ### Environment variables — frontend (Vite build environment)
-- [ ] `VITE_API_URL` — set to `https://api.spectracleanse.com` or the correct backend URL (⚠️ note: `.env.example` lists `VITE_BACKEND_URL` but `app.tsx` reads `VITE_API_URL` — use `VITE_API_URL`)
+- [ ] `VITE_API_URL` — set to `https://api.spectracleanse.com` or the correct backend URL (`.env.example` and `app.tsx` are aligned on this variable)
 - [ ] This variable must be available at **build time**, not just runtime
 
 ### CORS and origins
@@ -163,7 +163,7 @@ Note: SpectraCleanse currently has no automated DB migration system. Schema chan
 ---
 
 ## Do not assume
-- Do not assume `VITE_BACKEND_URL` is the correct frontend env var — the code uses `VITE_API_URL`.
+- Frontend build-time API variable is `VITE_API_URL`. Do not use `legacy backend env var`.
 - Do not assume Node 18 compatibility from CI means Node 18 is the production target — production uses 20.20.2.
 - Do not assume Render's default disk is persistent — it must be explicitly configured.
 - Do not assume mock checkout is safe to leave enabled in production.
