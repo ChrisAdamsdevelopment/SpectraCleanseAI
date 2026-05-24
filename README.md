@@ -60,10 +60,10 @@ Questions, partnerships, or enterprise enquiries: [hello@spectracleanse.com](mai
 
 ## Native Node deployment runtime
 
-- Native Render/Node deployments should use **Node 20.20.2** (recommended) or a Node version within the supported engines range: `>=18 <23`.
+- Native Render/Node deployments should use **Node 20.20.2** (recommended) or another **Node 20.x** release.
 - If Render defaults your service to a newer Node release, set `NODE_VERSION=20.20.2` in the service environment.
 - Node 24 is currently not supported for native installs in validation because `better-sqlite3` native compilation failed under Node 24.
-- Docker deployments already pin Node 18 via the repo Dockerfile.
+- Docker deployments already pin Node 20 via the repo Dockerfile.
 
 ---
 

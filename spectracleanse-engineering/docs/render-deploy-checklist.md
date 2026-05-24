@@ -19,7 +19,7 @@ This checklist covers both Render (web service) and Spaceship Hyperlift (both do
 - [ ] Not Node 24 (better-sqlite3 native compilation incompatible)
 - [ ] Build log confirms `v20.x.x` — not `v18.x.x` or `v24.x.x`
 
-Note: `.github/workflows/ci.yml` uses Node 18 for CI. This diverges from the production pin. Do not use CI's Node version as a guide for the production runtime.
+Note: CI workflows should use `.nvmrc` (`20.20.2`) so native modules (for example `better-sqlite3`) are validated on the same major version used in production.
 
 ---
 

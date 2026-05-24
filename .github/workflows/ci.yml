@@ -75,7 +75,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          # Vite 4 requires Node 18; if you upgrade to Vite 5 bump this to 20
+          # Pinned via .nvmrc; keep CI aligned with production Node 20 baseline.
           node-version-file: ".nvmrc"
           cache: "npm"
           cache-dependency-path: package-lock.json
@@ -93,7 +93,7 @@ jobs:
         env:
           # Placeholder – real URL is injected at deploy time via Hyperlift env
           VITE_API_URL: https://spectracleanse.com
-        run: npx vite build
+        run: npm run build
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
