@@ -1,7 +1,7 @@
 # SpectraCleanse AI
 
 ![Live](https://img.shields.io/badge/status-live-brightgreen)
-![Pricing](https://img.shields.io/badge/pricing-free%20%7C%20%249.99%20%7C%20%2424.99-blue)
+![Pricing](https://img.shields.io/badge/pricing-free%20%7C%20%249.99%20%7C%20%2429.99-blue)
 ![Sign up](https://img.shields.io/badge/sign%20up-spectracleanse.com-cyan)
 
 **SpectraCleanse AI strips AI provenance markers and injects SEO metadata to beat algorithmic suppression.**
@@ -14,7 +14,7 @@ Upload your audio or video file, choose a platform preset, and SpectraCleanse AI
 
 → **[spectracleanse.com](https://spectracleanse.com)**
 
-No credit card required. Free accounts include 3 files per month. Upgrade to Creator ($9.99/mo) or Studio ($24.99/mo) for unlimited processing and batch uploads.
+No credit card required. Free accounts include 3 files per month. Upgrade to Creator ($9.99/mo) or Studio ($29.99/mo) for unlimited processing and batch uploads.
 
 ---
 
@@ -57,7 +57,6 @@ For a step-by-step manual validation flow (local, API smoke, auth, billing, uplo
 Questions, partnerships, or enterprise enquiries: [hello@spectracleanse.com](mailto:hello@spectracleanse.com)
 
 ---
-
 
 ## Native Node deployment runtime
 

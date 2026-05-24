@@ -509,6 +509,87 @@ function AuthScreen({ onAuth }: { onAuth: (token: string, user: AuthUser) => voi
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Processing status overlay — shown in main panel while analyzing/processing
+// ─────────────────────────────────────────────────────────────────────────────
+const PROCESSING_STEPS: Record<ItemStatus, { label: string; sub: string } | null> = {
+  analyzing: { label: 'Analyzing file…', sub: 'Reading metadata and scanning for provenance markers' },
+  processing: { label: 'Cleansing file…', sub: 'Wiping AI markers and injecting SEO metadata' },
+  pending:    null,
+  done:       null,
+  error:      null,
+};
+
+function ProcessingStatusBanner({ status, fileName }: { status: ItemStatus; fileName: string }) {
+  const step = PROCESSING_STEPS[status];
+  if (!step) return null;
+
+  return (
+    <div className="rounded-2xl border border-cyan-500/25 bg-cyan-500/5 p-6 flex flex-col items-center justify-center gap-5 text-center">
+      {/* Animated ring */}
+      <div className="relative w-16 h-16">
+        <svg
+          className="animate-spin w-16 h-16 text-cyan-500"
+          viewBox="0 0 64 64"
+          fill="none"
+          xmlns="http://www.w3.org/2000/svg"
+        >
+          <circle
+            cx="32" cy="32" r="28"
+            stroke="currentColor"
+            strokeWidth="4"
+            strokeOpacity="0.15"
+          />
+          <path
+            d="M60 32a28 28 0 0 0-28-28"
+            stroke="currentColor"
+            strokeWidth="4"
+            strokeLinecap="round"
+          />
+        </svg>
+        <div className="absolute inset-0 flex items-center justify-center">
+          <ShieldCheck className="text-cyan-400 w-6 h-6" />
+        </div>
+      </div>
+
+      {/* Label */}
+      <div>
+        <p className="text-base font-bold text-slate-100">{step.label}</p>
+        <p className="text-sm text-slate-400 mt-1 max-w-xs">{step.sub}</p>
+      </div>
+
+      {/* File name pill */}
+      <div className="flex items-center gap-2 bg-slate-800/60 border border-slate-700 rounded-lg px-3 py-1.5 max-w-full">
+        <FileText size={12} className="text-slate-500 shrink-0" />
+        <span className="text-[11px] text-slate-400 font-mono truncate max-w-[260px]">{fileName}</span>
+      </div>
+
+      {/* Animated step dots */}
+      <div className="flex items-center gap-2">
+        {(['analyzing', 'processing', 'done'] as const).map((s, i) => {
+          const isActive = s === status;
+          const isDone   = (s === 'analyzing' && status === 'processing') || s === 'done';
+          return (
+            <React.Fragment key={s}>
+              <div className={`
+                w-2 h-2 rounded-full transition-all duration-300
+                ${isActive ? 'bg-cyan-400 scale-125 shadow-[0_0_6px_rgba(34,211,238,0.6)]' : ''}
+                ${isDone   ? 'bg-emerald-500' : ''}
+                ${!isActive && !isDone ? 'bg-slate-700' : ''}
+              `} />
+              {i < 2 && (
+                <div className={`h-px w-6 transition-all duration-300 ${isDone ? 'bg-emerald-500/60' : 'bg-slate-700'}`} />
+              )}
+            </React.Fragment>
+          );
+        })}
+      </div>
+
+      <p className="text-[11px] text-slate-600">This may take a few seconds depending on file size</p>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Main App
 // ─────────────────────────────────────────────────────────────────────────────
 export default function App() {
@@ -1050,7 +1131,19 @@ export default function App() {
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-xs font-medium truncate">{item.file.name}</p>
-                    <p className="text-[10px] text-slate-500 uppercase mt-0.5">{item.status}</p>
+                    <p className={`text-[10px] uppercase mt-0.5 font-medium ${
+                      item.status === 'processing' || item.status === 'analyzing'
+                        ? 'text-cyan-400'
+                        : item.status === 'done'
+                          ? 'text-emerald-400'
+                          : item.status === 'error'
+                            ? 'text-red-400'
+                            : 'text-slate-500'
+                    }`}>
+                      {item.status === 'analyzing' ? 'analyzing…' :
+                       item.status === 'processing' ? 'processing…' :
+                       item.status}
+                    </p>
                   </div>
                   <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                     {item.status === 'done' && item.downloadUrl && (
@@ -1095,6 +1188,11 @@ export default function App() {
                 </span>
               </div>
 
+              {/* ── Processing status banner ── */}
+              {(activeItem.status === 'analyzing' || activeItem.status === 'processing') && (
+                <ProcessingStatusBanner status={activeItem.status} fileName={activeItem.file.name} />
+              )}
+
               {/* Error – with special upgrade CTA for limit errors */}
               {activeItem.error && (
                 <div className={`p-4 rounded-xl border text-sm ${
@@ -1119,6 +1217,11 @@ export default function App() {
                 </div>
               )}
 
+              <div className={`transition-opacity duration-300 ${
+                activeItem.status === 'analyzing' || activeItem.status === 'processing'
+                  ? 'opacity-40 pointer-events-none select-none'
+                  : 'opacity-100'
+              }`}>
               {/* SEO config */}
               <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 sm:p-6 space-y-4 shadow-xl shadow-black/20">
                 <h2 className="font-bold flex items-center gap-2">
@@ -1324,6 +1427,7 @@ export default function App() {
                   </div>
                 )}
               </div>
+              </div>{/* end opacity wrapper */}
 
               <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
                 <h3 className="font-bold mb-3">Analysis</h3>

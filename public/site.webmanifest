@@ -1,0 +1,13 @@
+{
+  "name": "SpectraCleanse AI",
+  "short_name": "SpectraCleanse",
+  "description": "Strip AI provenance markers and inject SEO metadata to beat algorithmic suppression.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#020617",
+  "theme_color": "#0891b2",
+  "icons": [
+    { "src": "/assets/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/assets/icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}
