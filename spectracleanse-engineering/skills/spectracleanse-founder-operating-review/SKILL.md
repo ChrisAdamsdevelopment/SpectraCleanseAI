@@ -55,7 +55,7 @@ If live tooling is not connected, ask the founder to provide:
 ## Risks
 [Active risks right now — ranked by severity. Examples:
 - No tests for Stripe webhook processing
-- `VITE_API_URL` discrepancy with .env.example not yet fixed
+- Historical note: previous `legacy backend env var` vs `VITE_API_URL` mismatch is resolved; `.env.example` and `app.tsx` now align.
 - CI uses Node 18, production uses Node 20.20.2
 - WAV/FLAC accepted by Multer but rejected by processor (bandwidth waste + user confusion)
 - README still claims WAV/FLAC support in marketing copy]

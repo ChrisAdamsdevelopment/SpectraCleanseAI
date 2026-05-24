@@ -83,7 +83,7 @@ See `docs/env-and-secrets-reference.md` for full descriptions and Render notes.
 `ENABLE_MOCK_CHECKOUT`, `GEMINI_API_KEY`
 
 **Frontend (build-time)**:
-`VITE_API_URL` ← confirmed from `app.tsx` line 11. Note: `.env.example` lists `VITE_API_URL` — this is an **inaccuracy in .env.example**. The correct variable is `VITE_API_URL`.
+`VITE_API_URL` ← confirmed from `app.tsx` line 11. `.env.example` is aligned and also uses `VITE_API_URL`. Do not use `legacy backend env var`.
 
 ---
 
@@ -137,7 +137,7 @@ See `docs/env-and-secrets-reference.md` for full descriptions and Render notes.
 
 | Location | Discrepancy |
 |---|---|
-| `.env.example` | Lists `VITE_API_URL`; `app.tsx` reads `VITE_API_URL` |
+| `.env.example` | Uses `VITE_API_URL`; aligned with `app.tsx` |
 | `README.md` marketing copy | Claims WAV/FLAC support; processor rejects both |
 | `.github/workflows/ci.yml` | Uses Node 18; production target is Node 20.20.2 |
 | `README.md` | Lists `REDIS_URL` as a required production env var; Redis is not used in current codebase |

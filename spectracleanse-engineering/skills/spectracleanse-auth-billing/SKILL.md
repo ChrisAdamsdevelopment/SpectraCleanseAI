@@ -145,7 +145,7 @@
 - Do not assume mock checkout works in production — `ENABLE_MOCK_CHECKOUT` must not be `true` in prod.
 - Do not assume Stripe webhook delivery is instant — events can be delayed or retried.
 - Do not assume email verification exists — there is currently no email verification in the auth system.
-- Do not assume `VITE_API_URL` is the correct frontend env var — the frontend reads `VITE_API_URL`.
+- Frontend build-time API variable is `VITE_API_URL`. Do not use `legacy backend env var`.
 
 ---
 
