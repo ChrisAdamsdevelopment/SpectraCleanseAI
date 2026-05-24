@@ -19,9 +19,10 @@ type Platform = typeof PLATFORMS[number];
 type ItemStatus = 'pending' | 'analyzing' | 'processing' | 'done' | 'error';
 type RiskLevel = 'High' | 'Low';
 
-const DEFAULT_RELEASE_ARTIST = 'Sobelo';
-const DEFAULT_RELEASE_PRODUCER = 'Triple7';
-const DEFAULT_RELEASE_COPYRIGHT = `© ${new Date().getUTCFullYear()} Sobelo / Triple7 Music`;
+const DEFAULT_RELEASE_ARTIST = '';
+const RELEASE_DEFAULTS_STORAGE_KEY = 'spectracleanse_release_defaults';
+const DEFAULT_RELEASE_PRODUCER = '';
+const DEFAULT_RELEASE_COPYRIGHT = '';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -63,6 +64,7 @@ interface ReleaseMetadata {
   tags: string;
   lyrics: string;
 }
+type SavedReleaseDefaults = Pick<ReleaseMetadata, 'artist' | 'albumArtist' | 'producer' | 'copyright' | 'genre' | 'description' | 'comment' | 'tags'>;
 
 interface QueueItem {
   id: string;
@@ -98,16 +100,36 @@ function PlanBadge({ plan }: { plan: string }) {
 
 const cleanMetadataField = (value: string | undefined | null) => String(value || '').trim();
 
-const getInitialReleaseMetadata = (file: File): ReleaseMetadata => ({
+const getSavedReleaseDefaults = (): SavedReleaseDefaults | null => {
+  try {
+    const raw = localStorage.getItem(RELEASE_DEFAULTS_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<SavedReleaseDefaults>;
+    return {
+      artist: cleanMetadataField(parsed.artist),
+      albumArtist: cleanMetadataField(parsed.albumArtist),
+      producer: cleanMetadataField(parsed.producer),
+      copyright: cleanMetadataField(parsed.copyright),
+      genre: cleanMetadataField(parsed.genre),
+      description: cleanMetadataField(parsed.description),
+      comment: cleanMetadataField(parsed.comment),
+      tags: cleanMetadataField(parsed.tags),
+    };
+  } catch {
+    return null;
+  }
+};
+
+const getInitialReleaseMetadata = (file: File, savedDefaults: SavedReleaseDefaults | null): ReleaseMetadata => ({
   title: file.name.replace(/\.[^.]+$/, ''),
-  artist: DEFAULT_RELEASE_ARTIST,
-  albumArtist: DEFAULT_RELEASE_ARTIST,
-  producer: DEFAULT_RELEASE_PRODUCER,
-  copyright: DEFAULT_RELEASE_COPYRIGHT,
-  genre: '',
-  description: '',
-  comment: '',
-  tags: '',
+  artist: savedDefaults?.artist || DEFAULT_RELEASE_ARTIST,
+  albumArtist: savedDefaults?.albumArtist || savedDefaults?.artist || DEFAULT_RELEASE_ARTIST,
+  producer: savedDefaults?.producer || DEFAULT_RELEASE_PRODUCER,
+  copyright: savedDefaults?.copyright || DEFAULT_RELEASE_COPYRIGHT,
+  genre: savedDefaults?.genre || '',
+  description: savedDefaults?.description || '',
+  comment: savedDefaults?.comment || '',
+  tags: savedDefaults?.tags || '',
   lyrics: '',
 });
 
@@ -727,6 +749,7 @@ export default function App() {
 
   const addFiles = (files: FileList | File[]) => {
     const validExt = /\.(mp3|wav|flac|m4a|mp4)$/i;
+    const savedDefaults = getSavedReleaseDefaults();
     const newItems: QueueItem[] = Array.from(files)
       .filter(f => validExt.test(f.name))
       .slice(0, 20 - queue.length)
@@ -734,7 +757,7 @@ export default function App() {
         id: crypto.randomUUID(),
         file,
         status: 'pending' as ItemStatus,
-        seo: getInitialReleaseMetadata(file),
+        seo: getInitialReleaseMetadata(file, savedDefaults),
         downloadUrl: null, downloadName: null, report: null, error: null, analysis: null, logs: [],
       }));
     if (newItems.length === 0) return;
@@ -754,6 +777,20 @@ export default function App() {
   const addLog = (id: string, message: string) => {
     const stamp = new Date().toLocaleTimeString();
     updateItem(id, { logs: [...(queue.find(i => i.id === id)?.logs || []), `[${stamp}] ${message}`] });
+  };
+
+  const saveReleaseDefaults = (metadata: ReleaseMetadata) => {
+    const defaultsToSave: SavedReleaseDefaults = {
+      artist: cleanMetadataField(metadata.artist),
+      albumArtist: cleanMetadataField(metadata.albumArtist),
+      producer: cleanMetadataField(metadata.producer),
+      copyright: cleanMetadataField(metadata.copyright),
+      genre: cleanMetadataField(metadata.genre),
+      description: cleanMetadataField(metadata.description),
+      comment: cleanMetadataField(metadata.comment),
+      tags: cleanMetadataField(metadata.tags),
+    };
+    localStorage.setItem(RELEASE_DEFAULTS_STORAGE_KEY, JSON.stringify(defaultsToSave));
   };
 
   const withOperationTimeout = async <T,>(promise: Promise<T>, timeoutMs: number, timeoutMessage: string): Promise<T> => {
@@ -1238,33 +1275,66 @@ export default function App() {
                     <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Artist</label>
                     <input type="text" value={activeItem.seo.artist}
                       onChange={e => updateItem(activeItem.id, { seo: { ...activeItem.seo, artist: e.target.value } })}
+                      placeholder="Your artist name"
+                      className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:border-cyan-500 outline-none transition-colors" />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Album Artist</label>
+                    <input type="text" value={activeItem.seo.albumArtist}
+                      onChange={e => updateItem(activeItem.id, { seo: { ...activeItem.seo, albumArtist: e.target.value } })}
+                      placeholder="Your artist name or group"
                       className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:border-cyan-500 outline-none transition-colors" />
                   </div>
                   <div>
                     <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Producer</label>
                     <input type="text" value={activeItem.seo.producer}
                       onChange={e => updateItem(activeItem.id, { seo: { ...activeItem.seo, producer: e.target.value } })}
+                      placeholder="Producer / label name"
                       className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:border-cyan-500 outline-none transition-colors" />
                   </div>
                   <div>
                     <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Copyright</label>
                     <input type="text" value={activeItem.seo.copyright}
                       onChange={e => updateItem(activeItem.id, { seo: { ...activeItem.seo, copyright: e.target.value } })}
+                      placeholder="© 2026 Your Name or Label"
                       className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:border-cyan-500 outline-none transition-colors" />
                   </div>
                   <div>
                     <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Genre</label>
                     <input type="text" value={activeItem.seo.genre}
                       onChange={e => updateItem(activeItem.id, { seo: { ...activeItem.seo, genre: e.target.value } })}
-                      placeholder="trap, metal, cinematic…"
+                      placeholder="trap, hip-hop, latin urban"
                       className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:border-cyan-500 outline-none transition-colors" />
                   </div>
                 </div>
-                <p className="text-[11px] text-slate-500">Sobelo / Triple7 values are editable defaults used only when release fields are left blank.</p>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    onClick={() => {
+                      saveReleaseDefaults(resolveReleaseMetadata(activeItem.seo));
+                      addLog(activeItem.id, 'Release defaults saved.');
+                    }}
+                    className="px-3 py-1.5 text-xs bg-cyan-700 hover:bg-cyan-600 rounded-lg"
+                  >Save as My Defaults</button>
+                  <button
+                    onClick={() => {
+                      localStorage.removeItem(RELEASE_DEFAULTS_STORAGE_KEY);
+                      addLog(activeItem.id, 'Release defaults cleared.');
+                    }}
+                    className="px-3 py-1.5 text-xs bg-slate-700 hover:bg-slate-600 rounded-lg"
+                  >Clear Saved Defaults</button>
+                </div>
                 <div>
                   <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Description</label>
                   <textarea rows={3} value={activeItem.seo.description}
                     onChange={e => updateItem(activeItem.id, { seo: { ...activeItem.seo, description: e.target.value } })}
+                    placeholder="Short release description"
+                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:border-cyan-500 outline-none resize-none" />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Comment</label>
+                  <textarea rows={2} value={activeItem.seo.comment}
+                    onChange={e => updateItem(activeItem.id, { seo: { ...activeItem.seo, comment: e.target.value } })}
+                    placeholder="Optional comment / credits"
                     className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:border-cyan-500 outline-none resize-none" />
                 </div>
                 <button onClick={async ()=>{
@@ -1311,14 +1381,14 @@ export default function App() {
                   <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Tags (comma-separated)</label>
                   <input type="text" value={activeItem.seo.tags}
                     onChange={e => updateItem(activeItem.id, { seo: { ...activeItem.seo, tags: e.target.value } })}
-                    placeholder="trap, heavy metal, original…"
+                    placeholder="comma-separated tags"
                     className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:border-cyan-500 outline-none transition-colors" />
                 </div>
                 <div>
                   <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Lyrics</label>
                   <textarea rows={3} value={activeItem.seo.lyrics}
                     onChange={e => updateItem(activeItem.id, { seo: { ...activeItem.seo, lyrics: e.target.value } })}
-                    placeholder="Optional lyrics to write when available…"
+                    placeholder="Optional lyrics"
                     className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:border-cyan-500 outline-none resize-none" />
                 </div>
               </div>
@@ -1371,7 +1441,7 @@ export default function App() {
                               comment: activeItem.seo.comment,
                               lyrics: activeItem.seo.lyrics || activeItem.analysis?.lyrics || '',
                               tags: activeItem.seo.tags,
-                              publisher: 'Triple7 Music',
+                              publisher: activeItem.seo.producer || '',
                             });
                             rewrittenBlob = blob;
                             addLog(itemId, `ID3 frames written: ${frameReport.writtenFrames.join(', ') || 'none'}${frameReport.skippedFrames.length ? ` | skipped: ${frameReport.skippedFrames.join(', ')}` : ''}`);
