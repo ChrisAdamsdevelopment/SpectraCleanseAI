@@ -34,6 +34,7 @@
     "lucide-react": "^0.390.0",
     "multer": "^2.0.0",
     "music-metadata": "^11.12.3",
+    "nodemailer": "^6.10.1",
     "postcss": "^8.4.38",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
@@ -44,7 +45,7 @@
   },
   "license": "MIT",
   "devDependencies": {
-    "vitest": "^2.1.9",
-    "jsdom": "^26.1.0"
+    "jsdom": "^26.1.0",
+    "vitest": "^2.1.9"
   }
 }

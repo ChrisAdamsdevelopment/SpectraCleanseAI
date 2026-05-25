@@ -324,7 +324,7 @@ const triggerDownload = (url: string, fileName: string) => {
 // ─────────────────────────────────────────────────────────────────────────────
 // Auth Screen (unchanged from previous version)
 // ─────────────────────────────────────────────────────────────────────────────
-function AuthScreen({ onAuth }: { onAuth: (token: string, user: AuthUser) => void }) {
+function AuthScreen({ onAuth, resetToken, onResetConsumed }: { onAuth: (token: string, user: AuthUser) => void; resetToken?: string | null; onResetConsumed?: () => void }) {
   const [mode, setMode]       = useState<'login' | 'signup'>('login');
   const [email, setEmail]     = useState('');
   const [password, setPassword] = useState('');
@@ -333,8 +333,10 @@ function AuthScreen({ onAuth }: { onAuth: (token: string, user: AuthUser) => voi
   const [error, setError]     = useState<string | null>(null);
   const [info, setInfo]       = useState<string | null>(null);
   const [fadeIn, setFadeIn]   = useState(false);
+  const [newPassword, setNewPassword] = useState('');
 
   useEffect(() => { requestAnimationFrame(() => setFadeIn(true)); }, []);
+  useEffect(() => { if (resetToken) { setMode('login'); setInfo('Enter a new password to complete your reset.'); } }, [resetToken]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -404,6 +406,39 @@ function AuthScreen({ onAuth }: { onAuth: (token: string, user: AuthUser) => voi
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-4">
+            {resetToken && (
+              <div className="p-3 bg-violet-500/10 border border-violet-500/20 rounded-xl text-violet-200 text-sm space-y-2">
+                <p className="text-xs">Reset password token detected.</p>
+                <input
+                  type="password"
+                  minLength={8}
+                  value={newPassword}
+                  onChange={e => setNewPassword(e.target.value)}
+                  placeholder="New password (min 8 characters)"
+                  className="w-full bg-slate-950/80 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-100 placeholder-slate-600 focus:border-violet-500 focus:outline-none focus:ring-1 focus:ring-violet-500/30 transition-all"
+                />
+                <button
+                  type="button"
+                  onClick={async () => {
+                    setError(null);
+                    setInfo(null);
+                    const res = await fetch(`${API_BASE_URL}/api/auth/reset-password`, {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ token: resetToken, newPassword }),
+                    });
+                    const data = await res.json();
+                    if (!res.ok) return setError(data.error || 'Password reset failed.');
+                    setInfo(data.message || 'Password reset successful. You can now sign in.');
+                    setNewPassword('');
+                    onResetConsumed?.();
+                  }}
+                  className="w-full py-2 bg-violet-600 hover:bg-violet-500 text-white text-sm font-semibold rounded-lg"
+                >
+                  Set New Password
+                </button>
+              </div>
+            )}
             <div>
               <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">Email address</label>
               <div className="relative">
@@ -713,7 +748,7 @@ export default function App() {
 
   // ── Render guard ─────────────────────────────────────────────────────────────
   if (!authToken || !currentUser) {
-    return <AuthScreen onAuth={handleAuth} />;
+    return <AuthScreen onAuth={handleAuth} resetToken={resetToken} onResetConsumed={() => window.history.replaceState({}, '', window.location.pathname)} />;
   }
 
   // ── Queue helpers ─────────────────────────────────────────────────────────────
