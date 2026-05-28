@@ -11,6 +11,7 @@ const cleanup = require('./server/cleanup');
 const downloadTokens = require('./server/downloadTokens');
 const { createEmailVerificationToken, createPasswordResetToken, hashToken } = require('./server/authTokens');
 const { sendEmail, APP_BASE_URL, isEmailDeliveryConfigured } = require('./server/emailService');
+const { buildForgotPasswordGenericResponse, buildUnauthResendVerificationGenericResponse } = require('./server/authRecoveryPolicy');
 const bcrypt     = require('bcryptjs');
 const jwt        = require('jsonwebtoken');
 const Database   = require('better-sqlite3');
@@ -344,7 +345,8 @@ app.post('/api/auth/resend-verification', async (req, res) => {
   const authHeader = req.headers.authorization || '';
   const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : '';
   let user = null;
-  if (authHeader.startsWith('Bearer ')) {
+  const isAuthenticatedAttempt = authHeader.startsWith('Bearer ');
+  if (isAuthenticatedAttempt) {
     try {
       const parsed = jwt.verify(authHeader.slice(7), JWT_SECRET);
       user = db.prepare('SELECT * FROM users WHERE id = ?').get(parsed.sub);
@@ -358,9 +360,19 @@ app.post('/api/auth/resend-verification', async (req, res) => {
       try {
         await issueVerificationEmail(user);
       } catch (err) {
-        if (IS_PROD && err?.code === 'EMAIL_NOT_CONFIGURED') return res.status(503).json({ error: 'Email delivery is not configured on this server.' });
+        if (IS_PROD && err?.code === 'EMAIL_NOT_CONFIGURED') {
+          if (isAuthenticatedAttempt) {
+            return res.status(503).json({ error: 'Email delivery is not configured on this server.' });
+          }
+          const generic = buildUnauthResendVerificationGenericResponse(false);
+          return res.status(generic.status).json(generic.body);
+        }
       }
     }
+  }
+  if (!isAuthenticatedAttempt) {
+    const generic = buildUnauthResendVerificationGenericResponse(isEmailDeliveryConfigured());
+    return res.status(generic.status).json(generic.body);
   }
   return res.json({ message: 'If eligible, a verification email has been sent.' });
 });
@@ -380,26 +392,29 @@ app.get('/api/auth/verify-email', (req, res) => {
 
 app.post('/api/auth/forgot-password', async (req, res) => {
   const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : '';
-  if (!email) return res.json({ message: 'If an account exists, a reset link was sent.' });
+  if (!email) {
+    const generic = buildForgotPasswordGenericResponse(isEmailDeliveryConfigured());
+    return res.status(generic.status).json(generic.body);
+  }
   const user = db.prepare('SELECT * FROM users WHERE email = ?').get(email);
   if (user) {
+    if (IS_PROD && !isEmailDeliveryConfigured()) {
+      const generic = buildForgotPasswordGenericResponse(false);
+      return res.status(generic.status).json(generic.body);
+    }
     const { token, tokenHash, expiresAt } = createPasswordResetToken();
     const nowIso = new Date().toISOString();
-    db.prepare(`UPDATE users SET password_reset_token_hash=?, password_reset_expires_at=?, password_reset_sent_at=? WHERE id=?`)
-      .run(tokenHash, expiresAt, nowIso, user.id);
     const link = `${APP_BASE_URL.replace(/\/$/, '')}/?resetToken=${encodeURIComponent(token)}`;
     try {
       await sendEmail({ to: user.email, subject: 'Reset your SpectraCleanseAI password', text: `Reset password: ${link}`, html: `<a href="${link}">${link}</a>`, devLink: link });
+      db.prepare(`UPDATE users SET password_reset_token_hash=?, password_reset_expires_at=?, password_reset_sent_at=? WHERE id=?`)
+        .run(tokenHash, expiresAt, nowIso, user.id);
     } catch (err) {
-      if (IS_PROD && err?.code === 'EMAIL_NOT_CONFIGURED') {
-        return res.status(503).json({
-          message: 'If an account exists, a reset link was sent.',
-          emailDeliveryConfigured: false,
-        });
-      }
+      if (IS_PROD && err?.code === 'EMAIL_NOT_CONFIGURED') {}
     }
   }
-  return res.json({ message: 'If an account exists, a reset link was sent.', emailDeliveryConfigured: isEmailDeliveryConfigured() });
+  const generic = buildForgotPasswordGenericResponse(isEmailDeliveryConfigured());
+  return res.status(generic.status).json(generic.body);
 });
 
 app.post('/api/auth/reset-password', async (req, res) => {
