@@ -9,7 +9,9 @@ const { processMediaFile } = require('./server/processor');
 const { CLEANSE_POLICY, normalizeExt, isServerSupportedFormat } = require('./server/cleansePolicy');
 const cleanup = require('./server/cleanup');
 const downloadTokens = require('./server/downloadTokens');
-const crypto = require('crypto');
+const { createEmailVerificationToken, createPasswordResetToken, hashToken } = require('./server/authTokens');
+const { sendEmail, APP_BASE_URL, isEmailDeliveryConfigured } = require('./server/emailService');
+const { buildForgotPasswordGenericResponse, buildUnauthResendVerificationGenericResponse } = require('./server/authRecoveryPolicy');
 const bcrypt     = require('bcryptjs');
 const jwt        = require('jsonwebtoken');
 const Database   = require('better-sqlite3');
@@ -77,6 +79,17 @@ db.exec(`
     created_at  TEXT    NOT NULL DEFAULT (datetime('now'))
   );
 `);
+const userColumns = db.prepare(`PRAGMA table_info(users)`).all().map((col) => col.name);
+const ensureUserColumn = (name, definition) => {
+  if (!userColumns.includes(name)) db.exec(`ALTER TABLE users ADD COLUMN ${name} ${definition}`);
+};
+ensureUserColumn('email_verified_at', 'TEXT');
+ensureUserColumn('email_verification_token_hash', 'TEXT');
+ensureUserColumn('email_verification_expires_at', 'TEXT');
+ensureUserColumn('email_verification_sent_at', 'TEXT');
+ensureUserColumn('password_reset_token_hash', 'TEXT');
+ensureUserColumn('password_reset_expires_at', 'TEXT');
+ensureUserColumn('password_reset_sent_at', 'TEXT');
 
 
 cleanup.init(db);
@@ -108,6 +121,22 @@ const JWT_EXPIRES = '7d';
 
 function signToken(userId, email, plan) {
   return jwt.sign({ sub: userId, email, plan }, JWT_SECRET, { expiresIn: JWT_EXPIRES });
+}
+const VERIFICATION_RESEND_MS = 60 * 1000;
+
+async function issueVerificationEmail(user) {
+  const nowIso = new Date().toISOString();
+  const { token, tokenHash, expiresAt } = createEmailVerificationToken();
+  db.prepare(`UPDATE users SET email_verification_token_hash=?, email_verification_expires_at=?, email_verification_sent_at=? WHERE id=?`)
+    .run(tokenHash, expiresAt, nowIso, user.id);
+  const link = `${APP_BASE_URL.replace(/\/$/, '')}/?verifyToken=${encodeURIComponent(token)}`;
+  return sendEmail({
+    to: user.email,
+    subject: 'Verify your SpectraCleanseAI email',
+    text: `Verify your email: ${link}`,
+    html: `<p>Verify your email:</p><p><a href="${link}">${link}</a></p>`,
+    devLink: link,
+  });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -245,11 +274,23 @@ app.post('/api/register', async (req, res) => {
     const result = db.prepare(
       'INSERT INTO users (email, password, plan) VALUES (?, ?, ?)'
     ).run(normalizedEmail, hash, 'free');
-
+    const createdUser = { id: result.lastInsertRowid, email: normalizedEmail };
+    let verificationNotice = 'Email verification pending.';
+    let verificationEmailSent = false;
+    try {
+      await issueVerificationEmail(createdUser);
+      verificationEmailSent = true;
+    } catch (emailErr) {
+      if (IS_PROD) verificationNotice = 'Account created, but verification email could not be sent. Please contact support.';
+      else verificationNotice = 'Account created. Email service unavailable in development fallback.';
+    }
     const token = signToken(result.lastInsertRowid, normalizedEmail, 'free');
     return res.status(201).json({
       token,
-      user: { id: result.lastInsertRowid, email: normalizedEmail, plan: 'free' },
+      user: { id: result.lastInsertRowid, email: normalizedEmail, plan: 'free', emailVerified: false },
+      verificationNotice,
+      verificationEmailSent,
+      emailDeliveryConfigured: isEmailDeliveryConfigured(),
     });
   } catch (err) {
     console.error('Register error:', err);
@@ -279,25 +320,117 @@ app.post('/api/login', async (req, res) => {
   const token = signToken(user.id, user.email, user.plan);
   return res.json({
     token,
-    user: { id: user.id, email: user.email, plan: user.plan },
+    user: { id: user.id, email: user.email, plan: user.plan, emailVerified: Boolean(user.email_verified_at) },
   });
 });
 
 // GET /api/me – re-fetch live plan + usage; call after Stripe redirect to pick up upgrade
 app.get('/api/me', requireAuth, (req, res) => {
   const user = db.prepare(
-    'SELECT id, email, plan, created_at FROM users WHERE id = ?'
+    'SELECT id, email, plan, created_at, email_verified_at FROM users WHERE id = ?'
   ).get(req.user.sub);
   if (!user) return res.status(404).json({ error: 'User not found' });
 
   const usageThisMonth = getMonthlyJobCount(user.id);
   return res.json({
-    user,
+    user: { ...user, emailVerified: Boolean(user.email_verified_at) },
     usage: {
       thisMonth: usageThisMonth,
       limit: user.plan === 'free' ? FREE_MONTHLY_LIMIT : null,
     },
   });
+});
+
+app.post('/api/auth/resend-verification', async (req, res) => {
+  const authHeader = req.headers.authorization || '';
+  const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : '';
+  let user = null;
+  const isAuthenticatedAttempt = authHeader.startsWith('Bearer ');
+  if (isAuthenticatedAttempt) {
+    try {
+      const parsed = jwt.verify(authHeader.slice(7), JWT_SECRET);
+      user = db.prepare('SELECT * FROM users WHERE id = ?').get(parsed.sub);
+    } catch {}
+  } else if (email) {
+    user = db.prepare('SELECT * FROM users WHERE email = ?').get(email);
+  }
+  if (user && !user.email_verified_at) {
+    const lastSent = user.email_verification_sent_at ? Date.parse(user.email_verification_sent_at) : 0;
+    if (Date.now() - lastSent >= VERIFICATION_RESEND_MS) {
+      try {
+        await issueVerificationEmail(user);
+      } catch (err) {
+        if (IS_PROD && err?.code === 'EMAIL_NOT_CONFIGURED') {
+          if (isAuthenticatedAttempt) {
+            return res.status(503).json({ error: 'Email delivery is not configured on this server.' });
+          }
+          const generic = buildUnauthResendVerificationGenericResponse(false);
+          return res.status(generic.status).json(generic.body);
+        }
+      }
+    }
+  }
+  if (!isAuthenticatedAttempt) {
+    const generic = buildUnauthResendVerificationGenericResponse(isEmailDeliveryConfigured());
+    return res.status(generic.status).json(generic.body);
+  }
+  return res.json({ message: 'If eligible, a verification email has been sent.' });
+});
+
+app.get('/api/auth/verify-email', (req, res) => {
+  const token = typeof req.query.token === 'string' ? req.query.token : '';
+  if (!token) return res.status(400).json({ error: 'Missing token' });
+  const tokenHash = hashToken(token);
+  const user = db.prepare(`SELECT * FROM users WHERE email_verification_token_hash = ?`).get(tokenHash);
+  if (!user || !user.email_verification_expires_at || Date.parse(user.email_verification_expires_at) <= Date.now()) {
+    return res.status(400).json({ error: 'Invalid or expired verification token.' });
+  }
+  db.prepare(`UPDATE users SET email_verified_at=?, email_verification_token_hash=NULL, email_verification_expires_at=NULL, email_verification_sent_at=NULL WHERE id=?`)
+    .run(new Date().toISOString(), user.id);
+  return res.json({ success: true, message: 'Email verified successfully.' });
+});
+
+app.post('/api/auth/forgot-password', async (req, res) => {
+  const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : '';
+  if (!email) {
+    const generic = buildForgotPasswordGenericResponse(isEmailDeliveryConfigured());
+    return res.status(generic.status).json(generic.body);
+  }
+  const user = db.prepare('SELECT * FROM users WHERE email = ?').get(email);
+  if (user) {
+    if (IS_PROD && !isEmailDeliveryConfigured()) {
+      const generic = buildForgotPasswordGenericResponse(false);
+      return res.status(generic.status).json(generic.body);
+    }
+    const { token, tokenHash, expiresAt } = createPasswordResetToken();
+    const nowIso = new Date().toISOString();
+    const link = `${APP_BASE_URL.replace(/\/$/, '')}/?resetToken=${encodeURIComponent(token)}`;
+    try {
+      await sendEmail({ to: user.email, subject: 'Reset your SpectraCleanseAI password', text: `Reset password: ${link}`, html: `<a href="${link}">${link}</a>`, devLink: link });
+      db.prepare(`UPDATE users SET password_reset_token_hash=?, password_reset_expires_at=?, password_reset_sent_at=? WHERE id=?`)
+        .run(tokenHash, expiresAt, nowIso, user.id);
+    } catch (err) {
+      if (IS_PROD && err?.code === 'EMAIL_NOT_CONFIGURED') {}
+    }
+  }
+  const generic = buildForgotPasswordGenericResponse(isEmailDeliveryConfigured());
+  return res.status(generic.status).json(generic.body);
+});
+
+app.post('/api/auth/reset-password', async (req, res) => {
+  const { token, newPassword } = req.body || {};
+  if (!token || typeof token !== 'string' || !newPassword || typeof newPassword !== 'string' || newPassword.length < 8) {
+    return res.status(400).json({ error: 'Token and a valid new password are required.' });
+  }
+  const tokenHash = hashToken(token);
+  const user = db.prepare('SELECT * FROM users WHERE password_reset_token_hash = ?').get(tokenHash);
+  if (!user || !user.password_reset_expires_at || Date.parse(user.password_reset_expires_at) <= Date.now()) {
+    return res.status(400).json({ error: 'Invalid or expired reset token.' });
+  }
+  const passwordHash = await bcrypt.hash(newPassword, 12);
+  db.prepare(`UPDATE users SET password=?, password_reset_token_hash=NULL, password_reset_expires_at=NULL, password_reset_sent_at=NULL WHERE id=?`)
+    .run(passwordHash, user.id);
+  return res.json({ success: true, message: 'Password updated successfully.' });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

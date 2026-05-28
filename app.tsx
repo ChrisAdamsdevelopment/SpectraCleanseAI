@@ -38,6 +38,7 @@ interface AuthUser {
   id: number;
   email: string;
   plan: 'free' | 'creator' | 'studio' | 'enterprise';
+  emailVerified?: boolean;
 }
 
 interface UsageState {
@@ -323,33 +324,32 @@ const triggerDownload = (url: string, fileName: string) => {
 // ─────────────────────────────────────────────────────────────────────────────
 // Auth Screen (unchanged from previous version)
 // ─────────────────────────────────────────────────────────────────────────────
-function AuthScreen({ onAuth }: { onAuth: (token: string, user: AuthUser) => void }) {
+function AuthScreen({ onAuth, resetToken, onResetConsumed }: { onAuth: (token: string, user: AuthUser) => void; resetToken?: string | null; onResetConsumed?: () => void }) {
   const [mode, setMode]       = useState<'login' | 'signup'>('login');
   const [email, setEmail]     = useState('');
   const [password, setPassword] = useState('');
   const [showPw, setShowPw]   = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError]     = useState<string | null>(null);
+  const [info, setInfo]       = useState<string | null>(null);
   const [fadeIn, setFadeIn]   = useState(false);
+  const [newPassword, setNewPassword] = useState('');
 
   useEffect(() => { requestAnimationFrame(() => setFadeIn(true)); }, []);
+  useEffect(() => { if (resetToken) { setMode('login'); setInfo('Enter a new password to complete your reset.'); } }, [resetToken]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    setInfo(null);
     setLoading(true);
     const endpoint = mode === 'login' ? '/api/login' : '/api/register';
     try {
-      const requestUrl = `${API_BASE_URL}${endpoint}`;
-      if (mode === 'signup') console.log('Register API URL:', `${API_BASE_URL}/api/register`);
-
-      const res = await fetch(requestUrl, {
+      const res = await fetch(`${API_BASE_URL}${endpoint}`, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: email.trim(), password }),
       });
-
-      console.log(`[Auth] ${mode} status:`, res.status);
 
       const data = await res.json();
       if (!res.ok) {
@@ -360,10 +360,8 @@ function AuthScreen({ onAuth }: { onAuth: (token: string, user: AuthUser) => voi
         return;
       }
       onAuth(data.token, data.user);
-    } catch (err) {
-      if (mode === 'signup') {
-        console.error('Register request network/CORS error:', err);
-      }
+      if (mode === 'signup' && data.verificationNotice) setInfo(data.verificationNotice);
+    } catch {
       setError('Cannot reach the server. Check your connection.');
     } finally {
       setLoading(false);
@@ -408,6 +406,39 @@ function AuthScreen({ onAuth }: { onAuth: (token: string, user: AuthUser) => voi
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-4">
+            {resetToken && (
+              <div className="p-3 bg-violet-500/10 border border-violet-500/20 rounded-xl text-violet-200 text-sm space-y-2">
+                <p className="text-xs">Reset password token detected.</p>
+                <input
+                  type="password"
+                  minLength={8}
+                  value={newPassword}
+                  onChange={e => setNewPassword(e.target.value)}
+                  placeholder="New password (min 8 characters)"
+                  className="w-full bg-slate-950/80 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-100 placeholder-slate-600 focus:border-violet-500 focus:outline-none focus:ring-1 focus:ring-violet-500/30 transition-all"
+                />
+                <button
+                  type="button"
+                  onClick={async () => {
+                    setError(null);
+                    setInfo(null);
+                    const res = await fetch(`${API_BASE_URL}/api/auth/reset-password`, {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ token: resetToken, newPassword }),
+                    });
+                    const data = await res.json();
+                    if (!res.ok) return setError(data.error || 'Password reset failed.');
+                    setInfo(data.message || 'Password reset successful. You can now sign in.');
+                    setNewPassword('');
+                    onResetConsumed?.();
+                  }}
+                  className="w-full py-2 bg-violet-600 hover:bg-violet-500 text-white text-sm font-semibold rounded-lg"
+                >
+                  Set New Password
+                </button>
+              </div>
+            )}
             <div>
               <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">Email address</label>
               <div className="relative">
@@ -439,6 +470,26 @@ function AuthScreen({ onAuth }: { onAuth: (token: string, user: AuthUser) => voi
               <div className="flex items-start gap-2 p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-red-400 text-sm">
                 <AlertCircle size={15} className="shrink-0 mt-0.5" /> {error}
               </div>
+            )}
+            {info && <div className="p-3 bg-cyan-500/10 border border-cyan-500/20 rounded-xl text-cyan-300 text-sm">{info}</div>}
+            {mode === 'login' && (
+              <button
+                type="button"
+                className="text-xs text-cyan-500 hover:text-cyan-400"
+                onClick={async () => {
+                  setError(null);
+                  const res = await fetch(`${API_BASE_URL}/api/auth/forgot-password`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email: email.trim() }),
+                  });
+                  const data = await res.json();
+                  if (!res.ok) return setError(data.error || 'Unable to start password reset.');
+                  setInfo(data.message || 'If an account exists, a reset link was sent.');
+                }}
+              >
+                Forgot password?
+              </button>
             )}
 
             <button type="submit" disabled={loading}
@@ -566,6 +617,7 @@ export default function App() {
   const [showUpgrade,  setShowUpgrade]  = useState(false);
   const [upgradeLoading, setUpgradeLoading] = useState(false);
   const [checkoutBanner, setCheckoutBanner] = useState<'success' | 'cancelled' | 'mock' | null>(null);
+  const [authNotice, setAuthNotice] = useState<string | null>(null);
 
   const [queue,      setQueue]      = useState<QueueItem[]>([]);
   const [activeId,   setActiveId]   = useState<string | null>(null);
@@ -575,8 +627,20 @@ export default function App() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const activeItem = queue.find(f => f.id === activeId) ?? null;
+  const params = new URLSearchParams(window.location.search);
+  const verifyToken = params.get('verifyToken');
+  const resetToken = params.get('resetToken');
 
   // ── Session restore + Stripe return handling ────────────────────────────────
+  useEffect(() => {
+    if (verifyToken) {
+      fetch(`${API_BASE_URL}/api/auth/verify-email?token=${encodeURIComponent(verifyToken)}`)
+        .then(async (r) => ({ ok: r.ok, data: await r.json() }))
+        .then(({ ok, data }) => setAuthNotice(ok ? 'Email verified successfully.' : (data.error || 'Email verification failed.')))
+        .finally(() => window.history.replaceState({}, '', window.location.pathname));
+    }
+  }, []);
+
   useEffect(() => {
     const session = loadSession();
     if (!session) return;
@@ -684,7 +748,7 @@ export default function App() {
 
   // ── Render guard ─────────────────────────────────────────────────────────────
   if (!authToken || !currentUser) {
-    return <AuthScreen onAuth={handleAuth} />;
+    return <AuthScreen onAuth={handleAuth} resetToken={resetToken} onResetConsumed={() => window.history.replaceState({}, '', window.location.pathname)} />;
   }
 
   // ── Queue helpers ─────────────────────────────────────────────────────────────
@@ -964,6 +1028,17 @@ export default function App() {
   // ── Render ───────────────────────────────────────────────────────────────────
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans overflow-x-hidden">
+      {authNotice && <div className="fixed top-2 left-1/2 -translate-x-1/2 z-30 text-xs bg-cyan-500/10 border border-cyan-500/30 px-3 py-2 rounded-lg">{authNotice}</div>}
+      {!currentUser.emailVerified && (
+        <div className="fixed top-12 left-1/2 -translate-x-1/2 z-30 text-xs bg-amber-500/10 border border-amber-500/30 px-3 py-2 rounded-lg">
+          Email not verified.
+          <button className="ml-2 underline" onClick={async () => {
+            const res = await fetch(`${API_BASE_URL}/api/auth/resend-verification`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` } });
+            const data = await res.json();
+            setAuthNotice(data.message || 'If eligible, a verification email has been sent.');
+          }}>Verify email</button>
+        </div>
+      )}
 
       {/* Upgrade modal */}
       {showUpgrade && (
