@@ -1103,7 +1103,8 @@ export default function App() {
           // Focus the upload zone on close so the user can immediately upload.
           setTimeout(() => fileInputRef.current?.focus(), 100);
         };
-        const steps = [
+        type OnboardingStep = { title: string; body: string; visual?: React.ReactNode; footnote?: string };
+        const steps: OnboardingStep[] = [
           {
             title: 'Strip AI Fingerprints. Own Your Release.',
             body: 'AI music tools like Suno, Udio, and ElevenLabs embed metadata markers in every file they export — C2PA content credentials, synthetic content flags, and AI brand tags. These markers can get your tracks flagged on streaming platforms. SpectraCleanse removes them and injects real, platform-optimized metadata.',
@@ -1144,7 +1145,6 @@ export default function App() {
           {
             title: "You're Ready",
             body: 'You have 3 free cleanses this month. No credit card required.',
-            visual: null as any,
           },
         ];
         const current = steps[onboardingStep - 1];
@@ -1158,7 +1158,7 @@ export default function App() {
                 <h2 className="text-xl font-extrabold text-slate-100 mb-2">{current.title}</h2>
                 <p className="text-sm text-slate-400 leading-relaxed">{current.body}</p>
                 {current.visual}
-                {('footnote' in current) && current.footnote && (
+                {current.footnote && (
                   <p className="mt-4 text-[11px] text-slate-500 italic">{current.footnote}</p>
                 )}
 
