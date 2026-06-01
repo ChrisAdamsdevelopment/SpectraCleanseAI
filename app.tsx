@@ -19,13 +19,13 @@ import {
   type SavedReleaseDefaults,
 } from './src/utils/releaseDefaults';
 
+// When the frontend and API are served from the same origin (the default
+// single-service Render/Docker deployment), an empty base URL means requests
+// are made relative to the current origin. Only set VITE_API_URL when the API
+// is hosted on a different origin than the frontend.
 const API_BASE_URL =
   import.meta.env.VITE_API_URL ||
   (import.meta.env.DEV ? 'http://localhost:3001' : '');
-
-if (!API_BASE_URL) {
-  throw new Error('Missing VITE_API_URL in production build');
-}
 const PLATFORMS = ['General', 'YouTube', 'Spotify', 'Apple Music', 'TikTok'] as const;
 type Platform = typeof PLATFORMS[number];
 type ItemStatus = 'pending' | 'analyzing' | 'processing' | 'done' | 'error';
@@ -625,6 +625,12 @@ export default function App() {
   const [isBatching, setIsBatching] = useState(false);
   const [cancelRef]  = useState({ cancelled: false });
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [onboardingStep, setOnboardingStep] = useState<number | null>(null);
+  const [isDragActive, setIsDragActive] = useState(false);
+  const dragDepthRef = useRef(0);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [history, setHistory] = useState<Array<{ id: number; filename: string; platform: string; forensic_status: string | null; markers_removed: number | null; created_at: string }>>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
 
   const activeItem = queue.find(f => f.id === activeId) ?? null;
   const params = new URLSearchParams(window.location.search);
@@ -680,6 +686,12 @@ export default function App() {
     } else {
       // Normal session restore – fetch fresh usage count
       fetchUsage(session.token);
+    }
+
+    // First-run onboarding (one-shot, persisted in localStorage)
+    if (!localStorage.getItem('onboarding_seen')) {
+      const t = window.setTimeout(() => setOnboardingStep(1), 500);
+      return () => window.clearTimeout(t);
     }
   }, []);
 
@@ -757,7 +769,7 @@ export default function App() {
   };
 
   const addFiles = (files: FileList | File[]) => {
-    const validExt = /\.(mp3|wav|flac|m4a|mp4)$/i;
+    const validExt = /\.(mp3|m4a|mp4)$/i;
     const savedDefaults = getSavedReleaseDefaults();
     const newItems: QueueItem[] = Array.from(files)
       .filter(f => validExt.test(f.name))
@@ -772,6 +784,40 @@ export default function App() {
     if (newItems.length === 0) return;
     setQueue(prev => [...prev, ...newItems].slice(0, 20));
     setActiveId(prev => prev ?? newItems[0].id);
+  };
+
+  const onDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    if (!isDragActive) setIsDragActive(true);
+  };
+  const onDragEnter = (e: React.DragEvent) => {
+    e.preventDefault();
+    dragDepthRef.current += 1;
+    setIsDragActive(true);
+  };
+  const onDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
+    if (dragDepthRef.current === 0) setIsDragActive(false);
+  };
+  const onDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    dragDepthRef.current = 0;
+    setIsDragActive(false);
+    const dropped = e.dataTransfer?.files;
+    if (dropped && dropped.length > 0) addFiles(dropped);
+  };
+
+  const loadHistory = async () => {
+    if (!authToken) return;
+    setHistoryLoading(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/jobs`, { headers: { Authorization: `Bearer ${authToken}` } });
+      if (res.ok) {
+        const data = await res.json();
+        setHistory(data.jobs || []);
+      }
+    } catch {} finally { setHistoryLoading(false); }
   };
 
   const removeItem = (id: string) => {
@@ -941,7 +987,7 @@ export default function App() {
           const body = await res.json().catch(() => ({}));
           updateItem(item.id, {
             status: 'error',
-            error:  body.detail || 'Monthly limit reached. Upgrade to continue.',
+            error:  body.detail || `You've used your 3 free cleanses this month. Upgrade to Creator for unlimited cleanses and batch processing — starting at $9.99/month.`,
           });
           setShowUpgrade(true);
           // Abort remaining items in this batch
@@ -1049,6 +1095,155 @@ export default function App() {
         />
       )}
 
+      {/* First-run onboarding */}
+      {onboardingStep !== null && (() => {
+        const dismiss = () => {
+          localStorage.setItem('onboarding_seen', '1');
+          setOnboardingStep(null);
+          // Focus the upload zone on close so the user can immediately upload.
+          setTimeout(() => fileInputRef.current?.focus(), 100);
+        };
+        type OnboardingStep = { title: string; body: string; visual?: React.ReactNode; footnote?: string };
+        const steps: OnboardingStep[] = [
+          {
+            title: 'Strip AI Fingerprints. Own Your Release.',
+            body: 'AI music tools like Suno, Udio, and ElevenLabs embed metadata markers in every file they export — C2PA content credentials, synthetic content flags, and AI brand tags. These markers can get your tracks flagged on streaming platforms. SpectraCleanse removes them and injects real, platform-optimized metadata.',
+            visual: (
+              <div className="grid grid-cols-2 gap-3 mt-4">
+                <div className="p-3 rounded-xl border border-red-500/30 bg-red-500/10 text-center">
+                  <p className="text-[10px] uppercase tracking-wider text-red-300 font-bold">Before</p>
+                  <p className="text-2xl font-extrabold text-red-300 mt-1">14 markers</p>
+                </div>
+                <div className="p-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 text-center">
+                  <p className="text-[10px] uppercase tracking-wider text-emerald-300 font-bold">After</p>
+                  <p className="text-2xl font-extrabold text-emerald-300 mt-1">0 markers</p>
+                </div>
+              </div>
+            ),
+          },
+          {
+            title: 'How It Works',
+            body: 'Three steps, every time.',
+            visual: (
+              <div className="grid grid-cols-3 gap-3 mt-4">
+                <div className="text-center">
+                  <Upload size={28} className="mx-auto text-cyan-400 mb-2" />
+                  <p className="text-xs text-slate-300">Upload your MP3, MP4, or M4A</p>
+                </div>
+                <div className="text-center">
+                  <Sparkles size={28} className="mx-auto text-violet-400 mb-2" />
+                  <p className="text-xs text-slate-300">We strip AI markers and inject real metadata</p>
+                </div>
+                <div className="text-center">
+                  <Download size={28} className="mx-auto text-emerald-400 mb-2" />
+                  <p className="text-xs text-slate-300">Download your clean, attribution-ready file</p>
+                </div>
+              </div>
+            ),
+            footnote: 'Your audio is never stored. Files are processed in memory and immediately deleted.',
+          },
+          {
+            title: "You're Ready",
+            body: 'You have 3 free cleanses this month. No credit card required.',
+          },
+        ];
+        const current = steps[onboardingStep - 1];
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
+            <div className="relative w-full max-w-lg bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl overflow-hidden">
+              <div className="h-1 w-full bg-gradient-to-r from-cyan-500 via-blue-500 to-violet-500" />
+              <button onClick={dismiss} className="absolute top-4 right-4 text-slate-500 hover:text-slate-300"><X size={18} /></button>
+              <div className="p-6">
+                <p className="text-[10px] uppercase tracking-widest text-cyan-400 font-bold mb-2">Step {onboardingStep} of {steps.length}</p>
+                <h2 className="text-xl font-extrabold text-slate-100 mb-2">{current.title}</h2>
+                <p className="text-sm text-slate-400 leading-relaxed">{current.body}</p>
+                {current.visual}
+                {current.footnote && (
+                  <p className="mt-4 text-[11px] text-slate-500 italic">{current.footnote}</p>
+                )}
+
+                <div className="mt-6 flex items-center justify-between gap-3">
+                  <button
+                    onClick={() => setOnboardingStep((s) => (s && s > 1 ? s - 1 : s))}
+                    disabled={onboardingStep === 1}
+                    className="px-3 py-1.5 text-xs font-semibold text-slate-300 hover:text-slate-100 disabled:opacity-30"
+                  >Back</button>
+                  {onboardingStep < steps.length ? (
+                    <button
+                      onClick={() => setOnboardingStep((s) => (s ? s + 1 : 1))}
+                      className="px-4 py-2 text-sm font-bold bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg"
+                    >Next →</button>
+                  ) : (
+                    <button
+                      onClick={dismiss}
+                      className="px-4 py-2 text-sm font-bold bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg"
+                    >Start Cleansing →</button>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* History modal */}
+      {historyOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
+          <div className="relative w-full max-w-3xl max-h-[80vh] bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl overflow-hidden flex flex-col">
+            <div className="flex items-center justify-between p-4 border-b border-slate-800">
+              <h2 className="font-bold text-slate-100 text-base flex items-center gap-2"><FileText size={16} className="text-cyan-400" /> Processing history</h2>
+              <button onClick={() => setHistoryOpen(false)} className="text-slate-500 hover:text-slate-300"><X size={18} /></button>
+            </div>
+            <div className="flex-1 overflow-y-auto">
+              {historyLoading ? (
+                <div className="p-6 text-center text-slate-500 text-sm">Loading…</div>
+              ) : history.length === 0 ? (
+                <div className="p-8 text-center text-slate-500 text-sm">
+                  <FileText size={28} className="mx-auto mb-2 opacity-30" />
+                  <p>No files processed yet.</p>
+                  <p className="text-xs mt-1 opacity-70">Upload your first file to start your history.</p>
+                </div>
+              ) : (
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-800/50 text-[10px] uppercase tracking-wider text-slate-500">
+                    <tr>
+                      <th className="text-left px-4 py-2 font-bold">File</th>
+                      <th className="text-left px-4 py-2 font-bold">Date</th>
+                      <th className="text-left px-4 py-2 font-bold">Status</th>
+                      <th className="text-right px-4 py-2 font-bold">Markers</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800/60">
+                    {history.map(row => {
+                      const status = row.forensic_status || '—';
+                      const pill = status === 'clean'
+                        ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
+                        : status === 'clean_with_notes'
+                          ? 'bg-amber-500/15 text-amber-300 border-amber-500/30'
+                          : status === 'review_required'
+                            ? 'bg-red-500/15 text-red-300 border-red-500/30'
+                            : 'bg-slate-700/30 text-slate-400 border-slate-700/40';
+                      return (
+                        <tr key={row.id} className="hover:bg-slate-800/30">
+                          <td className="px-4 py-2 truncate max-w-[20rem]" title={row.filename}>{row.filename}</td>
+                          <td className="px-4 py-2 text-slate-400 text-xs whitespace-nowrap">{new Date(row.created_at).toLocaleString()}</td>
+                          <td className="px-4 py-2"><span className={`inline-flex text-[10px] font-bold px-2 py-0.5 rounded border ${pill}`}>{status}</span></td>
+                          <td className="px-4 py-2 text-right font-mono text-slate-300">{row.markers_removed ?? '—'}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )}
+            </div>
+            <div className="p-3 border-t border-slate-800 text-[11px] text-slate-500 flex justify-between items-center">
+              <span>Showing the most recent 50 cleanses.</span>
+              <button onClick={loadHistory} className="text-cyan-400 hover:text-cyan-300 underline">Refresh</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Checkout return banner */}
       {checkoutBanner && (
         <CheckoutBanner type={checkoutBanner} onDismiss={() => setCheckoutBanner(null)} />
@@ -1092,6 +1287,20 @@ export default function App() {
               </button>
             )}
 
+            <button
+              onClick={() => { setHistoryOpen(true); loadHistory(); }}
+              title="Processing history"
+              className="p-1.5 text-slate-500 hover:text-slate-200 hover:bg-slate-800 rounded-lg transition-colors"
+            >
+              <FileText size={15} />
+            </button>
+            <button
+              onClick={() => { localStorage.removeItem('onboarding_seen'); setOnboardingStep(1); }}
+              title="Show intro again"
+              className="p-1.5 text-slate-500 hover:text-slate-200 hover:bg-slate-800 rounded-lg transition-colors"
+            >
+              <Sparkles size={15} />
+            </button>
             <button
               onClick={handleLogout}
               title="Sign out"
@@ -1146,7 +1355,7 @@ export default function App() {
             </button>
             <input
               type="file" multiple ref={fileInputRef} className="hidden"
-              accept=".mp3,.wav,.flac,.m4a,.mp4,audio/*,video/mp4"
+              accept=".mp3,.m4a,.mp4,audio/mpeg,audio/mp4,audio/x-m4a,video/mp4"
               onChange={e => { if (e.target.files) addFiles(e.target.files); e.target.value = ''; }}
             />
           </div>
@@ -1225,15 +1434,23 @@ export default function App() {
         </aside>
 
         {/* Main panel */}
-        <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 bg-slate-950">
+        <main
+          className={`flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 bg-slate-950 relative transition-colors ${
+            isDragActive ? 'ring-2 ring-cyan-400/70 ring-inset bg-cyan-500/5' : ''
+          }`}
+          onDragEnter={onDragEnter}
+          onDragOver={onDragOver}
+          onDragLeave={onDragLeave}
+          onDrop={onDrop}
+        >
           {!activeItem ? (
             <div
               className="h-full flex flex-col items-center justify-center text-slate-600 cursor-pointer hover:text-slate-500 transition-colors"
               onClick={() => fileInputRef.current?.click()}
             >
               <Upload size={48} className="mb-3 opacity-30" />
-              <p className="text-lg">Add files to get started</p>
-              <p className="text-sm mt-1 opacity-60">MP3 · WAV · FLAC · M4A · MP4 · up to 20 files</p>
+              <p className="text-lg">Drag files here, or click to browse</p>
+              <p className="text-sm mt-1 opacity-60">MP3 · M4A · MP4 · up to 20 files</p>
             </div>
           ) : (
             <div className="max-w-6xl mx-auto space-y-6">
@@ -1539,7 +1756,21 @@ export default function App() {
               <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 sm:p-6"><h3 className="font-bold mb-2">System Log</h3><div className="text-xs space-y-1.5 max-h-48 overflow-y-auto">{activeItem.logs.map((l, i) => { const isErr = /failed|error/i.test(l); const isSuccess = /complete|generated|starting server cleanse/i.test(l); const m = l.match(/^\[(.*?)\]\s*(.*)$/); return <div key={i} className={`font-mono text-[11px] sm:text-xs px-2 py-1.5 rounded border break-words ${isErr ? 'text-red-300 border-red-500/30 bg-red-500/10' : isSuccess ? 'text-emerald-300 border-emerald-500/30 bg-emerald-500/10' : 'text-slate-300 border-slate-700 bg-slate-800/40'}`}><span className="text-slate-500 mr-2">{m ? m[1] : '--:--:--'}</span><span>{m ? m[2] : l}</span></div>; })}</div></div>
 
               {/* Forensic report */}
-              {activeItem.report && (
+              {activeItem.report && (() => {
+                const removed = activeItem.report.removedCount ?? 0;
+                const headline = removed > 0
+                  ? `${removed} AI marker${removed === 1 ? '' : 's'} removed — your file is clean.`
+                  : 'No AI markers found — your file was already clean.';
+                const status = activeItem.report.status || 'clean';
+                const statusPill = status === 'review_required'
+                  ? { label: '⚑ Review Required', cls: 'bg-red-500/15 text-red-300 border-red-500/30' }
+                  : status === 'clean_with_notes'
+                    ? { label: '⚠ Clean with Notes', cls: 'bg-amber-500/15 text-amber-300 border-amber-500/30' }
+                    : { label: '✓ Clean', cls: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30' };
+                const tweetUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(
+                  'Just stripped AI metadata from my track using SpectraCleanse — clean metadata, real attribution. Try it free: https://spectracleanse.com #IndependentArtist #AIMusic'
+                )}`;
+                return (
                 <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-2xl p-4 sm:p-6 space-y-4">
                   <div className="flex items-center justify-between">
                     <h3 className="text-emerald-400 font-bold flex items-center gap-2">
@@ -1547,10 +1778,14 @@ export default function App() {
                     </h3>
                     <span className="text-[10px] text-slate-500 font-mono">{activeItem.report.timestamp}</span>
                   </div>
+
+                  <p className="text-2xl sm:text-3xl font-extrabold text-emerald-300 leading-snug">{headline}</p>
+                  <span className={`inline-flex text-[11px] font-bold px-2.5 py-1 rounded-full border ${statusPill.cls}`}>{statusPill.label}</span>
+
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
                     <div className="p-3 bg-slate-950 rounded-lg border border-slate-800">
                       <p className="text-[10px] text-slate-500 uppercase font-bold mb-1">Tags Removed</p>
-                      <p className="text-emerald-400 font-mono font-bold text-lg">{activeItem.report.removedCount}</p>
+                      <p className="text-emerald-400 font-mono font-bold text-lg">{removed}</p>
                     </div>
                     <div className="p-3 bg-slate-950 rounded-lg border border-slate-800">
                       <p className="text-[10px] text-slate-500 uppercase font-bold mb-1">Platform Preset</p>
@@ -1575,8 +1810,42 @@ export default function App() {
                   >
                     <Download size={16} /> Download Cleansed File
                   </button>
+
+                  <div className="pt-2 border-t border-emerald-500/10 space-y-2">
+                    <p className="text-xs text-slate-400">Cleaned with SpectraCleanse. Share your release with confidence.</p>
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          navigator.clipboard?.writeText('https://spectracleanse.com').catch(() => {});
+                          setAuthNotice('Link copied to clipboard.');
+                          setTimeout(() => setAuthNotice(null), 2500);
+                        }}
+                        className="px-3 py-1.5 text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg border border-slate-700"
+                      >Copy Link to SpectraCleanse</button>
+                      <a
+                        href={tweetUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="px-3 py-1.5 text-xs font-semibold bg-cyan-700 hover:bg-cyan-600 text-white rounded-lg"
+                      >Tweet This</a>
+                    </div>
+                  </div>
+
+                  {currentUser.plan === 'free' && (
+                    <div className="pt-3 border-t border-emerald-500/10 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                      <p className="text-xs text-slate-300">Process unlimited files + batch upload with Creator plan. <span className="font-bold text-cyan-300">$9.99/month.</span></p>
+                      <button
+                        onClick={() => setShowUpgrade(true)}
+                        className="px-3 py-1.5 text-xs font-bold bg-cyan-600 hover:bg-cyan-500 rounded-lg flex items-center justify-center gap-1.5"
+                      >
+                        <ArrowUpCircle size={13} /> Upgrade to Creator
+                      </button>
+                    </div>
+                  )}
                 </div>
-              )}
+                );
+              })()}
             </div>
           )}
         </main>

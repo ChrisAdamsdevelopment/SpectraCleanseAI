@@ -30,6 +30,7 @@ RUN npm ci --omit=dev \
   && npm cache clean --force
 
 COPY server.js ./
+COPY server ./server
 COPY --from=builder /app/dist ./dist
 
 # Runtime directories (uploads ephemeral; /data intended for SQLite volume mounts)
