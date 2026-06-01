@@ -172,6 +172,12 @@ function requireAuth(req, res, next) {
 // ─────────────────────────────────────────────────────────────────────────────
 const app = express();
 
+// Render (and most PaaS hosts) terminate TLS at a single reverse proxy that
+// forwards the client IP in X-Forwarded-For. Trust exactly one proxy hop so
+// express-rate-limit can identify clients by real IP without trusting a
+// spoofable header chain. See ERR_ERL_UNEXPECTED_X_FORWARDED_FOR.
+app.set('trust proxy', 1);
+
 const LOCAL_DEV_ORIGINS = [
   'http://localhost:5173',
   'http://127.0.0.1:5173',
