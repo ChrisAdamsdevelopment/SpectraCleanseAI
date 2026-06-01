@@ -27,7 +27,7 @@
     "browser-id3-writer": "4.4.0",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
-    "exiftool-vendored": "^28.3.1",
+    "exiftool-vendored": "^35.21.0",
     "express": "^4.19.2",
     "fs-extra": "^11.2.0",
     "jsonwebtoken": "^9.0.2",
