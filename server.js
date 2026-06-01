@@ -764,7 +764,28 @@ if (fs.existsSync(distPath)) {
 }
 
 const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => console.log(`SpectraCleanse backend on :${PORT}`));
+app.listen(PORT, () => {
+  console.log(`SpectraCleanse backend on :${PORT}`);
+  // Startup config summary – check these lines in your host's logs to confirm
+  // Stripe and email are actually live (not running in mock / dev-fallback mode).
+  console.log(`[Config] NODE_ENV=${process.env.NODE_ENV || '(unset → non-production defaults)'}`);
+  console.log(
+    `[Config] Stripe: ${
+      STRIPE_CONFIGURED
+        ? 'configured (live checkout)'
+        : `NOT configured${ENABLE_MOCK_CHECKOUT ? ' (mock checkout enabled – no real charges)' : ''}`
+    }`
+  );
+  console.log(
+    `[Config] Email/SMTP: ${
+      isEmailDeliveryConfigured()
+        ? 'configured (verification & reset emails will send)'
+        : 'NOT configured (verification/reset emails will NOT send)'
+    }`
+  );
+  console.log(`[Config] Gemini SEO: ${process.env.GEMINI_API_KEY ? 'configured' : 'NOT configured'}`);
+  console.log(`[Config] CORS origins: ${[...allowedOrigins].join(', ') || '(none)'}`);
+});
 
 process.on('exit',    () => { exiftool.end(); db.close(); });
 process.on('SIGTERM', () => { exiftool.end(); db.close(); process.exit(0); });

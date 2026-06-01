@@ -19,13 +19,13 @@ import {
   type SavedReleaseDefaults,
 } from './src/utils/releaseDefaults';
 
+// When the frontend and API are served from the same origin (the default
+// single-service Render/Docker deployment), an empty base URL means requests
+// are made relative to the current origin. Only set VITE_API_URL when the API
+// is hosted on a different origin than the frontend.
 const API_BASE_URL =
   import.meta.env.VITE_API_URL ||
   (import.meta.env.DEV ? 'http://localhost:3001' : '');
-
-if (!API_BASE_URL) {
-  throw new Error('Missing VITE_API_URL in production build');
-}
 const PLATFORMS = ['General', 'YouTube', 'Spotify', 'Apple Music', 'TikTok'] as const;
 type Platform = typeof PLATFORMS[number];
 type ItemStatus = 'pending' | 'analyzing' | 'processing' | 'done' | 'error';
