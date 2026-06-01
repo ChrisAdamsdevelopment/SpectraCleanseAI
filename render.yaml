@@ -1,0 +1,58 @@
+# Render Blueprint for SpectraCleanse AI
+# Deploy: Render Dashboard → New → Blueprint → connect this repo.
+# Secrets (sync: false) must be filled in the Render dashboard after the first deploy.
+services:
+  - type: web
+    name: spectracleanseai
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: starter
+    healthCheckPath: /api/health
+    # Persistent disk for the SQLite database. Without this, ALL user accounts
+    # and data are wiped on every deploy/restart.
+    disk:
+      name: spectra-data
+      mountPath: /data
+      sizeGB: 1
+    envVars:
+      # ── Core ────────────────────────────────────────────────────────────────
+      - key: NODE_ENV
+        value: production
+      - key: DB_PATH
+        value: /data/spectra.db
+      - key: JWT_SECRET
+        generateValue: true            # Render generates a strong random value
+      # Your public Render URL, e.g. https://spectracleanseai.onrender.com
+      # Used for CORS, Stripe success/cancel URLs, and email verification links.
+      - key: FRONTEND_URL
+        sync: false
+      - key: APP_BASE_URL
+        sync: false                    # Optional; falls back to FRONTEND_URL
+      - key: ALLOWED_ORIGINS
+        sync: false                    # Optional; only if a separate frontend domain
+
+      # ── Stripe (ALL FOUR required for live checkout) ────────────────────────
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+      - key: STRIPE_CREATOR_PRICE_ID
+        sync: false
+      - key: STRIPE_STUDIO_PRICE_ID
+        sync: false
+
+      # ── Email / SMTP (ALL FIVE required to send verification/reset mail) ─────
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        value: "587"
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
+      - key: SMTP_FROM
+        sync: false
+
+      # ── Optional ────────────────────────────────────────────────────────────
+      - key: GEMINI_API_KEY
+        sync: false                    # Only needed for AI SEO generation
