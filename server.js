@@ -16,6 +16,7 @@ const { getEnabledFeatures, isFeatureEnabled } = require('./server/featureFlags'
 const readinessStore = require('./server/readiness/store');
 const { generateReport } = require('./server/readiness/report');
 const { getEnabledProviders } = require('./server/readiness/providers');
+require('./server/readiness/registerProviders'); // registers built-in check providers
 const bcrypt     = require('bcryptjs');
 const jwt        = require('jsonwebtoken');
 const Database   = require('better-sqlite3');
