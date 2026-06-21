@@ -18,6 +18,8 @@ import {
   type ReleaseMetadata,
   type SavedReleaseDefaults,
 } from './src/utils/releaseDefaults';
+import ReleaseReadiness from './src/components/ReleaseReadiness';
+import { fetchEnabledFeatures, type FeatureName } from './src/utils/featureFlags';
 
 const API_BASE_URL =
   import.meta.env.VITE_API_URL ||
@@ -625,6 +627,8 @@ export default function App() {
   const [isBatching, setIsBatching] = useState(false);
   const [cancelRef]  = useState({ cancelled: false });
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [enabledFeatures, setEnabledFeatures] = useState<FeatureName[]>([]);
+  const [activeView, setActiveView] = useState<'cleanse' | 'readiness'>('cleanse');
 
   const activeItem = queue.find(f => f.id === activeId) ?? null;
   const params = new URLSearchParams(window.location.search);
@@ -640,6 +644,12 @@ export default function App() {
         .finally(() => window.history.replaceState({}, '', window.location.pathname));
     }
   }, []);
+
+  // Discover which overhaul features are live in this environment (off by default).
+  useEffect(() => {
+    if (!authToken) { setEnabledFeatures([]); setActiveView('cleanse'); return; }
+    fetchEnabledFeatures(API_BASE_URL).then(setEnabledFeatures).catch(() => {});
+  }, [authToken]);
 
   useEffect(() => {
     const session = loadSession();
@@ -1066,6 +1076,14 @@ export default function App() {
         </div>
 
         <div className="w-full lg:w-auto flex flex-wrap items-center gap-2 sm:gap-3">
+          {enabledFeatures.includes('release_readiness') && (
+            <div className="flex bg-slate-800/60 rounded-lg p-0.5 gap-0.5">
+              <button onClick={() => setActiveView('cleanse')}
+                className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-colors ${activeView === 'cleanse' ? 'bg-cyan-600 text-white' : 'text-slate-400 hover:text-slate-200'}`}>Cleanse</button>
+              <button onClick={() => setActiveView('readiness')}
+                className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-colors ${activeView === 'readiness' ? 'bg-cyan-600 text-white' : 'text-slate-400 hover:text-slate-200'}`}>Readiness</button>
+            </div>
+          )}
           <select
             value={platform}
             onChange={e => setPlatform(e.target.value as Platform)}
@@ -1128,6 +1146,19 @@ export default function App() {
         </div>
       )}
 
+      {activeView === 'readiness' ? (
+        <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 bg-slate-950">
+          <ReleaseReadiness
+            apiBaseUrl={API_BASE_URL}
+            authToken={authToken}
+            initialMetadata={activeItem ? {
+              title: activeItem.seo.title, artist: activeItem.seo.artist, albumArtist: activeItem.seo.albumArtist,
+              producer: activeItem.seo.producer, copyright: activeItem.seo.copyright, genre: activeItem.seo.genre, tags: activeItem.seo.tags,
+            } : undefined}
+            onAuthExpired={handleLogout}
+          />
+        </main>
+      ) : (
       <div className="flex-1 grid grid-cols-1 xl:grid-cols-[18rem_minmax(0,1fr)] overflow-hidden">
 
         {/* Sidebar */}
@@ -1581,6 +1612,7 @@ export default function App() {
           )}
         </main>
       </div>
+      )}
     </div>
   );
 }
