@@ -30,6 +30,16 @@ describe('metadata validation provider', () => {
       .toContain('metadata.placeholder_title');
   });
 
+  it('detects leading/trailing and doubled whitespace from the raw value', () => {
+    expect(ids(validateMetadata({ metadata: { title: ' My Song ', artist: 'A', copyright: '© 2026 A', genre: 'g', tags: 't' } })))
+      .toContain('metadata.whitespace_title');
+    expect(ids(validateMetadata({ metadata: { title: 'My  Song', artist: 'A', copyright: '© 2026 A', genre: 'g', tags: 't' } })))
+      .toContain('metadata.whitespace_title');
+    // clean, single-spaced values do not trip the check
+    expect(ids(validateMetadata({ metadata: { title: 'My Song', artist: 'A', copyright: '© 2026 A', genre: 'g', tags: 't' } })))
+      .not.toContain('metadata.whitespace_title');
+  });
+
   it('surfaces AI markers from file analysis with reduced confidence', () => {
     const out = validateMetadata({ metadata: { title: 'T', artist: 'A', copyright: '© 2026 A', genre: 'g', tags: 't' }, analysis: { detectedMarkers: ['Suno'] } });
     const marker = out.find((f: any) => f.id === 'metadata.ai_provenance_markers');

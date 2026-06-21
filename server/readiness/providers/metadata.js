@@ -93,9 +93,11 @@ function validateMetadata(context = {}) {
     }
   }
 
-  for (const [field, value] of [['title', title], ['artist', artist], ['copyright', copyright]]) {
-    if (!value) continue;
-    if (value !== clean(m[field]) || /\s{2,}/.test(value)) {
+  for (const field of ['title', 'artist', 'copyright']) {
+    const cleaned = clean(m[field]);
+    if (!cleaned) continue;
+    const raw = String(m[field] == null ? '' : m[field]); // raw value to detect leading/trailing/doubled spaces
+    if (raw !== raw.trim() || /\s{2,}/.test(raw)) {
       findings.push(f({
         id: `metadata.whitespace_${field}`, severity: SEVERITY.WARNING,
         title: `${field} has irregular spacing`, what: `The ${field} has leading, trailing, or doubled spaces.`,
@@ -104,7 +106,7 @@ function validateMetadata(context = {}) {
         scoreImpact: 8, estimatedFixMinutes: 1, field,
       }));
     }
-    if (CONTROL_CHARS.test(value)) {
+    if (CONTROL_CHARS.test(raw)) {
       findings.push(f({
         id: `metadata.control_chars_${field}`, severity: SEVERITY.WARNING,
         title: `${field} contains hidden characters`, what: `The ${field} contains invisible control characters.`,
