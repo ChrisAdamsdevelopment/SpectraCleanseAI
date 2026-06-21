@@ -1364,6 +1364,10 @@ export default function App() {
               title: activeItem.seo.title, artist: activeItem.seo.artist, albumArtist: activeItem.seo.albumArtist,
               producer: activeItem.seo.producer, copyright: activeItem.seo.copyright, genre: activeItem.seo.genre, tags: activeItem.seo.tags,
             } : undefined}
+            initialAnalysis={activeItem?.analysis ? {
+              format: activeItem.analysis.format, detectedMarkers: activeItem.analysis.detectedMarkers,
+              provenanceRisk: activeItem.analysis.provenanceRisk, parseError: activeItem.analysis.parseError,
+            } : undefined}
             onAuthExpired={handleLogout}
           />
         </main>

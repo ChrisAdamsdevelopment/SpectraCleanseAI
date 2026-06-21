@@ -165,11 +165,12 @@ function ReportView({ report }: { report: ReadinessReport }) {
 }
 
 export default function ReleaseReadiness({
-  apiBaseUrl, authToken, initialMetadata, onAuthExpired,
+  apiBaseUrl, authToken, initialMetadata, initialAnalysis, onAuthExpired,
 }: {
   apiBaseUrl: string;
   authToken: string;
   initialMetadata?: Partial<{ title: string; artist: string; albumArtist: string; producer: string; copyright: string; genre: string; tags: string }>;
+  initialAnalysis?: { format?: string; detectedMarkers?: string[]; provenanceRisk?: 'High' | 'Low'; parseError?: string | null } | null;
   onAuthExpired?: () => void;
 }) {
   const [meta, setMeta] = useState({
@@ -187,10 +188,11 @@ export default function ReleaseReadiness({
   const runCheck = async () => {
     setLoading(true); setError(null);
     try {
-      const r = await runReadinessCheck(apiBaseUrl, authToken, { title: meta.title, platform, metadata: meta });
+      // Pass the file analysis through so AI-marker / parse-fallback findings fire.
+      const r = await runReadinessCheck(apiBaseUrl, authToken, { title: meta.title, platform, metadata: meta, analysis: initialAnalysis });
       setReport(r);
     } catch (err: any) {
-      if (/401/.test(err?.message || '')) { onAuthExpired?.(); return; }
+      if (err?.status === 401) { onAuthExpired?.(); return; } // expired token → log out, like the cleanse flow
       setError(err?.message || 'Readiness check failed.');
     } finally {
       setLoading(false);

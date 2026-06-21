@@ -101,6 +101,22 @@ function authHeaders(token: string, json = false): Record<string, string> {
   return h;
 }
 
+/** Error that preserves the HTTP status so callers can react to 401 (expired token). */
+export class ReadinessApiError extends Error {
+  status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = 'ReadinessApiError';
+    this.status = status;
+  }
+}
+
+async function ensureOk(res: Response, fallback: string): Promise<void> {
+  if (res.ok) return;
+  const body = await res.json().catch(() => ({} as { error?: string }));
+  throw new ReadinessApiError(body.error || `${fallback} (${res.status})`, res.status);
+}
+
 export async function createRelease(
   apiBaseUrl: string, token: string,
   input: { title?: string; platform?: string; metadata: ReleaseMetadataInput; analysis?: unknown },
@@ -108,7 +124,7 @@ export async function createRelease(
   const res = await fetch(`${apiBaseUrl}/api/releases`, {
     method: 'POST', headers: authHeaders(token, true), body: JSON.stringify(input),
   });
-  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `Create failed (${res.status})`);
+  await ensureOk(res, 'Create failed');
   return (await res.json()).release;
 }
 
@@ -116,7 +132,7 @@ export async function checkRelease(apiBaseUrl: string, token: string, releaseId:
   const res = await fetch(`${apiBaseUrl}/api/releases/${releaseId}/check`, {
     method: 'POST', headers: authHeaders(token),
   });
-  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `Check failed (${res.status})`);
+  await ensureOk(res, 'Check failed');
   return (await res.json()).report;
 }
 

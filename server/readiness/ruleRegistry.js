@@ -40,7 +40,13 @@ function evaluateCondition(condition, context) {
   if (condition.not) return !evaluateCondition(condition.not, context);
   if (typeof condition.field === 'string' && typeof condition.op === 'string') {
     const op = OPS[condition.op];
-    if (!op) return false;
+    if (!op) {
+      // A misconfigured rule (unknown operator) silently disabling itself would
+      // hide compliance gaps. Log it so bad rule packs are discoverable; still
+      // return false so one broken rule can't crash a whole readiness check.
+      console.warn(`[readiness] Unknown rule operator "${condition.op}" for field "${condition.field}"; rule evaluates to false.`);
+      return false;
+    }
     return Boolean(op(getField(context, condition.field), condition.value));
   }
   return false;

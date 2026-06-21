@@ -70,11 +70,11 @@ This satisfies the directive: the scoring engine measures risk reduction, not te
 
 The tiering below is a working hypothesis to guide entitlement architecture, **not a committed packaging decision.** Final names, bundles, and tiers are deferred to the Packaging & Monetization Report (§4a) after Phase 2.
 
-Value grouped by *which risks we help you retire*, with clear personas and upgrade triggers. (Pricing intentionally omitted.)
+Value is grouped by *which risks we help you retire*, with clear personas and upgrade triggers. (Pricing intentionally omitted.)
 
 | Tier | Persona | Value: risks addressed | Representative features |
 |---|---|---|---|
-| **Free — Scan** | Curious / first-time creator | See *that* risk exists | Basic release scan, verdict + top issues, limited scans/month, no export, metadata cleanse (existing) |
+| **Free — Scan** | Curious / first-time creator | See *that a* risk exists | Basic release scan, verdict + top issues, limited scans/month, no export, metadata cleanse (existing) |
 | **Creator** | Active independent / AI-assisted creator | Retire metadata + disclosure risk | Full readiness reports, metadata validation, AI disclosure guidance, unlimited scans, export, batch-lite |
 | **Pro** (today's "Studio") | Serious / frequent releaser | Retire rights + platform risk | Everything in Creator + rights validation, platform-compliance packs, advanced/exportable reports, full batch |
 | **Label / Team** | Label, distributor, manager | Oversight across a roster | Everything in Pro + multi-user/seats, batch validation, team management, compliance oversight dashboard |
