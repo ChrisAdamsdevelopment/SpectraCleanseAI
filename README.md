@@ -114,6 +114,17 @@ docker run --rm -p 3001:3001 \
 
 Never commit real secrets to source control.
 
+## Health & observability
+
+- `GET /api/health` (public, no auth) returns `{ status, uptime, version, time }`. Useful for uptime monitors and Render health checks.
+- `GET /sitemap.xml` and `GET /robots.txt` are served directly by the backend so they work without the SPA static build (e.g. during dev) and stay in sync with the canonical domain `https://spectracleanse.com`.
+
+## Rate limiting
+
+- All `/api/*` routes (except `/api/health` and the Stripe webhook) are gated by a 60-requests-per-minute-per-IP limiter.
+- `/api/login`, `/api/register`, and the `/api/auth/*` routes get a tighter 10/min limiter on top to make brute-force harder.
+- A throttled request returns `429` with `{ "error": "Too many requests" }`.
+
 ## Batch processing API
 
 - `POST /api/process-batch` (authenticated): processes up to 20 uploaded files sequentially for paid plans (Creator/Studio). Free plan returns `403`.
