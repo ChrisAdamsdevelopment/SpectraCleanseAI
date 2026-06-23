@@ -42,6 +42,11 @@ The source code is available at [github.com/ChrisAdamsdevelopment/SpectraCleanse
 
 ---
 
+## Product direction docs
+
+- [Product Definition: Song-Centered Artist Content Studio](docs/PRODUCT_DEFINITION_SONG_CONTENT_STUDIO.md)
+- [Architecture Spike: Song-Centered Artist Content Studio](docs/ARCHITECTURE_SPIKE_SONG_CONTENT_STUDIO.md)
+
 ## QA / Deployment Testing
 
 For a step-by-step manual validation flow (local, API smoke, auth, billing, upload, cleanse, Docker, and production readiness), see [`docs/manual-qa-checklist.md`](docs/manual-qa-checklist.md).
