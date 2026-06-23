@@ -28,11 +28,8 @@ jobs:
         run: npm ci
 
       - name: Audit for vulnerabilities
-        # Fail the build on any high/critical CVE in dependencies that ship to
-        # the production runtime. Build/test tooling (vite, vitest, esbuild, etc.)
-        # lives in devDependencies and never executes in the deployed server, so
-        # it is excluded here to keep the gate focused on real production risk.
-        run: npm audit --omit=dev --audit-level=high
+        # Fail the build on any high or critical CVE
+        run: npm audit --audit-level=high
 
       - name: Smoke test – server boots and /api/health responds
         run: |

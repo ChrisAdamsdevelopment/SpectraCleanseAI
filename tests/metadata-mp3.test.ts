@@ -6,12 +6,16 @@ const mockGetBlob = vi.fn(() => new Uint8Array([1, 2, 3]));
 
 vi.mock('browser-id3-writer', () => {
   return {
-    default: vi.fn().mockImplementation(() => ({
-      removeTag: vi.fn(),
-      setFrame: mockSetFrame,
-      addTag: mockAddTag,
-      getBlob: mockGetBlob,
-    })),
+    // vitest 4 requires a constructable implementation (function/class) for `new`.
+    // The writer is used as `new ID3Writer(buffer)` in src/utils/metadata.js.
+    default: vi.fn(function ID3Writer() {
+      return {
+        removeTag: vi.fn(),
+        setFrame: mockSetFrame,
+        addTag: mockAddTag,
+        getBlob: mockGetBlob,
+      };
+    }),
   };
 });
 
