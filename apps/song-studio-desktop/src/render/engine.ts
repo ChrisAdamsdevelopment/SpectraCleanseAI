@@ -1,16 +1,27 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import type { RenderEngine, RenderJob, RenderResult, RenderLogFn } from './types';
-import { getPreset } from './presets';
+import type { RenderEngine, RenderJob, RenderResult, RenderLogFn, FfmpegStatus } from './types';
+import { getRecipe } from './recipes';
+import { getTemplate } from './templates';
 import { buildFfmpegArgs } from './ffmpegArgs';
 
-// Production engine: builds the FFmpeg args in TypeScript (shared logic) and
-// hands them to the thin Rust `run_ffmpeg` command, which executes FFmpeg and
-// emits log lines on the `render://log` event channel.
+/** Ask the Rust side which FFmpeg it will use (so the UI can show it pre-render). */
+export async function getFfmpegStatus(): Promise<FfmpegStatus> {
+  try {
+    return await invoke<FfmpegStatus>('ffmpeg_status');
+  } catch {
+    return { found: false, path: '', source: 'unknown' };
+  }
+}
+
+// Production engine: builds FFmpeg args in shared TS, hands them to the thin Rust
+// `run_ffmpeg` command (which resolves FFmpeg, dedupes the output path, and emits
+// `render://log` events). All render logic lives in TS.
 export const tauriRenderEngine: RenderEngine = {
   async render(job: RenderJob, onLog?: RenderLogFn): Promise<RenderResult> {
-    const preset = getPreset(job.presetId);
-    if (!preset) return { ok: false, error: `Unknown preset "${job.presetId}"` };
+    const recipe = getRecipe(job.recipeId);
+    if (!recipe) return { ok: false, error: `Unknown recipe "${job.recipeId}"` };
+    const template = getTemplate(recipe.visualTemplateId);
 
     let fontPath: string | null = null;
     try {
@@ -19,7 +30,7 @@ export const tauriRenderEngine: RenderEngine = {
       fontPath = null; // title overlay is best-effort
     }
 
-    const args = buildFfmpegArgs(job, preset, { fontPath });
+    const args = buildFfmpegArgs(job, recipe, template, { fontPath });
     const start = Date.now();
 
     let unlisten: (() => void) | undefined;

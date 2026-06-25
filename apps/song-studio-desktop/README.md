@@ -1,15 +1,20 @@
 # Song Studio (desktop)
 
-The beginning of the **real** Song-Centered Artist Content Studio: a local desktop
-app that turns **one song → a vertical promotional video**. Built in the structure
-intended to keep (Tauri v2 + React + TypeScript + Vite + a modular FFmpeg render
-engine), not a throwaway prototype.
+A **desktop-first, post-song content studio** for artists. You already finished the
+song — Song Studio helps you turn it into the **videos, Canvas loops, hook clips,
+and visualizers** you need to promote it.
 
 > Product direction: **Song → Assets → Content → Promotion → Growth.** The song is
 > the center of the workflow.
 
-This app is isolated under `apps/song-studio-desktop/` and does not touch the old
-root web app, its dependencies, auth, billing, database, or release-readiness code.
+The aim is **BandLab-style simplicity** — but for music-promo content, not music
+creation (Song Studio is not affiliated with BandLab). Instead of asking "what
+video settings do you want?", it asks **"what do you want to make for this song?"**
+and bundles the technical decisions into simple creative functions with smart
+defaults. Advanced controls can be exposed later.
+
+Isolated under `apps/song-studio-desktop/`. Does not touch the old root web app,
+auth, billing, database, or release-readiness code.
 
 ---
 
@@ -17,130 +22,133 @@ root web app, its dependencies, auth, billing, database, or release-readiness co
 
 - **Tauri v2** desktop shell (Rust) — native window, file dialogs, runs FFmpeg.
 - **React + TypeScript + Vite** UI.
-- **Shared render core** (TypeScript): `src/render/` defines the stable
-  `RenderJob` / `RenderPreset` / `RenderResult` / `RenderStatus` / `RenderEngine`
-  interfaces, the preset registry, and `buildFfmpegArgs()`. All render logic lives
-  here — the UI calls an engine, never raw FFmpeg.
-- **FFmpeg** does the actual rendering. The Rust command is a thin executor that
-  runs FFmpeg with args built by the shared TypeScript core (no render logic in Rust).
+- **Shared render core** (`src/render/`): the model is split into
+  **CreativeFunction** (what to make) → **RenderRecipe** (portable preset) →
+  **VisualTemplate** (the FFmpeg look), plus a stable `RenderEngine` interface and
+  a pure `buildFfmpegArgs()`. The UI calls an engine; render logic never lives in UI.
+- **FFmpeg** renders. The Rust command is a thin executor (resolve FFmpeg → dedupe
+  output → run); no render logic in Rust.
 
 ---
 
-## How to run (dev)
+## Run (dev)
 
-Requires **Node 20.19+ (or 22.12+)**, **Rust** (stable, for Tauri), and **FFmpeg**
-available (on `PATH`, or set `SONG_STUDIO_FFMPEG=/path/to/ffmpeg`).
+Requires **Node 20.19+ / 22.12+**, **Rust** (stable) + **MSVC Build Tools** on
+Windows (for Tauri), and **FFmpeg** (auto-resolved in dev — see below).
 
 ```bash
 cd apps/song-studio-desktop
 npm install
-npm run tauri dev      # launches the desktop app (Vite dev server + Tauri window)
+npm run tauri dev        # launches the desktop app
 ```
 
-- `npm run dev` alone starts only the Vite frontend in a browser — file selection
-  and rendering require the desktop runtime (`npm run tauri dev`). The UI shows a
-  banner when not running inside Tauri.
-- If `tauri dev` complains about icons, generate the full set once:
-  `npx @tauri-apps/cli icon ./src-tauri/icons/icon.png`.
+Other scripts: `npm run dev` (frontend only, browser — no file/render),
+`npm run typecheck`, `npm run build`, `npm run render:smoke` (verifies the render
+engine by producing real MP4s into `out/`).
 
-### Verify the render engine without Tauri
+### FFmpeg resolution (dev fallback)
 
-```bash
-npm run render:smoke   # generates synthetic assets, renders 2 MP4s into out/, verifies them
-```
+`run_ffmpeg` resolves FFmpeg in this order, and shows the resolved path/source in
+the app before rendering:
+
+1. `SONG_STUDIO_FFMPEG` env var
+2. bundled sidecar (PLANNED — not packaged yet)
+3. dev fallback: `node_modules/ffmpeg-static/ffmpeg(.exe)`
+4. system `ffmpeg` on `PATH`
+
+So after `npm install`, dev mode finds FFmpeg automatically — no manual env var
+needed. If none is found, the app shows a clear error.
 
 ---
 
-## Using the app
+## Using it
 
-1. Enter **song title** and **artist name**.
-2. **Choose cover art** (png / jpg / jpeg / webp).
-3. **Choose song audio** (mp3 / wav / m4a / aac / flac) — required for audio presets.
-4. **Choose an output folder.**
-5. Pick a **preset** (Canvas-style loop, or TikTok/Reels/Shorts promo).
-6. Click **Render MP4**. Watch status + logs.
-7. The exported MP4 path and size appear in the output panel.
-8. **Save / Open project** stores the inputs as a local `.songstudio.json` file.
+1. **Song project** — enter title + artist; choose cover art, song audio, output folder.
+2. **What do you want to make?** — Canvas loop / Hook promo / Visualizer.
+3. **Style** — pick a recipe (e.g. Clean, Dark Street, Neon) compatible with that function.
+4. **Clip selection** — for audio functions set a **start** (`0:42` or `42`) and a
+   **duration** (3–60s). Canvas uses a duration only.
+5. **What will be created** — a summary panel shows function, style, size, duration,
+   audio section, visual, and the output filename, before you render.
+6. **Render MP4** — watch status + logs. Output appears in your chosen folder.
 
-**Outputs** are written to the folder you choose, as `<title>_<preset>.mp4`.
+Outputs are named `SongTitle_recipe_YYYYMMDD_HHMMSS.mp4`, and the app never
+overwrites an existing file (it picks a unique name).
 
 ### Allowed formats (v1, LIMITED)
 
-- Audio: `mp3, wav, m4a, aac, flac` (passed to FFmpeg; not exhaustively tested).
-- Image: `png, jpg, jpeg, webp`.
+- Audio: `mp3, wav, m4a, aac, flac`. Image: `png, jpg, jpeg, webp`. Passed to
+  FFmpeg; not exhaustively tested.
 
 ---
 
-## Presets (LIMITED — not platform-certified)
+## Built-in recipes & templates
 
-- **Spotify Canvas-style loop** — silent 1080×1920, slow zoom on the cover, ~6s.
-- **TikTok / Reels / Shorts promo** — 1080×1920 with audio + a waveform, ~15s.
-  One shared implementation for all three; dimensions/durations are first-pass and
-  **not yet verified against each platform's current spec.**
+Creative functions → default recipe:
+- **Make a Canvas loop** → *Clean Canvas* (silent, slow zoom).
+- **Make a Hook Promo** → *Clean Hook Promo* (audio + waveform).
+- **Make a Visualizer** → *Neon Visualizer* (audio + cyan waveform, saturated).
+
+Recipes also include *Dark Street Hook* (darker, vignette, bold title). Visual
+templates (`cover_focus`, `dark_street`, `neon_pulse`) are deterministic FFmpeg
+looks — no AI, no shaders.
 
 ---
 
 ## Truthfulness
 
 **REAL**
-- Tauri v2 desktop shell *code/structure* (window, dialog + fs plugins, `run_ffmpeg` + `font_path` commands).
-- React/TypeScript UI (builds via Vite; typechecks).
-- FFmpeg render engine + **local MP4 export** — verified by `npm run render:smoke` producing real MP4s through the shared engine.
-- Modular render interface shared by the Tauri and Node engines.
+- Tauri v2 desktop window (verified launching on Windows by the founder).
+- React/TypeScript UI (builds + typechecks).
+- Audio file / cover art / output-folder selection via native dialogs.
+- FFmpeg render engine + local MP4 export (Canvas + audio promo) — verified; the
+  founder produced a real Canvas MP4 from the app, and `render:smoke` renders all
+  recipes/templates.
+- Creative-function / recipe / visual-template data model.
+- Manual clip controls (start + duration, seconds or m:ss) with validation.
+- Pre-render "what will be created" summary.
+- Unique, timestamped output filenames (no overwrite).
+- Dev FFmpeg auto-resolution (env → dev node_modules → PATH).
 
 **LIMITED**
-- Preset accuracy (dimensions/durations are first-pass, not platform-certified).
-- Progress reporting (status + a log tail; not per-frame progress).
-- Error handling (surfaces FFmpeg stderr tail; not exhaustive).
-- Project persistence (single JSON file via a save/open dialog).
-- Title overlay (best-effort; uses a system font if one is found, else skipped).
+- Visual templates / title typography (first-pass styling, not art-directed).
+- Preset library (4 built-ins; not platform-certified for exact specs).
+- Progress reporting (status + a log tail; not per-frame).
+- Error handling (FFmpeg stderr tail; not exhaustive).
+- Project persistence (single JSON via save/open dialog).
+- Audio preview (uses Tauri `convertFileSrc`; may not play for all formats/paths).
+- Title overlay (best-effort; uses a system font if found, else skipped).
 
 **PLANNED**
-- Richer templates, animated/synced lyric clips, caption generation.
-- Campaign workspace (multiple assets per song).
-- Desktop installers / packaging (and **bundling FFmpeg as a Tauri sidecar**).
-- Remotion as an alternative/richer renderer (still under consideration).
+- Creator preset save / import / export / share / fork; trending/community presets.
+- AI creative director (suggest presets/sections, modify recipes).
+- Waveform / timeline, hook detection.
+- Richer templates, lyric clips, caption packs, campaign workspace, "5 variations".
+- FFmpeg sidecar packaging + desktop installers.
 
 **NOT ASSESSED**
 - Platform API integrations (TikTok/Spotify/YouTube/Instagram/Facebook) — none.
 - Analytics — none.
-- Production FFmpeg licensing/packaging (see below).
-- Cloud rendering — none.
+- Commercial FFmpeg licensing / re-distribution.
+- Cloud rendering.
 
 ---
 
 ## What came from the render spike (PR #53)
 
-The FFmpeg filtergraph (blurred cover background + centered art + audio waveform
-for promo, slow zoom for Canvas, optional title overlay) was **refactored** from
-the `studio-prototype` spike into the shared, typed `buildFfmpegArgs()` so it can
-be reused by both the desktop app and the Node verification runner. The spike's
-CLI/throwaway structure was **not** carried over.
+The FFmpeg filtergraph (blurred cover background + centered art + audio waveform /
+slow zoom + optional title) was **refactored** from the `studio-prototype` spike
+into the typed, shared `buildFfmpegArgs()` and split into recipes + templates so
+it can be reused and extended. The spike's throwaway CLI structure was not kept.
 
 ---
 
 ## Production packaging notes
 
-- `npm run tauri build` produces installers — requires the full icon set
-  (`npx @tauri-apps/cli icon …`) and a code-signing story per OS (PLANNED).
-- **FFmpeg must be bundled** for end users. v1 resolves FFmpeg from `PATH` /
-  `SONG_STUDIO_FFMPEG`; production should ship FFmpeg as a Tauri **sidecar** binary
-  (PLANNED).
+- `npm run tauri build` needs the full icon set (committed here) and per-OS
+  signing (PLANNED).
+- **FFmpeg must be bundled** for end users — v1 resolves it in dev only; production
+  should ship FFmpeg as a Tauri **sidecar** (PLANNED).
+- **FFmpeg licensing / packaging review required before any commercial release**
+  (FFmpeg builds are typically GPL/LGPL). Surfaced early on purpose.
 - The `fs` capability scope is broad (`**`) for v1 convenience; tighten before release.
-
-### FFmpeg licensing / packaging — review required
-
-FFmpeg builds are typically GPL/LGPL and some include components with their own
-terms. **FFmpeg licensing and how it is bundled/distributed inside the desktop
-installer must be reviewed before any production/commercial release.** This is
-deliberately surfaced early rather than hidden.
-
----
-
-## Known limitations
-
-- `npm run tauri dev` was **not executed in the build environment** because the
-  Rust toolchain is not installed there; the Tauri shell code is provided and the
-  render engine was verified independently (`render:smoke`). Run `tauri dev` on a
-  machine with Rust + FFmpeg to launch the full app.
-- No accounts, no cloud, no database, no payments — by design (local desktop tool).

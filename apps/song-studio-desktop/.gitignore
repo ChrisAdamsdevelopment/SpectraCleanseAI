@@ -11,3 +11,7 @@ src-tauri/gen/
 
 # local synthetic test assets produced by render:smoke
 render-core/.smoke-assets/
+
+# generated mobile icon sets (desktop app does not need them committed)
+src-tauri/icons/android/
+src-tauri/icons/ios/
