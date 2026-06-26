@@ -75,6 +75,16 @@ needed. If none is found, the app shows a clear error.
 
 ### Preview Composer (v1)
 
+The editor is a **workspace** (top project bar · left rail for make/style/layers ·
+center 9:16 preview · right inspector · bottom clip/export/log) sized for a laptop
+screen — no long vertical scrolling. You can **drag the cover art and title
+directly in the preview**, hear/scrub the song in the **audio panel** and press
+"Use current time as clip start", and pick **friendly fonts and named colors**.
+
+> Local media (cover art + audio) loads in the preview via the Tauri **asset
+> protocol** (enabled in `tauri.conf.json`); broken/missing media shows a clear
+> message instead of failing silently.
+
 Recipes compile into an **editable layer stack** (`src/render/composition.ts`):
 `background`, `cover_art`, `title_text`, `waveform`, `effect_overlay`. The DOM/CSS
 live preview and the FFmpeg exporter read the **same** composition, so editing a
@@ -87,8 +97,8 @@ value changes both. Inspector controls:
 
 **What the final FFmpeg render respects** (verified): background blur / brightness /
 saturation / zoom (Canvas), cover **size + X/Y position** (square), title
-**text / size / Y / color / box + opacity / alignment**, vignette, waveform color,
-clip start + duration, and layer visibility.
+**text / font family / size / X+Y / color / box + opacity / alignment**, vignette,
+waveform **color + Y position**, clip start + duration, and layer visibility.
 
 **Preview / export drift** (preview-only for now, not yet in the MP4):
 - Cover **shape** rounded/circle and **shadow** (FFmpeg renders a square cover).

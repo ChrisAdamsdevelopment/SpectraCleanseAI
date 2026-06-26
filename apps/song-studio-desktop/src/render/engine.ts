@@ -1,10 +1,12 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import type { RenderEngine, RenderJob, RenderResult, RenderLogFn, FfmpegStatus } from './types';
+import type { TitleLayer } from './types';
 import { getRecipe } from './recipes';
 import { getTemplate } from './templates';
-import { recipeToComposition } from './composition';
+import { recipeToComposition, getLayer } from './composition';
 import { buildFfmpegArgs } from './ffmpegArgs';
+import { getFontFamily } from '../lib/fonts';
 
 /** Ask the Rust side which FFmpeg it will use (so the UI can show it pre-render). */
 export async function getFfmpegStatus(): Promise<FfmpegStatus> {
@@ -23,11 +25,15 @@ export const tauriRenderEngine: RenderEngine = {
     if (!recipe) return { ok: false, error: `Unknown recipe "${job.recipeId}"` };
     const composition = job.composition ?? recipeToComposition(recipe, getTemplate(recipe.visualTemplateId), { title: job.title });
 
+    // Resolve the chosen title font family (first existing candidate); fall back
+    // to any available system font.
     let fontPath: string | null = null;
-    try {
-      fontPath = await invoke<string | null>('font_path');
-    } catch {
-      fontPath = null;
+    const titleLayer = getLayer<TitleLayer>(composition, 'title_text');
+    if (titleLayer) {
+      try { fontPath = await invoke<string | null>('resolve_font', { candidates: getFontFamily(titleLayer.font).files }); } catch { fontPath = null; }
+    }
+    if (!fontPath) {
+      try { fontPath = await invoke<string | null>('font_path'); } catch { fontPath = null; }
     }
 
     const args = buildFfmpegArgs(composition, {

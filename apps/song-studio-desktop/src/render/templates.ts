@@ -15,7 +15,7 @@ export const VISUAL_TEMPLATES: VisualTemplate[] = [
     vignette: false,
     titleFontSize: 64,
     titleBoxAlpha: 0.4,
-    waveColor: 'white',
+    waveColor: '#ffffff',
   },
   {
     id: 'dark_street',
@@ -28,7 +28,7 @@ export const VISUAL_TEMPLATES: VisualTemplate[] = [
     vignette: true,
     titleFontSize: 78,
     titleBoxAlpha: 0.55,
-    waveColor: 'white',
+    waveColor: '#ffffff',
   },
   {
     id: 'neon_pulse',
@@ -41,7 +41,7 @@ export const VISUAL_TEMPLATES: VisualTemplate[] = [
     vignette: false,
     titleFontSize: 70,
     titleBoxAlpha: 0.35,
-    waveColor: '0x4fd1ff',
+    waveColor: '#4fd1ff',
   },
 ];
 

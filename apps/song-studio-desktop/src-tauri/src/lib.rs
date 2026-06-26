@@ -65,6 +65,12 @@ fn ffmpeg_status() -> serde_json::Value {
     serde_json::json!({ "found": r.found, "path": r.path, "source": r.source })
 }
 
+/// Return the first existing path from a candidate list (for font-family selection).
+#[tauri::command]
+fn resolve_font(candidates: Vec<String>) -> Option<String> {
+    candidates.into_iter().find(|p| Path::new(p).exists())
+}
+
 /// Resolve a usable .ttf for the FFmpeg title overlay; None => overlay skipped.
 #[tauri::command]
 fn font_path() -> Option<String> {
@@ -139,7 +145,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
-        .invoke_handler(tauri::generate_handler![run_ffmpeg, font_path, ffmpeg_status])
+        .invoke_handler(tauri::generate_handler![run_ffmpeg, font_path, resolve_font, ffmpeg_status])
         .run(tauri::generate_context!())
         .expect("error while running Song Studio");
 }

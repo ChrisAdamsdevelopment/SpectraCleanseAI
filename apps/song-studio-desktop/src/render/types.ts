@@ -91,8 +91,9 @@ export interface CoverLayer extends LayerBase {
 export interface TitleLayer extends LayerBase {
   type: 'title_text';
   text: string;
+  font: string;        // font-family id (see lib/fonts.ts)
   size: number;        // font size in px (1080-wide frame)
-  x: number;           // 0..1
+  x: number;           // 0..1 anchor
   y: number;
   color: string;       // #rrggbb
   box: boolean;
@@ -101,7 +102,8 @@ export interface TitleLayer extends LayerBase {
 }
 export interface WaveformLayer extends LayerBase {
   type: 'waveform';
-  color: string;       // FFmpeg color (e.g. "white" or "0x4fd1ff")
+  color: string;       // #rrggbb (mapped to an FFmpeg color at export)
+  y: number;           // 0..1 vertical position
 }
 export interface EffectLayer extends LayerBase {
   type: 'effect_overlay';

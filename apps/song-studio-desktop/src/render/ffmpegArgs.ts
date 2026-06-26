@@ -87,17 +87,19 @@ export function buildFfmpegArgs(comp: Composition, rt: RenderInputs, opts: Build
   }
 
   if (useWave) {
+    const wy = Math.round((wave!.y ?? 0.82) * H) - 130;
     chains.push(`[1:a]showwaves=s=${W}x260:mode=cline:rate=${fps}:colors=${ffColor(wave!.color)},format=yuva420p[wave]`);
-    chains.push(`[${last}][wave]overlay=0:H-360[comp]`);
+    chains.push(`[${last}][wave]overlay=0:${wy}[comp]`);
     last = 'comp';
   }
 
   let vlabel = last;
   const titleText = sanitizeTitle(title?.text);
   if (title?.visible && titleText && opts.fontPath) {
-    const tx = title.align === 'left' ? '64'
-      : title.align === 'right' ? `w-text_w-64`
-      : '(w-text_w)/2';
+    const cx = Math.round(title.x * W);
+    const tx = title.align === 'left' ? `${cx}`
+      : title.align === 'right' ? `${cx}-text_w`
+      : `${cx}-text_w/2`;
     const ty = Math.round(title.y * H);
     const box = title.box ? `:box=1:boxcolor=black@${title.boxOpacity}:boxborderw=26` : '';
     chains.push(

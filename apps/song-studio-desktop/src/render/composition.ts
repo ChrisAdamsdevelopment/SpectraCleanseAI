@@ -24,12 +24,12 @@ export function recipeToComposition(
   };
   const title: TitleLayer = {
     id: 'title_text', type: 'title_text', visible: Boolean(opts.title), locked: false, opacity: 1,
-    text: opts.title ?? '', size: template.titleFontSize, x: 0.5, y: 0.88,
+    text: opts.title ?? '', font: 'sans', size: template.titleFontSize, x: 0.5, y: 0.88,
     color: '#ffffff', box: true, boxOpacity: template.titleBoxAlpha, align: 'center',
   };
   const waveform: WaveformLayer = {
     id: 'waveform', type: 'waveform', visible: audio && recipe.overlayStyle === 'waveform', locked: false, opacity: 1,
-    color: template.waveColor,
+    color: template.waveColor, y: 0.82,
   };
   const effect: EffectLayer = {
     id: 'effect_overlay', type: 'effect_overlay', visible: template.vignette, locked: false, opacity: 1,
