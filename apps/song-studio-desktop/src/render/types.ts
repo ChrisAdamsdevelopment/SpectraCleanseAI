@@ -59,6 +59,64 @@ export interface CreativeFunction {
   defaultRecipeId: string;
 }
 
+// ── Editable layer/composition model (Preview Composer v1) ───────────────────
+// A recipe compiles into a Composition of layers. The user edits the layers;
+// BOTH the DOM/CSS live preview and the FFmpeg exporter read the same values.
+
+export type LayerType = 'background' | 'cover_art' | 'title_text' | 'waveform' | 'effect_overlay';
+
+export interface LayerBase {
+  id: string;
+  type: LayerType;
+  visible: boolean;
+  locked: boolean;
+  opacity: number; // 0..1
+}
+export interface BackgroundLayer extends LayerBase {
+  type: 'background';
+  blur: number;        // boxblur strength
+  brightness: number;  // eq brightness (negative = darker)
+  saturation: number;  // eq saturation
+  zoom: number;        // slow-zoom amount (0 = none)
+}
+export interface CoverLayer extends LayerBase {
+  type: 'cover_art';
+  scale: number;       // fraction of frame width
+  x: number;           // 0..1 center anchor
+  y: number;
+  rotation: number;    // degrees (preview only for now)
+  shape: 'square' | 'rounded' | 'circle';
+  shadow: number;      // 0..1 (preview only for now)
+}
+export interface TitleLayer extends LayerBase {
+  type: 'title_text';
+  text: string;
+  size: number;        // font size in px (1080-wide frame)
+  x: number;           // 0..1
+  y: number;
+  color: string;       // #rrggbb
+  box: boolean;
+  boxOpacity: number;  // 0..1
+  align: 'left' | 'center' | 'right';
+}
+export interface WaveformLayer extends LayerBase {
+  type: 'waveform';
+  color: string;       // FFmpeg color (e.g. "white" or "0x4fd1ff")
+}
+export interface EffectLayer extends LayerBase {
+  type: 'effect_overlay';
+  vignette: boolean;
+}
+export type Layer = BackgroundLayer | CoverLayer | TitleLayer | WaveformLayer | EffectLayer;
+
+export interface Composition {
+  width: number;
+  height: number;
+  fps: number;
+  audio: boolean;
+  layers: Layer[];
+}
+
 export interface RenderJob {
   recipeId: string;
   functionId?: string;
@@ -69,6 +127,7 @@ export interface RenderJob {
   outputPath: string;
   durationSec?: number;     // clip duration; clamped to 1..60
   audioStartSec?: number;   // clip start in the song (audio recipes only)
+  composition?: Composition; // edited composition from the UI; falls back to the recipe
 }
 
 export interface RenderResult {

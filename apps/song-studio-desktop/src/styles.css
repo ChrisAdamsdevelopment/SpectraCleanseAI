@@ -71,3 +71,31 @@ button.ghost { background: transparent; }
 .result code, .summary code, .filerow code { font-size: 12px; }
 
 .logs { background: #0b0d11; border: 1px solid var(--border); border-radius: 8px; padding: 10px; font-family: ui-monospace, monospace; font-size: 11px; color: #b9c0cc; height: 170px; overflow: auto; white-space: pre-wrap; }
+
+.small { font-size: 11px; }
+
+/* Composer */
+.composer-grid { display: grid; grid-template-columns: 150px 1fr 230px; gap: 14px; align-items: start; }
+.layers { display: flex; flex-direction: column; gap: 6px; }
+.layer { text-align: left; display: flex; align-items: center; gap: 8px; padding: 8px 10px; }
+.layer.selected { border-color: var(--accent); background: #1b2536; }
+.layer .dot { width: 8px; height: 8px; border-radius: 50%; background: #3a4150; }
+.layer .dot.on { background: var(--ok); }
+
+.preview-wrap { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.preview { position: relative; border-radius: 10px; overflow: hidden; background: #0b0d11; border: 1px solid var(--border); }
+
+.inspector { background: var(--panel-2); border: 1px solid var(--border); border-radius: 10px; padding: 12px; }
+.inspector .insp-head { font-size: 13px; font-weight: 600; margin-bottom: 8px; }
+.inspector .muted { font-size: 12px; }
+.ctl { display: flex; flex-direction: column; gap: 4px; margin: 8px 0; font-size: 12px; color: var(--muted); }
+.ctl > span { display: flex; justify-content: space-between; }
+.ctl > span b { color: var(--text); font-weight: 500; }
+.ctl input[type=range] { width: 100%; }
+.ctl.row2 { flex-direction: row; align-items: center; justify-content: space-between; }
+.ctl input[type=text] { font-size: 13px; }
+.ctl select { background: var(--panel); border: 1px solid var(--border); color: var(--text); border-radius: 6px; padding: 4px 6px; }
+
+.summary-list { margin: 10px 0 0; padding-left: 4px; list-style: none; font-size: 13px; line-height: 1.7; }
+.summary-list.errs { color: var(--warn); }
+.summary-list b { color: var(--muted); font-weight: 500; margin-right: 4px; }

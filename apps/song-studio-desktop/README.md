@@ -68,9 +68,36 @@ needed. If none is found, the app shows a clear error.
 3. **Style** — pick a recipe (e.g. Clean, Dark Street, Neon) compatible with that function.
 4. **Clip selection** — for audio functions set a **start** (`0:42` or `42`) and a
    **duration** (3–60s). Canvas uses a duration only.
-5. **What will be created** — a summary panel shows function, style, size, duration,
-   audio section, visual, and the output filename, before you render.
-6. **Render MP4** — watch status + logs. Output appears in your chosen folder.
+5. **Compose (live preview)** — a 9:16 preview shows the result instantly. Pick a
+   layer (background / cover art / title / waveform) and edit it in the inspector;
+   the preview updates as you drag. A preset is a **starting point** — edit freely.
+6. **Clip & export** — set clip start/duration, review the output, **Render MP4**.
+
+### Preview Composer (v1)
+
+Recipes compile into an **editable layer stack** (`src/render/composition.ts`):
+`background`, `cover_art`, `title_text`, `waveform`, `effect_overlay`. The DOM/CSS
+live preview and the FFmpeg exporter read the **same** composition, so editing a
+value changes both. Inspector controls:
+
+- **Background** — zoom, blur, darkness/brightness, saturation (uses the cover art).
+- **Cover art** — size, X/Y position, shape (square/rounded/circle), shadow.
+- **Title** — text, size, Y position, color, background box + opacity, alignment.
+- Per-layer **visibility** and **opacity**.
+
+**What the final FFmpeg render respects** (verified): background blur / brightness /
+saturation / zoom (Canvas), cover **size + X/Y position** (square), title
+**text / size / Y / color / box + opacity / alignment**, vignette, waveform color,
+clip start + duration, and layer visibility.
+
+**Preview / export drift** (preview-only for now, not yet in the MP4):
+- Cover **shape** rounded/circle and **shadow** (FFmpeg renders a square cover).
+- **Rotation** and per-layer **opacity** for cover/title.
+- Background **zoom** only animates in the silent Canvas export (audio presets are
+  static); the preview shows a small static scale.
+- The preview's blur/brightness/color are **CSS approximations**, not pixel-exact,
+  and the waveform is a stylized placeholder (FFmpeg uses `showwaves`).
+- Font/typography may differ from the system font FFmpeg uses.
 
 Outputs are named `SongTitle_recipe_YYYYMMDD_HHMMSS.mp4`, and the app never
 overwrites an existing file (it picks a unique name).
@@ -104,13 +131,18 @@ looks — no AI, no shaders.
 - FFmpeg render engine + local MP4 export (Canvas + audio promo) — verified; the
   founder produced a real Canvas MP4 from the app, and `render:smoke` renders all
   recipes/templates.
-- Creative-function / recipe / visual-template data model.
+- Creative-function / recipe / **editable layer-stack** composition model.
+- **Live 9:16 DOM/CSS preview** with layer selection and an inspector.
+- **Preview ↔ export parity**: edited composition values flow into the FFmpeg
+  render (verified for background, cover, title, clip — see drift list above).
 - Manual clip controls (start + duration, seconds or m:ss) with validation.
 - Pre-render "what will be created" summary.
 - Unique, timestamped output filenames (no overwrite).
 - Dev FFmpeg auto-resolution (env → dev node_modules → PATH).
 
 **LIMITED**
+- Live preview is a **CSS approximation**, not pixel-identical to the MP4 (drift list above).
+- Some inspector controls are **preview-only** so far (cover shape/shadow, rotation, opacity) — see drift.
 - Visual templates / title typography (first-pass styling, not art-directed).
 - Preset library (4 built-ins; not platform-certified for exact specs).
 - Progress reporting (status + a log tail; not per-frame).
