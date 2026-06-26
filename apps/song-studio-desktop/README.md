@@ -75,9 +75,14 @@ needed. If none is found, the app shows a clear error.
 
 ### Preview Composer (v1)
 
+The app opens on a **song-first Start screen** (add your song + cover art → pick
+what to make), then enters the editor — so a first-time user is guided instead of
+dropped into a dense form. "← Start" returns to it.
+
 The editor is a **workspace** (top project bar · left rail for make/style/layers ·
 center 9:16 preview · right inspector · bottom clip/export/log) sized for a laptop
-screen — no long vertical scrolling. You can **drag the cover art and title
+screen — no long vertical scrolling. The inspector defaults to **Simple** (just the
+few controls that matter); toggle **Advanced** for the rest. You can **drag the cover art and title
 directly in the preview**, hear/scrub the song in the **audio panel** and press
 "Use current time as clip start", and pick **friendly fonts and named colors**.
 

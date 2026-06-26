@@ -10,8 +10,9 @@ import { emptyProject, type SongProject } from './project/types';
 import { formatTime } from './lib/time';
 import { pickAudioFile, pickCoverImage, pickOutputDir, saveProjectToFile, loadProjectFromFile } from './project/storage';
 import { Preview } from './ui/Preview';
-import { Inspector } from './ui/Inspector';
+import { Inspector, type InspectorMode } from './ui/Inspector';
 import { AudioPanel } from './ui/AudioPanel';
+import { StartScreen } from './ui/StartScreen';
 
 const IS_TAURI = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in (window as object);
 const basename = (p: string | null) => (p ? p.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || p : '');
@@ -33,6 +34,8 @@ export default function App() {
   const [result, setResult] = useState<RenderResult | null>(null);
   const [busy, setBusy] = useState(false);
   const [ffmpeg, setFfmpeg] = useState<FfmpegStatus | null>(null);
+  const [view, setView] = useState<'start' | 'editor'>('start');
+  const [inspectorMode, setInspectorMode] = useState<InspectorMode>('simple');
 
   const fn = getFunction(project.functionId);
   const styleOptions = useMemo(() => (fn ? recipesForFunction(fn) : []), [fn]);
@@ -54,6 +57,11 @@ export default function App() {
     setComposition(recipeToComposition(recipe, getTemplate(recipe.visualTemplateId), { title: next.title }));
     setSelectedId('cover_art');
     if (status === 'idle') setStatus('ready');
+  }
+  function startMake(functionId: string) {
+    const f = getFunction(functionId);
+    if (f) applyRecipe(functionId, f.defaultRecipeId);
+    setView('editor');
   }
   function setTitle(text: string) {
     update({ title: text });
@@ -95,8 +103,18 @@ export default function App() {
   }
   async function onSave() { try { const p = await saveProjectToFile(project); if (p) addLog(`[project] saved -> ${p}`); } catch (e) { addLog(`save failed: ${e}`); } }
   async function onLoad() {
-    try { const p = await loadProjectFromFile(); if (p) { const m = { ...emptyProject(), ...p }; setProject(m); setComposition(compositionFor(m)); setStatus('ready'); } }
+    try { const p = await loadProjectFromFile(); if (p) { const m = { ...emptyProject(), ...p }; setProject(m); setComposition(compositionFor(m)); setStatus('ready'); setView('editor'); } }
     catch (e) { addLog(`load failed: ${e}`); }
+  }
+
+  if (view === 'start') {
+    return (
+      <StartScreen
+        isTauri={IS_TAURI} coverSrc={coverSrc} coverName={basename(project.coverPath)} audioName={basename(project.audioPath)}
+        onPickCover={() => choose('cover')} onPickAudio={() => choose('audio')}
+        onStart={startMake} onOpenProject={onLoad} onSkip={() => setView('editor')}
+      />
+    );
   }
 
   return (
@@ -111,8 +129,8 @@ export default function App() {
         <Chip ok={!!project.outputDir} label={project.outputDir ? 'Output ✓' : 'Output'} onClick={() => choose('output')} />
         <div className="spacer" />
         {IS_TAURI && ffmpeg && <span className={`ff ${ffmpeg.found ? 'ok' : 'err'}`}>FFmpeg {ffmpeg.found ? 'ready' : 'missing'}</span>}
+        <button className="ghost small" onClick={() => setView('start')}>← Start</button>
         <button className="ghost small" onClick={onSave} disabled={!IS_TAURI}>Save</button>
-        <button className="ghost small" onClick={onLoad} disabled={!IS_TAURI}>Open</button>
       </div>
 
       {!IS_TAURI && <div className="banner warn">Preview works in the browser, but file selection + rendering need <code>npm run tauri dev</code>.</div>}
@@ -147,7 +165,11 @@ export default function App() {
         </div>
 
         <div className="right">
-          <Inspector layer={selectedLayer} onChange={onInspectorChange} />
+          <div className="mode-toggle">
+            <button className={inspectorMode === 'simple' ? 'on' : ''} onClick={() => setInspectorMode('simple')}>Simple</button>
+            <button className={inspectorMode === 'advanced' ? 'on' : ''} onClick={() => setInspectorMode('advanced')}>Advanced</button>
+          </div>
+          <Inspector layer={selectedLayer} mode={inspectorMode} onChange={onInspectorChange} />
         </div>
       </div>
 
