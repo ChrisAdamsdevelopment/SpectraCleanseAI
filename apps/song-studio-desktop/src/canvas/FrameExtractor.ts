@@ -34,6 +34,9 @@ function conservativeHarnessMetrics(frameIndex: number, totalFrames: number, isA
     brightness: 0.48 + phase * 0.08,
     colorVector: [120 + Math.round(phase * 10), 80 + Math.round(phase * 6), 200 - Math.round(phase * 8)],
     motionMagnitude: 0.2 + phase * 0.08,
+    temporalSimilarity: 0.8 - phase * 0.08,
+    motionDelta: 0.2 + phase * 0.08,
+    motionMetricSource: 'placeholder',
   };
 }
 
