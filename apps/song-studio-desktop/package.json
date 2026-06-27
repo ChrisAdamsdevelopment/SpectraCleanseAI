@@ -10,7 +10,8 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "tauri": "tauri",
-    "render:smoke": "tsx render-core/smoke.mts"
+    "render:smoke": "tsx render-core/smoke.mts",
+    "canvas:smoke": "tsx src/canvas/smoke.mts"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.1.1",
