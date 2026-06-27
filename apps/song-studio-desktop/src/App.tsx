@@ -7,11 +7,13 @@ import { tauriRenderEngine, getFfmpegStatus } from './render/engine';
 import type { RenderJob, RenderResult, RenderStatus, FfmpegStatus, Composition, Layer } from './render/types';
 import { buildRenderPlan } from './render/plan';
 import { emptyProject, type SongProject } from './project/types';
-import { formatTime } from './lib/time';
+import { formatTime, parseTime } from './lib/time';
 import { pickAudioFile, pickCoverImage, pickOutputDir, saveProjectToFile, loadProjectFromFile } from './project/storage';
 import { Preview } from './ui/Preview';
 import { Inspector, type InspectorMode } from './ui/Inspector';
 import { AudioPanel } from './ui/AudioPanel';
+import { buildSongAnalysis } from './audio/songMoments';
+import type { SongMoment } from './project/types';
 import { StartScreen } from './ui/StartScreen';
 
 const IS_TAURI = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in (window as object);
@@ -45,6 +47,7 @@ export default function App() {
   const selectedLayer = getLayer(composition, selectedId);
 
   const update = (patch: Partial<SongProject>) => setProject((p) => ({ ...p, ...patch }));
+  const updateManualClip = (patch: Partial<Pick<SongProject, 'clipStart' | 'clipDuration'>>) => update({ ...patch, selectedMomentId: null });
   const addLog = (line: string) => setLogs((l) => [...l, line]);
 
   useEffect(() => { if (IS_TAURI) getFfmpegStatus().then(setFfmpeg).catch(() => setFfmpeg(null)); }, []);
@@ -67,6 +70,25 @@ export default function App() {
     update({ title: text });
     setComposition((c) => updateLayer(c, 'title_text', { text, visible: text.length > 0 }));
   }
+  function onAudioMetadata(durationSec: number) {
+    if (!project.audioPath) return;
+    const analysis = buildSongAnalysis({
+      audioPath: project.audioPath,
+      durationSec,
+      manualStartSec: parseTime(project.clipStart),
+      manualDurationSec: parseTime(project.clipDuration),
+      selectedMomentId: project.selectedMomentId,
+    });
+    update({ songAnalysis: analysis });
+  }
+  function selectMoment(moment: SongMoment) {
+    update({
+      selectedMomentId: moment.id,
+      songAnalysis: project.songAnalysis ? { ...project.songAnalysis, selectedMomentId: moment.id } : project.songAnalysis,
+      clipStart: formatTime(moment.startSec),
+      clipDuration: String(moment.durationSec),
+    });
+  }
   function onInspectorChange(patch: Partial<Layer>) {
     setComposition((c) => updateLayer(c, selectedId, patch));
     if (selectedId === 'title_text' && typeof (patch as { text?: string }).text === 'string') update({ title: (patch as { text: string }).text });
@@ -76,7 +98,7 @@ export default function App() {
   }
   async function choose(kind: 'audio' | 'cover' | 'output') {
     try {
-      if (kind === 'audio') { const p = await pickAudioFile(); if (p) update({ audioPath: p }); }
+      if (kind === 'audio') { const p = await pickAudioFile(); if (p) update({ audioPath: p, selectedMomentId: null, songAnalysis: null }); }
       if (kind === 'cover') { const p = await pickCoverImage(); if (p) update({ coverPath: p }); }
       if (kind === 'output') { const p = await pickOutputDir(); if (p) update({ outputDir: p }); }
       if (status === 'idle') setStatus('ready');
@@ -161,7 +183,16 @@ export default function App() {
         <div className="center">
           <Preview composition={composition} coverSrc={coverSrc} selectedId={selectedId} onSelect={setSelectedId} onMove={onMove} />
           <div className="muted small">Click a layer to edit it · drag the cover or title to move it · final MP4 is rendered by FFmpeg.</div>
-          <AudioPanel audioSrc={audioSrc} audioName={basename(project.audioPath)} required={plan.audio} onUseCurrentTime={(s) => update({ clipStart: formatTime(s) })} />
+          <AudioPanel
+            audioSrc={audioSrc}
+            audioName={basename(project.audioPath)}
+            required={plan.audio}
+            analysis={project.songAnalysis}
+            selectedMomentId={project.selectedMomentId}
+            onMetadata={onAudioMetadata}
+            onSelectMoment={selectMoment}
+            onUseCurrentTime={(s) => updateManualClip({ clipStart: formatTime(s) })}
+          />
         </div>
 
         <div className="right">
@@ -176,8 +207,8 @@ export default function App() {
       {/* Bottom clip + export + logs */}
       <div className="bottom">
         <div className="clip">
-          {plan.audio && <Field label="Clip start" value={project.clipStart} onChange={(v) => update({ clipStart: v })} />}
-          <Field label="Duration (s)" value={project.clipDuration} onChange={(v) => update({ clipDuration: v })} />
+          {plan.audio && <Field label="Clip start" value={project.clipStart} onChange={(v) => updateManualClip({ clipStart: v })} />}
+          <Field label="Duration (s)" value={project.clipDuration} onChange={(v) => updateManualClip({ clipDuration: v })} />
           <div className="grow">
             {plan.ok
               ? <span className="muted small">{plan.width}×{plan.height} · {plan.durationSec}s · {plan.audio ? `${formatTime(plan.audioStartSec)}–${formatTime(plan.audioEndSec)}` : 'silent'} · {plan.outputName}</span>
