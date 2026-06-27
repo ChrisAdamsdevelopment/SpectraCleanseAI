@@ -17,6 +17,7 @@ import type { SongMoment } from './project/types';
 import { StartScreen } from './ui/StartScreen';
 import { buildPromoDirectionCandidates, getSelectedSongMoment, promoDirectionRecipeLabel, type PromoDirectionCandidate } from './promo/directions';
 import { buildExportReview } from './export/review';
+import { buildExportResultSummary } from './export/result';
 
 const IS_TAURI = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in (window as object);
 const basename = (p: string | null) => (p ? p.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || p : '');
@@ -36,6 +37,7 @@ export default function App() {
   const [logs, setLogs] = useState<string[]>([]);
   const [showLogs, setShowLogs] = useState(false);
   const [result, setResult] = useState<RenderResult | null>(null);
+  const [copiedOutputPath, setCopiedOutputPath] = useState(false);
   const [busy, setBusy] = useState(false);
   const [ffmpeg, setFfmpeg] = useState<FfmpegStatus | null>(null);
   const [view, setView] = useState<'start' | 'editor'>('start');
@@ -48,6 +50,7 @@ export default function App() {
   const promoDirections = useMemo(() => buildPromoDirectionCandidates(project), [project]);
   const selectedMoment = useMemo(() => getSelectedSongMoment(project), [project]);
   const exportReview = useMemo(() => buildExportReview({ project, plan, composition, selectedMoment }), [project, plan, composition, selectedMoment]);
+  const exportResult = useMemo(() => result ? buildExportResultSummary({ result, project, plan, selectedMoment }) : null, [result, project, plan, selectedMoment]);
   const coverSrc = IS_TAURI && project.coverPath ? safeConvert(project.coverPath) : null;
   const audioSrc = IS_TAURI && project.audioPath ? safeConvert(project.audioPath) : null;
   const selectedLayer = getLayer(composition, selectedId);
@@ -149,7 +152,7 @@ export default function App() {
   }
   async function render() {
     if (!plan.ok || !project.coverPath || !project.outputDir) return;
-    setBusy(true); setStatus('rendering'); setResult(null); setLogs([]); setShowLogs(true);
+    setBusy(true); setStatus('rendering'); setResult(null); setCopiedOutputPath(false); setLogs([]); setShowLogs(true);
     const outputPath = joinPath(project.outputDir, plan.outputName);
     const job: RenderJob = {
       recipeId: project.recipeId, functionId: project.functionId, imagePath: project.coverPath,
@@ -165,6 +168,15 @@ export default function App() {
       const m = e instanceof Error ? e.message : String(e);
       setResult({ ok: false, error: m }); setStatus('error'); addLog(`[render] error: ${m}`);
     } finally { setBusy(false); }
+  }
+  async function copyOutputPath(path: string) {
+    try {
+      await navigator.clipboard.writeText(path);
+      setCopiedOutputPath(true);
+      window.setTimeout(() => setCopiedOutputPath(false), 1600);
+    } catch (e) {
+      addLog(`[export] copy output path failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
   }
   async function onSave() { try { const p = await saveProjectToFile(project); if (p) addLog(`[project] saved -> ${p}`); } catch (e) { addLog(`save failed: ${e}`); } }
   async function onLoad() {
@@ -299,8 +311,34 @@ export default function App() {
           <button className="primary" onClick={render} disabled={!IS_TAURI || busy || !plan.ok}>{busy ? 'Rendering…' : 'Render MP4'}</button>
           <button className="ghost small" onClick={() => setShowLogs((v) => !v)}>{showLogs ? 'Hide log' : 'Log'}</button>
         </div>
-        {result?.ok && <div className="result small">✅ {result.outputPath} ({Math.round((result.bytes ?? 0) / 1024)} KB)</div>}
-        {result && !result.ok && <div className="result err small">⛔ {result.error}</div>}
+        {exportResult && (
+          <div className={`export-result ${exportResult.status}`}>
+            <div className="export-result-head">
+              <div>
+                <div className="export-kicker">Export result</div>
+                <h3>{exportResult.title}</h3>
+                <p>{exportResult.summary}</p>
+              </div>
+              <div className="export-next">Next: {exportResult.nextAction}</div>
+            </div>
+            <div className="export-result-rows">
+              {exportResult.rows.map((row) => (
+                <div className="export-row" key={row.label}><span>{row.label}</span><b title={row.value}>{row.value}</b></div>
+              ))}
+            </div>
+            {exportResult.outputPath && (
+              <div className="output-path">
+                <span title={exportResult.outputPath}>{exportResult.outputPath}</span>
+                {'clipboard' in navigator && <button className="ghost small" onClick={() => copyOutputPath(exportResult.outputPath!)}>{copiedOutputPath ? 'Copied' : 'Copy path'}</button>}
+              </div>
+            )}
+            {exportResult.warnings.length > 0 && (
+              <div className="export-notices">
+                {exportResult.warnings.slice(0, 1).map((warning) => <div className="export-notice blocker" key={warning}>{warning}</div>)}
+              </div>
+            )}
+          </div>
+        )}
         {showLogs && <div className="logs">{logs.length ? logs.join('\n') : 'Logs will appear here.'}</div>}
       </div>
     </div>
