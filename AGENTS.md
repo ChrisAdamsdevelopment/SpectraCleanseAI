@@ -12,7 +12,7 @@
 
 - `feat/song-studio-desktop-foundation` is the active Song Studio desktop foundation branch.
 - PR #55 is the parent/foundation PR.
-- PR #56, Song Moment Selector v1, has already been merged into `feat/song-studio-desktop-foundation`.
+- PR #56, Song Moment Selector v1, and PR #58, Promo Direction Selector v1, have already been merged into `feat/song-studio-desktop-foundation`.
 - PR #51 is release-readiness work and should remain parked unless the user explicitly requests it.
 - Do not merge branches or PRs unless the user explicitly instructs you to merge.
 - Codex-created PRs should be reviewed before merge.

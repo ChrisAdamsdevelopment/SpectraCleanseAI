@@ -20,7 +20,7 @@ Do not treat the app as the old SpectraCleanse web app or as a generic video edi
 
 - Active foundation branch: `feat/song-studio-desktop-foundation`
 - Parent/foundation PR: #55
-- Song Moment Selector v1 PR #56 has been merged into the foundation branch.
+- Song Moment Selector v1 PR #56 and Promo Direction Selector v1 PR #58 have been merged into the foundation branch.
 - PR #51 is parked release-readiness work. Do not work on it unless explicitly requested.
 
 ## Codex workflow

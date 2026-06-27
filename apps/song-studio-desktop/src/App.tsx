@@ -8,7 +8,7 @@ import type { RenderJob, RenderResult, RenderStatus, FfmpegStatus, Composition, 
 import { buildRenderPlan } from './render/plan';
 import { emptyProject, type SongProject } from './project/types';
 import { formatTime, parseTime } from './lib/time';
-import { pickAudioFile, pickCoverImage, pickOutputDir, saveProjectToFile, loadProjectFromFile } from './project/storage';
+import { pickAudioFile, pickCoverImage, pickOutputDir, saveProjectToFile, loadProjectFromFile, normalizeProject } from './project/storage';
 import { Preview } from './ui/Preview';
 import { Inspector, type InspectorMode } from './ui/Inspector';
 import { AudioPanel } from './ui/AudioPanel';
@@ -39,6 +39,7 @@ export default function App() {
   const [ffmpeg, setFfmpeg] = useState<FfmpegStatus | null>(null);
   const [view, setView] = useState<'start' | 'editor'>('start');
   const [inspectorMode, setInspectorMode] = useState<InspectorMode>('simple');
+  const [audioDurationSec, setAudioDurationSec] = useState<number | null>(null);
 
   const fn = getFunction(project.functionId);
   const styleOptions = useMemo(() => (fn ? recipesForFunction(fn) : []), [fn]);
@@ -49,7 +50,20 @@ export default function App() {
   const selectedLayer = getLayer(composition, selectedId);
 
   const update = (patch: Partial<SongProject>) => setProject((p) => ({ ...p, ...patch }));
-  const updateManualClip = (patch: Partial<Pick<SongProject, 'clipStart' | 'clipDuration'>>) => update({ ...patch, selectedMomentId: null });
+  const refreshSongAnalysis = (base: SongProject, durationSec: number, selectedMomentId: string | null) => {
+    if (!base.audioPath) return null;
+    return buildSongAnalysis({
+      audioPath: base.audioPath,
+      durationSec,
+      manualStartSec: parseTime(base.clipStart),
+      manualDurationSec: parseTime(base.clipDuration),
+      selectedMomentId,
+    });
+  };
+  const updateManualClip = (patch: Partial<Pick<SongProject, 'clipStart' | 'clipDuration'>>) => setProject((p) => {
+    const next = { ...p, ...patch, selectedMomentId: null, selectedPromoDirectionId: null };
+    return { ...next, songAnalysis: audioDurationSec !== null ? refreshSongAnalysis(next, audioDurationSec, null) : next.songAnalysis ? { ...next.songAnalysis, selectedMomentId: null } : null };
+  });
   const addLog = (line: string) => setLogs((l) => [...l, line]);
 
   useEffect(() => { if (IS_TAURI) getFfmpegStatus().then(setFfmpeg).catch(() => setFfmpeg(null)); }, []);
@@ -81,6 +95,7 @@ export default function App() {
       clipStart,
       clipDuration,
       selectedMomentId: candidate.momentId ?? project.selectedMomentId,
+      songAnalysis: project.songAnalysis ? { ...project.songAnalysis, selectedMomentId: candidate.momentId ?? project.selectedMomentId } : project.songAnalysis,
       selectedPromoDirectionId: candidate.id,
     };
     setProject(next);
@@ -102,6 +117,7 @@ export default function App() {
       manualDurationSec: parseTime(project.clipDuration),
       selectedMomentId: project.selectedMomentId,
     });
+    setAudioDurationSec(durationSec);
     update({ songAnalysis: analysis });
   }
   function selectMoment(moment: SongMoment) {
@@ -122,8 +138,8 @@ export default function App() {
   }
   async function choose(kind: 'audio' | 'cover' | 'output') {
     try {
-      if (kind === 'audio') { const p = await pickAudioFile(); if (p) update({ audioPath: p, selectedMomentId: null, songAnalysis: null }); }
-      if (kind === 'cover') { const p = await pickCoverImage(); if (p) update({ coverPath: p }); }
+      if (kind === 'audio') { const p = await pickAudioFile(); if (p) { setAudioDurationSec(null); update({ audioPath: p, selectedMomentId: null, songAnalysis: null, selectedPromoDirectionId: null }); } }
+      if (kind === 'cover') { const p = await pickCoverImage(); if (p) update({ coverPath: p, selectedPromoDirectionId: null }); }
       if (kind === 'output') { const p = await pickOutputDir(); if (p) update({ outputDir: p }); }
       if (status === 'idle') setStatus('ready');
     } catch (e) { addLog(`[error] file selection failed: ${e instanceof Error ? e.message : String(e)}`); }
@@ -149,7 +165,7 @@ export default function App() {
   }
   async function onSave() { try { const p = await saveProjectToFile(project); if (p) addLog(`[project] saved -> ${p}`); } catch (e) { addLog(`save failed: ${e}`); } }
   async function onLoad() {
-    try { const p = await loadProjectFromFile(); if (p) { const m = { ...emptyProject(), ...p }; setProject(m); setComposition(compositionFor(m)); setStatus('ready'); setView('editor'); } }
+    try { const p = await loadProjectFromFile(); if (p) { const m = normalizeProject(p); setAudioDurationSec(m.songAnalysis?.durationSec ?? null); setProject(m); setComposition(compositionFor(m)); setStatus('ready'); setView('editor'); } }
     catch (e) { addLog(`load failed: ${e}`); }
   }
 

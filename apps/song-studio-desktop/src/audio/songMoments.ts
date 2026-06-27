@@ -11,10 +11,11 @@ function makeMoment(
   durationSec: number,
   confidence: number,
   reason: string,
+  source: SongMoment['source'] = 'duration-heuristic',
 ): SongMoment {
   const safeStart = round1(Math.max(0, startSec));
   const safeDuration = round1(clamp(durationSec, 3, 60));
-  return { id, label, kind, startSec: safeStart, durationSec: safeDuration, endSec: round1(safeStart + safeDuration), confidence: round1(clamp(confidence, 0, 1)), reason, source: 'duration-heuristic' };
+  return { id, label, kind, startSec: safeStart, durationSec: safeDuration, endSec: round1(safeStart + safeDuration), confidence: round1(clamp(confidence, 0, 1)), reason, source };
 }
 
 function fitStart(preferredStart: number, durationSec: number, audioDurationSec: number): number {
@@ -59,7 +60,7 @@ export function buildSongAnalysis({ audioPath, durationSec, manualStartSec, manu
 
   if (manualStartSec !== null && manualStartSec !== undefined && manualDurationSec !== null && manualDurationSec !== undefined && manualDurationSec >= 3) {
     const manualDur = fitDuration(manualDurationSec, manualStartSec, Math.max(safeDuration, manualStartSec + manualDurationSec));
-    moments.push(makeMoment('manual-current', 'Current manual selection', 'manual', manualStartSec, manualDur, 0.5, 'Matches the clip start and duration currently entered below.'));
+    moments.push(makeMoment('manual-current', 'Current manual selection', 'manual', manualStartSec, manualDur, 0.5, 'Matches the clip start and duration currently entered below.', 'manual'));
   }
 
   return { audioPath, analyzedAt, durationSec: safeDuration, moments: moments.slice(0, 5), selectedMomentId: selectedMomentId ?? null };
