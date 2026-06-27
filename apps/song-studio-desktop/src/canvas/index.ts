@@ -11,3 +11,6 @@ export * from './ReportGenerator';
 export * from './VideoSpecValidator';
 export * from './providers/AIProviderInterface';
 export * from './providers/MockAIProvider';
+
+export * from './CanvasWorkspace';
+export * from './CanvasFfmpegRunner';
