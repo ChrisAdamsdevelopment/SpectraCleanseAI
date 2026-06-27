@@ -15,6 +15,7 @@ import { AudioPanel } from './ui/AudioPanel';
 import { buildSongAnalysis } from './audio/songMoments';
 import type { SongMoment } from './project/types';
 import { StartScreen } from './ui/StartScreen';
+import { buildPromoDirectionCandidates, promoDirectionRecipeLabel, type PromoDirectionCandidate } from './promo/directions';
 
 const IS_TAURI = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in (window as object);
 const basename = (p: string | null) => (p ? p.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || p : '');
@@ -42,6 +43,7 @@ export default function App() {
   const fn = getFunction(project.functionId);
   const styleOptions = useMemo(() => (fn ? recipesForFunction(fn) : []), [fn]);
   const plan = useMemo(() => buildRenderPlan(project), [project]);
+  const promoDirections = useMemo(() => buildPromoDirectionCandidates(project), [project]);
   const coverSrc = IS_TAURI && project.coverPath ? safeConvert(project.coverPath) : null;
   const audioSrc = IS_TAURI && project.audioPath ? safeConvert(project.audioPath) : null;
   const selectedLayer = getLayer(composition, selectedId);
@@ -55,7 +57,7 @@ export default function App() {
   function applyRecipe(functionId: string, recipeId: string) {
     const f = getFunction(functionId); const recipe = getRecipe(recipeId);
     if (!f || !recipe) return;
-    const next: SongProject = { ...project, functionId, recipeId, clipDuration: String(recipe.defaultDurationSec), clipStart: f.audio ? project.clipStart : '0:00' };
+    const next: SongProject = { ...project, functionId, recipeId, selectedPromoDirectionId: null, clipDuration: String(recipe.defaultDurationSec), clipStart: f.audio ? project.clipStart : '0:00' };
     setProject(next);
     setComposition(recipeToComposition(recipe, getTemplate(recipe.visualTemplateId), { title: next.title }));
     setSelectedId('cover_art');
@@ -66,6 +68,27 @@ export default function App() {
     if (f) applyRecipe(functionId, f.defaultRecipeId);
     setView('editor');
   }
+
+  function applyPromoDirection(candidate: PromoDirectionCandidate) {
+    const f = getFunction(candidate.functionId); const recipe = getRecipe(candidate.recipeId);
+    if (!f || !recipe) return;
+    const clipStart = f.audio ? (candidate.clipStart ?? project.clipStart) : '0:00';
+    const clipDuration = f.audio ? (candidate.clipDuration ?? project.clipDuration) : String(recipe.defaultDurationSec);
+    const next: SongProject = {
+      ...project,
+      functionId: candidate.functionId,
+      recipeId: candidate.recipeId,
+      clipStart,
+      clipDuration,
+      selectedMomentId: candidate.momentId ?? project.selectedMomentId,
+      selectedPromoDirectionId: candidate.id,
+    };
+    setProject(next);
+    setComposition(recipeToComposition(recipe, getTemplate(recipe.visualTemplateId), { title: next.title }));
+    setSelectedId('cover_art');
+    if (status === 'idle') setStatus('ready');
+  }
+
   function setTitle(text: string) {
     update({ title: text });
     setComposition((c) => updateLayer(c, 'title_text', { text, visible: text.length > 0 }));
@@ -83,6 +106,7 @@ export default function App() {
   }
   function selectMoment(moment: SongMoment) {
     update({
+      selectedPromoDirectionId: null,
       selectedMomentId: moment.id,
       songAnalysis: project.songAnalysis ? { ...project.songAnalysis, selectedMomentId: moment.id } : project.songAnalysis,
       clipStart: formatTime(moment.startSec),
@@ -160,7 +184,24 @@ export default function App() {
       {/* Main 3-column workspace */}
       <div className="main">
         <div className="left">
-          <h3>Make</h3>
+          <h3>Directions</h3>
+          <div className="direction-panel">
+            {!project.audioPath && !project.coverPath ? (
+              <div className="direction-empty">Add a finished song and cover art to get direction recommendations.</div>
+            ) : (
+              promoDirections.map((candidate) => (
+                <button key={candidate.id} className={`direction-card${candidate.id === project.selectedPromoDirectionId ? ' selected' : ''}`} onClick={() => applyPromoDirection(candidate)}>
+                  <span className="direction-top"><b>{candidate.label}</b><span>{Math.round(candidate.fit * 100)}% fit</span></span>
+                  <span className="direction-purpose">{candidate.purpose}</span>
+                  <span className="direction-recipe">{promoDirectionRecipeLabel(candidate)}</span>
+                  <span className="direction-reason">{candidate.reason}</span>
+                  {candidate.warnings.length > 0 && <span className="direction-warning">{candidate.warnings[0]}</span>}
+                  <span className="direction-source">{candidate.id === project.selectedPromoDirectionId ? 'Using this direction' : 'Audition direction'}</span>
+                </button>
+              ))
+            )}
+          </div>
+          <h3>Manual fallback</h3>
           {CREATIVE_FUNCTIONS.map((f) => (
             <button key={f.id} className={`opt${f.id === project.functionId ? ' selected' : ''}`} onClick={() => applyRecipe(f.id, f.defaultRecipeId)}>
               <b>{f.label}</b><span>{f.audio ? 'uses audio' : 'silent'}</span>
