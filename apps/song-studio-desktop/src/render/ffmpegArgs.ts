@@ -57,16 +57,20 @@ export function buildFfmpegArgs(comp: Composition, rt: RenderInputs, opts: Build
   const blur = bg?.blur ?? 18;
   const brightness = bg?.brightness ?? -0.12;
   const saturation = bg?.saturation ?? 1;
-  const eq = `eq=brightness=${brightness}:saturation=${saturation}`;
+  const contrast = bg?.contrast ?? 1;
+  const eq = `eq=brightness=${brightness}:saturation=${saturation}:contrast=${contrast}`;
   const vignette = effect?.visible && effect.vignette ? ',vignette=PI/5' : '';
 
   const chains: string[] = [];
-  if ((bg?.zoom ?? 0) > 0 && !useAudio) {
+  // Subtle Ken Burns slow zoom on the blurred background — applies to every
+  // recipe now (audio or silent) so nothing exports as a dead still frame.
+  const zoomAmt = bg?.zoom ?? 0;
+  if (zoomAmt > 0) {
     const zW = Math.round(W * 1.25);
     const zH = Math.round(H * 1.25);
     chains.push(
       `[0:v]scale=${zW}:${zH}:force_original_aspect_ratio=increase,crop=${zW}:${zH},` +
-      `zoompan=z='min(zoom+0.0004,${1 + (bg?.zoom ?? 0)})':d=${frames}:s=${W}x${H}:fps=${fps},boxblur=${blur}:1,${eq}${vignette}[bg]`,
+      `zoompan=z='min(zoom+0.0004,${(1 + zoomAmt).toFixed(3)})':d=${frames}:s=${W}x${H}:fps=${fps},boxblur=${blur}:1,${eq}${vignette}[bg]`,
     );
   } else {
     chains.push(
@@ -76,13 +80,26 @@ export function buildFfmpegArgs(comp: Composition, rt: RenderInputs, opts: Build
 
   const coverScale = cover?.scale ?? 0.8;
   const coverVisible = cover?.visible ?? true;
+  const coverShadow = cover?.shadow ?? 0;
   let last = 'bg';
   if (coverVisible) {
     const fgW = Math.round(W * coverScale);
     const cx = Math.round((cover?.x ?? 0.5) * W);
     const cy = Math.round((cover?.y ?? 0.5) * H);
-    chains.push(`[0:v]scale=${fgW}:-2[fg]`);
-    chains.push(`[bg][fg]overlay=${cx}-w/2:${cy}-h/2[base]`);
+    if (coverShadow > 0) {
+      // Soft drop shadow for cinematic depth: a darkened, alpha-reduced, blurred
+      // copy of the cover offset slightly down behind the crisp cover.
+      const off = Math.round(H * 0.012 + coverShadow * 10);
+      const sblur = Math.max(8, Math.round(14 + coverShadow * 16));
+      const sAlpha = clamp(0.3 + coverShadow * 0.45, 0, 0.85).toFixed(2);
+      chains.push(`[0:v]scale=${fgW}:-2,split=2[fg][fgshsrc]`);
+      chains.push(`[fgshsrc]eq=brightness=-1,format=rgba,colorchannelmixer=aa=${sAlpha},boxblur=${sblur}:1[fgsh]`);
+      chains.push(`[bg][fgsh]overlay=${cx}-w/2:${cy}-h/2+${off}[bgsh]`);
+      chains.push(`[bgsh][fg]overlay=${cx}-w/2:${cy}-h/2[base]`);
+    } else {
+      chains.push(`[0:v]scale=${fgW}:-2[fg]`);
+      chains.push(`[bg][fg]overlay=${cx}-w/2:${cy}-h/2[base]`);
+    }
     last = 'base';
   }
 
@@ -102,9 +119,14 @@ export function buildFfmpegArgs(comp: Composition, rt: RenderInputs, opts: Build
       : `${cx}-text_w/2`;
     const ty = Math.round(title.y * H);
     const box = title.box ? `:box=1:boxcolor=black@${title.boxOpacity}:boxborderw=26` : '';
+    // Readable typography without a heavy slab: a dark outline + soft shadow.
+    const strokeW = Math.round(title.stroke ?? 0);
+    const border = strokeW > 0 ? `:borderw=${strokeW}:bordercolor=${ffColor(title.strokeColor ?? '#000000')}` : '';
+    const shadowOff = Math.round(title.shadow ?? 0);
+    const shadowFx = shadowOff > 0 ? `:shadowcolor=black@0.45:shadowx=${shadowOff}:shadowy=${shadowOff}` : '';
     chains.push(
       `[${last}]drawtext=fontfile='${ffEscapePath(opts.fontPath)}':text='${titleText}':` +
-      `fontcolor=${ffColor(title.color)}:fontsize=${Math.round(title.size)}:x=${tx}:y=${ty}${box}[vout]`,
+      `fontcolor=${ffColor(title.color)}:fontsize=${Math.round(title.size)}:x=${tx}:y=${ty}${border}${shadowFx}${box}[vout]`,
     );
     vlabel = 'vout';
   }

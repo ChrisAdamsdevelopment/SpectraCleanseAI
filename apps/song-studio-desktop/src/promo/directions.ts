@@ -99,10 +99,10 @@ export function buildPromoDirectionCandidates(project: SongProject): PromoDirect
       : 'Pick a song moment for a stronger audio-led recommendation.';
 
   const candidates = [
-    candidateFor(cleanHook, hookFn, input, 'Clean moment promo', 'Turn the selected song moment into a clear vertical hook clip.', 0.72, [momentCopy, 'Clean cover focus and waveform fit most release posts.']),
-    candidateFor(darkHook, hookFn, input, 'Darker hook treatment', 'Audition the same moment with a higher-contrast promo recipe.', 0.62, [momentCopy, 'Useful when the cover art or track needs a more intense first impression.']),
-    candidateFor(neon, visualizerFn, input, 'Visualizer preview', 'Use the song audio and cover art as a simple waveform-led visualizer.', 0.56, [momentCopy, 'Best when motion around the audio matters more than a minimal cover layout.']),
-    candidateFor(canvas, canvasFn, input, 'Silent canvas loop', 'Create a short cover-art loop as a non-audio fallback.', project.audioPath ? 0.42 : 0.58, ['Does not use the song audio.', project.coverPath ? 'Good fallback when you only need a cover-focused loop.' : 'Add cover art before rendering this direction.']),
+    candidateFor(cleanHook, hookFn, input, 'Cover Motion Teaser', 'Turn the selected song moment into a clean vertical teaser: slow cover motion, readable title, no busy visualizer. Works for most songs.', 0.78, [momentCopy, 'The safest all-round promo look — start here.']),
+    candidateFor(darkHook, hookFn, input, 'Dark Hook Promo', 'A darker, higher-contrast cut of the same moment with a bold title. Good for trap, drill, rock and aggressive tracks.', 0.66, [momentCopy, 'Use when the track or cover needs a harder first impression.']),
+    candidateFor(canvas, canvasFn, input, 'Clean Release Card', 'A minimal silent release-announcement loop — calm typography and a centered cover. Good for Spotify / Apple / announcement posts.', project.audioPath ? 0.5 : 0.62, ['Does not use the song audio.', project.coverPath ? 'Best for "out now" / pre-save announcement posts.' : 'Add cover art before rendering this direction.']),
+    candidateFor(neon, visualizerFn, input, 'Neon Visualizer', 'A moody waveform-led visualizer. More technical / busy look — use only when the moving waveform is the point.', 0.48, [momentCopy, 'Heavier visualizer style; the cleaner teaser usually posts better.']),
   ];
 
   return candidates.sort((a, b) => b.fit - a.fit).slice(0, 4);

@@ -23,6 +23,15 @@ export interface VisualTemplate {
   titleFontSize: number;
   titleBoxAlpha: number;  // 0..1 background box opacity behind the title
   waveColor: string;      // FFmpeg color for the audio waveform
+  // Demo-Ready Output Pack v1 — optional creative direction (back-compat defaults).
+  bgContrast?: number;    // eq contrast (1 = neutral); subtle cinematic punch
+  bgZoom?: number;        // slow Ken Burns zoom amount (0 = none); works with audio
+  titleY?: number;        // 0..1 default title baseline (kept in safe social zone)
+  titleBox?: boolean;     // use the legacy black slab behind the title (default off)
+  titleStroke?: number;   // drawtext border width for readable text without a slab
+  titleStrokeColor?: string;
+  titleShadow?: number;   // drawtext shadow offset (px @1080 wide)
+  coverShadow?: number;   // 0..1 soft drop shadow behind the cover for depth
 }
 
 /** A portable creative recipe / preset. Structured for future sharing. */
@@ -77,7 +86,8 @@ export interface BackgroundLayer extends LayerBase {
   blur: number;        // boxblur strength
   brightness: number;  // eq brightness (negative = darker)
   saturation: number;  // eq saturation
-  zoom: number;        // slow-zoom amount (0 = none)
+  contrast?: number;   // eq contrast (1 = neutral); subtle cinematic punch
+  zoom: number;        // slow Ken Burns zoom amount (0 = none); applies with or without audio
 }
 export interface CoverLayer extends LayerBase {
   type: 'cover_art';
@@ -99,6 +109,9 @@ export interface TitleLayer extends LayerBase {
   box: boolean;
   boxOpacity: number;  // 0..1
   align: 'left' | 'center' | 'right';
+  stroke?: number;     // outline width for readability without a heavy box
+  strokeColor?: string;
+  shadow?: number;     // soft drop-shadow offset (px @1080 wide)
 }
 export interface WaveformLayer extends LayerBase {
   type: 'waveform';

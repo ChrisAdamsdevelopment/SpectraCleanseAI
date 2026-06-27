@@ -57,10 +57,12 @@ export function Preview({
           <img
             src={coverSrc as string} alt="" onError={() => setImgError(true)} draggable={false}
             onClick={(e) => { e.stopPropagation(); onSelect('background'); }}
+            className={(bg.zoom ?? 0) > 0 ? 'bg-motion' : undefined}
             style={{
               position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', cursor: 'pointer', boxShadow: ring('background'),
-              filter: `blur(${Math.min((bg.blur ?? 0) * 0.6, 24)}px) brightness(${1 + bg.brightness}) saturate(${bg.saturation})`,
-              transform: `scale(${1.1 + (bg.zoom ?? 0) * 0.5})`, opacity: bg.opacity,
+              filter: `blur(${Math.min((bg.blur ?? 0) * 0.6, 24)}px) brightness(${1 + bg.brightness}) saturate(${bg.saturation}) contrast(${bg.contrast ?? 1})`,
+              // No inline transform when animating: the .bg-motion keyframes own it (hints the exported Ken Burns zoom).
+              transform: (bg.zoom ?? 0) > 0 ? undefined : `scale(${1.1 + (bg.zoom ?? 0) * 0.5})`, opacity: bg.opacity,
             }}
           />
         )}
@@ -107,6 +109,9 @@ export function Preview({
               fontFamily: getFontFamily(title.font).css, fontSize: Math.max(10, title.size * SF), fontWeight: 700, color: title.color,
               background: title.box ? `rgba(0,0,0,${title.boxOpacity})` : 'transparent', padding: title.box ? '2px 10px' : 0,
               borderRadius: 4, opacity: title.opacity, lineHeight: 1.2, display: 'inline-block', whiteSpace: 'nowrap',
+              // Match the exported drawtext outline + soft shadow (clean text, no slab).
+              WebkitTextStroke: (title.stroke ?? 0) > 0 ? `${Math.max(0.5, (title.stroke ?? 0) * SF)}px ${cssColor(title.strokeColor ?? '#000000')}` : undefined,
+              textShadow: (title.shadow ?? 0) > 0 ? `0 ${Math.max(1, (title.shadow ?? 0) * SF)}px ${Math.max(1, (title.shadow ?? 0) * 1.5 * SF)}px rgba(0,0,0,0.55)` : undefined,
             }}>{title.text}</span>
           </div>
         )}
