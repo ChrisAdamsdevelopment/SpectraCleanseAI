@@ -35,13 +35,23 @@ async function runFfmpegSmoke(): Promise<void> {
 
   const anchor = createLoopAnchor({ sourceId: 'generated-fixture', sourceFilePath: inputVideoPath, timestampSec: 0, fps: spec.fps, notes: 'generated harness fixture' });
   const anchorExtraction = await extractAnchorFrameForHarness(inputVideoPath, canvasWorkspacePath(workspace, 'anchor', 'anchor-0001.png'), anchor.timestampSec, { sourceId: 'generated-fixture', fps: spec.fps, maxWidth: 180 });
-  const candidateExtraction = await extractCandidateFramesForHarness(inputVideoPath, canvasWorkspacePath(workspace, 'candidatePattern', 'candidate-%04d.png'), 0, spec.durationSec, { sourceId: 'generated-fixture', fps: 2, maxWidth: 180 });
+  const candidateExtraction = await extractCandidateFramesForHarness(inputVideoPath, canvasWorkspacePath(workspace, 'candidatePattern', 'candidate-%04d.png'), 0, spec.durationSec, { sourceId: 'generated-fixture', fps: 2, maxWidth: 180, anchorFrame: anchorExtraction.frame });
   const candidates = findLoopCandidates(anchor, anchorExtraction.frame, candidateExtraction.frames, { topN: 3, minSimilarityScore: 0.45 });
   const [candidate] = candidates;
   if (!candidate) throw new Error('Expected generated frames to produce at least one loop candidate');
+  const metricWarnings = [...anchorExtraction.metricWarnings, ...candidateExtraction.metricWarnings];
+  const anchorMetrics = anchorExtraction.frame.metrics;
+  const bestMetrics = candidate.endFrame.metrics;
+  if (!Number.isFinite(anchorMetrics?.brightness)) throw new Error('Expected real metric extraction to return finite anchor brightness');
+  if (anchorMetrics?.colorVector?.length !== 3) throw new Error('Expected anchor color vector to contain 3 values');
+  if (!Number.isFinite(bestMetrics?.brightness)) throw new Error('Expected real metric extraction to return finite candidate brightness');
+  if (bestMetrics?.colorVector?.length !== 3) throw new Error('Expected candidate color vector to contain 3 values');
+  if (bestMetrics?.visualSimilarity === undefined || bestMetrics.visualSimilarity < 0 || bestMetrics.visualSimilarity > 1) throw new Error('Expected candidate visual similarity to be between 0 and 1');
 
   const exportResult = planLocalLoopExport({ inputPath: inputVideoPath, outputPath: canvasWorkspacePath(workspace, 'export', 'planned-canvas-loop.mp4'), anchor, candidate, method: 'crossfade' });
   const report = generateCanvasLoopReport({ inputFile: inputVideoPath, validation, anchor, candidate, methodSelected: 'crossfade', exportResult });
+  if (report.ai.used !== false) throw new Error('Canvas report should mark AI as unused');
+
   const harnessReport = {
     inputVideoPath,
     workspacePath: workspace.root,
@@ -50,10 +60,17 @@ async function runFfmpegSmoke(): Promise<void> {
     framesExtracted: candidateExtraction.frames.length,
     anchorFramePath: anchorExtraction.frame.framePath,
     candidateCount: candidates.length,
+    realMetricsUsed: anchorExtraction.realMetricsUsed && candidateExtraction.realMetricsUsed,
+    metricWarnings,
+    anchorMetrics: { brightness: anchorMetrics?.brightness, colorVector: anchorMetrics?.colorVector },
     bestCandidateTimestampSec: candidate.endFrame.timestampSec,
+    bestCandidateMetrics: { brightness: bestMetrics?.brightness, colorVector: bestMetrics?.colorVector, visualSimilarity: bestMetrics?.visualSimilarity },
+    bestCandidateSimilarity: bestMetrics?.visualSimilarity,
+    bestCandidateScore: candidate.score.overall,
     loopScore: candidate.score,
     plannedExportMethod: report.methodSelected,
     plannedExport: exportResult.plan,
+    ai: report.ai,
     aiUsed: false,
     apiCallsMade: false,
     generatedMediaCommitted: false,
@@ -63,7 +80,7 @@ async function runFfmpegSmoke(): Promise<void> {
 
   const mock = new MockAIProvider();
   if (mock.calls.length !== 0) throw new Error('FFmpeg smoke should not call AI provider methods');
-  console.log(JSON.stringify({ mode, ok: true, workspace: workspace.root, inputVideoPath, framesExtracted: harnessReport.framesExtracted, anchorFramePath: harnessReport.anchorFramePath, candidateCount: harnessReport.candidateCount, bestCandidateTimestampSec: harnessReport.bestCandidateTimestampSec, loopScore: candidate.score.overall, plannedExportMethod: harnessReport.plannedExportMethod, reportPath, aiUsed: false, apiCallsMade: false, generatedMediaCommitted: false }, null, 2));
+  console.log(JSON.stringify({ mode, ok: true, workspace: workspace.root, inputVideoPath, framesExtracted: harnessReport.framesExtracted, anchorFramePath: harnessReport.anchorFramePath, candidateCount: harnessReport.candidateCount, realMetricsUsed: harnessReport.realMetricsUsed, metricWarningCount: metricWarnings.length, anchorBrightness: anchorMetrics?.brightness, anchorColorVector: anchorMetrics?.colorVector, bestCandidateTimestampSec: harnessReport.bestCandidateTimestampSec, bestCandidateSimilarity: harnessReport.bestCandidateSimilarity, bestCandidateScore: harnessReport.bestCandidateScore, loopScore: candidate.score.overall, plannedExportMethod: harnessReport.plannedExportMethod, reportPath, aiUsed: false, apiCallsMade: false, generatedMediaCommitted: false }, null, 2));
 }
 
 if (mode === 'ffmpeg') {
