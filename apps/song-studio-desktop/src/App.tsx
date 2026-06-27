@@ -15,7 +15,8 @@ import { AudioPanel } from './ui/AudioPanel';
 import { buildSongAnalysis } from './audio/songMoments';
 import type { SongMoment } from './project/types';
 import { StartScreen } from './ui/StartScreen';
-import { buildPromoDirectionCandidates, promoDirectionRecipeLabel, type PromoDirectionCandidate } from './promo/directions';
+import { buildPromoDirectionCandidates, getSelectedSongMoment, promoDirectionRecipeLabel, type PromoDirectionCandidate } from './promo/directions';
+import { buildExportReview } from './export/review';
 
 const IS_TAURI = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in (window as object);
 const basename = (p: string | null) => (p ? p.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || p : '');
@@ -45,6 +46,8 @@ export default function App() {
   const styleOptions = useMemo(() => (fn ? recipesForFunction(fn) : []), [fn]);
   const plan = useMemo(() => buildRenderPlan(project), [project]);
   const promoDirections = useMemo(() => buildPromoDirectionCandidates(project), [project]);
+  const selectedMoment = useMemo(() => getSelectedSongMoment(project), [project]);
+  const exportReview = useMemo(() => buildExportReview({ project, plan, composition, selectedMoment }), [project, plan, composition, selectedMoment]);
   const coverSrc = IS_TAURI && project.coverPath ? safeConvert(project.coverPath) : null;
   const audioSrc = IS_TAURI && project.audioPath ? safeConvert(project.audioPath) : null;
   const selectedLayer = getLayer(composition, selectedId);
@@ -263,6 +266,27 @@ export default function App() {
 
       {/* Bottom clip + export + logs */}
       <div className="bottom">
+        <div className={`export-review${exportReview.ready ? ' ready' : ' blocked'}`}>
+          <div className="export-review-head">
+            <div>
+              <div className="export-kicker">Export review</div>
+              <h3>{exportReview.title}</h3>
+              <p>{exportReview.summary}</p>
+            </div>
+            <div className="export-next">Next: {exportReview.nextAction}</div>
+          </div>
+          <div className="export-rows">
+            {exportReview.essentials.map((row) => (
+              <div className="export-row" key={row.label}><span>{row.label}</span><b>{row.value}</b></div>
+            ))}
+          </div>
+          {(exportReview.blockers.length > 0 || exportReview.warnings.length > 0) && (
+            <div className="export-notices">
+              {exportReview.blockers.map((blocker) => <div className="export-notice blocker" key={blocker}>Needs: {blocker}</div>)}
+              {exportReview.warnings.map((warning) => <div className="export-notice warning" key={warning}>Check: {warning}</div>)}
+            </div>
+          )}
+        </div>
         <div className="clip">
           {plan.audio && <Field label="Clip start" value={project.clipStart} onChange={(v) => updateManualClip({ clipStart: v })} />}
           <Field label="Duration (s)" value={project.clipDuration} onChange={(v) => updateManualClip({ clipDuration: v })} />
