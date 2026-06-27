@@ -16,6 +16,7 @@ function runLogicOnlySmoke(): void {
   const [candidate] = findLoopCandidates(anchor, anchorFrame, frames, { topN: 2, minSimilarityScore: 0.5 });
   if (!validation.ok) throw new Error('Expected smoke validation to pass');
   if (!candidate) throw new Error('Expected at least one loop candidate');
+  if (candidate.score.overall < 0 || candidate.score.overall > 1) throw new Error('Expected logic-only best candidate score to be between 0 and 1');
   const exportResult = planLocalLoopExport({ inputPath: spec.filePath, outputPath: '/tmp/song-studio-canvas-loop.mp4', anchor, candidate, method: 'crossfade' });
   const report = generateCanvasLoopReport({ inputFile: spec.filePath, validation, anchor, candidate, methodSelected: 'crossfade', exportResult });
   const mock = new MockAIProvider();
@@ -36,7 +37,11 @@ async function runFfmpegSmoke(): Promise<void> {
   const anchor = createLoopAnchor({ sourceId: 'generated-fixture', sourceFilePath: inputVideoPath, timestampSec: 0, fps: spec.fps, notes: 'generated harness fixture' });
   const anchorExtraction = await extractAnchorFrameForHarness(inputVideoPath, canvasWorkspacePath(workspace, 'anchor', 'anchor-0001.png'), anchor.timestampSec, { sourceId: 'generated-fixture', fps: spec.fps, maxWidth: 180 });
   const candidateExtraction = await extractCandidateFramesForHarness(inputVideoPath, canvasWorkspacePath(workspace, 'candidatePattern', 'candidate-%04d.png'), 0, spec.durationSec, { sourceId: 'generated-fixture', fps: 2, maxWidth: 180, anchorFrame: anchorExtraction.frame });
-  const candidates = findLoopCandidates(anchor, anchorExtraction.frame, candidateExtraction.frames, { topN: 3, minSimilarityScore: 0.45 });
+  const anchorMotionFrame = candidateExtraction.frames.find((frame) => frame.metrics?.motionMetricSource === 'adjacent-frame-delta') ?? candidateExtraction.frames[0];
+  const scoringAnchorFrame = anchorMotionFrame?.metrics
+    ? { ...anchorExtraction.frame, metrics: { ...anchorExtraction.frame.metrics, motionMagnitude: anchorMotionFrame.metrics.motionMagnitude, temporalSimilarity: anchorMotionFrame.metrics.temporalSimilarity, motionDelta: anchorMotionFrame.metrics.motionDelta, motionMetricSource: anchorMotionFrame.metrics.motionMetricSource } }
+    : anchorExtraction.frame;
+  const candidates = findLoopCandidates(anchor, scoringAnchorFrame, candidateExtraction.frames, { topN: 3, minSimilarityScore: 0.45 });
   const [candidate] = candidates;
   if (!candidate) throw new Error('Expected generated frames to produce at least one loop candidate');
   const metricWarnings = [...anchorExtraction.metricWarnings, ...candidateExtraction.metricWarnings];
@@ -47,6 +52,10 @@ async function runFfmpegSmoke(): Promise<void> {
   if (!Number.isFinite(bestMetrics?.brightness)) throw new Error('Expected real metric extraction to return finite candidate brightness');
   if (bestMetrics?.colorVector?.length !== 3) throw new Error('Expected candidate color vector to contain 3 values');
   if (bestMetrics?.visualSimilarity === undefined || bestMetrics.visualSimilarity < 0 || bestMetrics.visualSimilarity > 1) throw new Error('Expected candidate visual similarity to be between 0 and 1');
+  const framesWithMotion = candidateExtraction.frames.filter((frame) => Number.isFinite(frame.metrics?.motionMagnitude));
+  if (framesWithMotion.length < 1) throw new Error('Expected at least one extracted frame to include finite motionMagnitude');
+  if (framesWithMotion.some((frame) => (frame.metrics?.motionMagnitude ?? -1) < 0 || (frame.metrics?.motionMagnitude ?? 2) > 1)) throw new Error('Expected motionMagnitude to stay between 0 and 1');
+  if (candidate.score.overall < 0 || candidate.score.overall > 1) throw new Error('Expected best candidate score to be between 0 and 1');
 
   const exportResult = planLocalLoopExport({ inputPath: inputVideoPath, outputPath: canvasWorkspacePath(workspace, 'export', 'planned-canvas-loop.mp4'), anchor, candidate, method: 'crossfade' });
   const report = generateCanvasLoopReport({ inputFile: inputVideoPath, validation, anchor, candidate, methodSelected: 'crossfade', exportResult });
@@ -62,10 +71,13 @@ async function runFfmpegSmoke(): Promise<void> {
     candidateCount: candidates.length,
     realMetricsUsed: anchorExtraction.realMetricsUsed && candidateExtraction.realMetricsUsed,
     metricWarnings,
-    anchorMetrics: { brightness: anchorMetrics?.brightness, colorVector: anchorMetrics?.colorVector },
+    realMotionMetricsUsed: candidateExtraction.frames.some((frame) => frame.metrics?.motionMetricSource === 'adjacent-frame-delta'),
+    motionMetricStatus: candidateExtraction.frames.some((frame) => frame.metrics?.motionMetricSource === 'adjacent-frame-delta') ? 'adjacent-frame-delta' : 'placeholder-fallback',
+    anchorMetrics: { brightness: anchorMetrics?.brightness, colorVector: anchorMetrics?.colorVector, motionMagnitude: scoringAnchorFrame.metrics?.motionMagnitude, motionMetricSource: scoringAnchorFrame.metrics?.motionMetricSource },
     bestCandidateTimestampSec: candidate.endFrame.timestampSec,
-    bestCandidateMetrics: { brightness: bestMetrics?.brightness, colorVector: bestMetrics?.colorVector, visualSimilarity: bestMetrics?.visualSimilarity },
+    bestCandidateMetrics: { brightness: bestMetrics?.brightness, colorVector: bestMetrics?.colorVector, visualSimilarity: bestMetrics?.visualSimilarity, motionMagnitude: bestMetrics?.motionMagnitude, temporalSimilarity: bestMetrics?.temporalSimilarity, motionDelta: bestMetrics?.motionDelta, motionMetricSource: bestMetrics?.motionMetricSource },
     bestCandidateSimilarity: bestMetrics?.visualSimilarity,
+    bestCandidateMotionContinuity: candidate.score.motionContinuity,
     bestCandidateScore: candidate.score.overall,
     loopScore: candidate.score,
     plannedExportMethod: report.methodSelected,
@@ -78,9 +90,11 @@ async function runFfmpegSmoke(): Promise<void> {
   const reportPath = canvasWorkspacePath(workspace, 'report', 'canvas-frame-extraction-harness-report.json');
   writeFileSync(reportPath, `${JSON.stringify(harnessReport, null, 2)}\n`);
 
+  if (!harnessReport.motionMetricStatus) throw new Error('Expected report to include motion metric status');
+  if (harnessReport.ai.used !== false) throw new Error('Expected report AI usage to remain false');
   const mock = new MockAIProvider();
   if (mock.calls.length !== 0) throw new Error('FFmpeg smoke should not call AI provider methods');
-  console.log(JSON.stringify({ mode, ok: true, workspace: workspace.root, inputVideoPath, framesExtracted: harnessReport.framesExtracted, anchorFramePath: harnessReport.anchorFramePath, candidateCount: harnessReport.candidateCount, realMetricsUsed: harnessReport.realMetricsUsed, metricWarningCount: metricWarnings.length, anchorBrightness: anchorMetrics?.brightness, anchorColorVector: anchorMetrics?.colorVector, bestCandidateTimestampSec: harnessReport.bestCandidateTimestampSec, bestCandidateSimilarity: harnessReport.bestCandidateSimilarity, bestCandidateScore: harnessReport.bestCandidateScore, loopScore: candidate.score.overall, plannedExportMethod: harnessReport.plannedExportMethod, reportPath, aiUsed: false, apiCallsMade: false, generatedMediaCommitted: false }, null, 2));
+  console.log(JSON.stringify({ mode, ok: true, workspace: workspace.root, inputVideoPath, framesExtracted: harnessReport.framesExtracted, anchorFramePath: harnessReport.anchorFramePath, candidateCount: harnessReport.candidateCount, realMetricsUsed: harnessReport.realMetricsUsed, metricWarningCount: metricWarnings.length, anchorBrightness: anchorMetrics?.brightness, anchorColorVector: anchorMetrics?.colorVector, bestCandidateTimestampSec: harnessReport.bestCandidateTimestampSec, bestCandidateSimilarity: harnessReport.bestCandidateSimilarity, bestCandidateMotionContinuity: harnessReport.bestCandidateMotionContinuity, bestCandidateMotionMagnitude: bestMetrics?.motionMagnitude, motionMetricStatus: harnessReport.motionMetricStatus, bestCandidateScore: harnessReport.bestCandidateScore, loopScore: candidate.score.overall, plannedExportMethod: harnessReport.plannedExportMethod, reportPath, aiUsed: false, apiCallsMade: false, generatedMediaCommitted: false }, null, 2));
 }
 
 if (mode === 'ffmpeg') {

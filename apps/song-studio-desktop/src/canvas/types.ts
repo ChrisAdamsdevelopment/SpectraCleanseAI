@@ -60,7 +60,13 @@ export interface FrameMetrics {
   visualSimilarity?: number;
   brightness?: number;
   colorVector?: [number, number, number];
+  /** 0..1 local frame-to-frame change magnitude. Placeholder fallback remains available when no adjacent frame exists. */
   motionMagnitude?: number;
+  /** 0..1 inverse of the adjacent-frame motion magnitude when a real temporal sample exists. */
+  temporalSimilarity?: number;
+  /** 0..1 raw adjacent-frame delta used to derive motionMagnitude. */
+  motionDelta?: number;
+  motionMetricSource?: 'placeholder' | 'adjacent-frame-delta';
 }
 
 export interface LoopScore {

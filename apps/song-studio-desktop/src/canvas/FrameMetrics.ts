@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { resolveCanvasHarnessFfmpeg } from './CanvasFfmpegRunner';
 import type { ExtractedFrame, FrameMetrics } from './types';
+import { calculateTemporalMotionMetrics } from './MotionMetrics';
 
 const execFileAsync = promisify(execFile);
 const SAMPLE_WIDTH = 16;
@@ -74,6 +75,7 @@ export async function readFrameMetrics(framePath: string): Promise<ReadFrameMetr
       brightness: clamp01(totalLuma / pixels / 255),
       colorVector: [Math.round(totalR / pixels), Math.round(totalG / pixels), Math.round(totalB / pixels)],
       motionMagnitude: 0.2,
+      motionMetricSource: 'placeholder',
     },
     fingerprint,
     width: SAMPLE_WIDTH,
@@ -125,6 +127,19 @@ export async function attachFrameMetrics(frames: ExtractedFrame[], anchorFrame?:
 
   const anchorSample = anchorFrame ? await readSample(anchorFrame) : undefined;
   const updatedFrames: ExtractedFrame[] = [];
+  let previousSample: ReadFrameMetricsResult | undefined;
+
+  const orderedFrames = [...frames].sort((a, b) => a.timestampSec - b.timestampSec || a.frameIndex - b.frameIndex);
+  const motionByFramePath = new Map<string, Pick<FrameMetrics, 'motionMagnitude' | 'temporalSimilarity' | 'motionDelta' | 'motionMetricSource'>>();
+  for (const frame of orderedFrames) {
+    const sample = await readSample(frame);
+    if (sample && previousSample && frame.framePath) {
+      motionByFramePath.set(frame.framePath, { ...calculateTemporalMotionMetrics(previousSample, sample), motionMetricSource: 'adjacent-frame-delta' });
+    }
+    if (sample) previousSample = sample;
+  }
+  if (orderedFrames.length > 1 && motionByFramePath.size === 0) warnings.push('Motion metrics fallback used because adjacent frame samples were unavailable.');
+
   for (const frame of frames) {
     const sample = await readSample(frame);
     if (!sample) {
@@ -132,7 +147,8 @@ export async function attachFrameMetrics(frames: ExtractedFrame[], anchorFrame?:
       continue;
     }
     const visualSimilarity = anchorSample ? compareFrameMetricSamples(anchorSample, sample) : frame.metrics?.visualSimilarity;
-    updatedFrames.push({ ...frame, metrics: { ...frame.metrics, ...sample.metrics, visualSimilarity } });
+    const motionMetrics = frame.framePath ? motionByFramePath.get(frame.framePath) : undefined;
+    updatedFrames.push({ ...frame, metrics: { ...frame.metrics, ...sample.metrics, ...motionMetrics, visualSimilarity } });
   }
 
   return { frames: updatedFrames, warnings, realMetricsUsed };
