@@ -159,3 +159,15 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 .export-notice { border-radius: 999px; padding: 4px 8px; font-size: 11px; }
 .export-notice.blocker { background: rgba(255, 107, 107, .12); color: var(--err); border: 1px solid rgba(255, 107, 107, .35); }
 .export-notice.warning { background: rgba(255, 204, 102, .1); color: var(--warn); border: 1px solid rgba(255, 204, 102, .28); }
+
+/* Export Result Panel */
+.export-result { border: 1px solid var(--border); border-radius: 12px; background: var(--panel-2); padding: 10px; margin-top: 8px; }
+.export-result.success { border-color: #1f5a3c; }
+.export-result.failure { border-color: rgba(255, 107, 107, .5); }
+.export-result-head { display: flex; justify-content: space-between; gap: 14px; align-items: flex-start; margin-bottom: 8px; }
+.export-result h3 { margin: 0; font-size: 14px; }
+.export-result p { margin: 3px 0 0; color: var(--muted); font-size: 12px; }
+.export-result.failure .export-next { color: var(--warn); border-color: #5f4824; }
+.export-result-rows { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+.output-path { display: flex; align-items: center; gap: 8px; margin-top: 8px; padding: 7px 8px; border: 1px solid var(--border); border-radius: 8px; background: #0b0d11; }
+.output-path span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #b9c0cc; font-family: ui-monospace, monospace; font-size: 11px; }
