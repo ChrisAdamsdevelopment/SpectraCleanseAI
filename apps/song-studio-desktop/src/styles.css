@@ -171,3 +171,9 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 .export-result-rows { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
 .output-path { display: flex; align-items: center; gap: 8px; margin-top: 8px; padding: 7px 8px; border: 1px solid var(--border); border-radius: 8px; background: #0b0d11; }
 .output-path span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #b9c0cc; font-family: ui-monospace, monospace; font-size: 11px; }
+
+/* Demo-Ready Output Pack v1 — preview hint of the exported Ken Burns slow zoom.
+   Approximation only; the real motion is produced by ffmpeg zoompan at export. */
+.preview .bg-motion { animation: ssKenBurns 16s ease-in-out infinite alternate; will-change: transform; }
+@keyframes ssKenBurns { from { transform: scale(1.08); } to { transform: scale(1.16); } }
+@media (prefers-reduced-motion: reduce) { .preview .bg-motion { animation: none; transform: scale(1.12); } }

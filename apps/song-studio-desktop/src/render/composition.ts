@@ -11,24 +11,31 @@ export function recipeToComposition(
   opts: { title?: string } = {},
 ): Composition {
   const audio = recipe.audioRequired;
-  const coverY = audio ? 0.43 : 0.5; // nudge up to leave room for the waveform
+  const showWave = audio && recipe.overlayStyle === 'waveform';
+  // Center the cover when nothing sits below it; only nudge up to clear a waveform.
+  const coverY = showWave ? 0.43 : audio ? 0.46 : 0.5;
+  // Motion now applies to every recipe (Ken Burns slow zoom), audio or not.
+  const zoom = template.bgZoom ?? (recipe.motionStyle === 'zoom' ? 0.2 : 0);
 
   const background: BackgroundLayer = {
     id: 'background', type: 'background', visible: true, locked: false, opacity: 1,
     blur: template.bgBlur, brightness: template.bgBrightness, saturation: template.bgSaturation,
-    zoom: recipe.motionStyle === 'zoom' ? 0.2 : 0,
+    contrast: template.bgContrast ?? 1, zoom,
   };
   const cover: CoverLayer = {
     id: 'cover_art', type: 'cover_art', visible: true, locked: false, opacity: 1,
-    scale: template.coverScale, x: 0.5, y: coverY, rotation: 0, shape: 'square', shadow: 0,
+    scale: template.coverScale, x: 0.5, y: coverY, rotation: 0, shape: 'square',
+    shadow: template.coverShadow ?? 0,
   };
   const title: TitleLayer = {
     id: 'title_text', type: 'title_text', visible: Boolean(opts.title), locked: false, opacity: 1,
-    text: opts.title ?? '', font: 'sans', size: template.titleFontSize, x: 0.5, y: 0.88,
-    color: '#ffffff', box: true, boxOpacity: template.titleBoxAlpha, align: 'center',
+    text: opts.title ?? '', font: 'sans', size: template.titleFontSize, x: 0.5, y: template.titleY ?? 0.82,
+    color: '#ffffff', box: template.titleBox ?? false, boxOpacity: template.titleBoxAlpha, align: 'center',
+    stroke: template.titleStroke ?? 0, strokeColor: template.titleStrokeColor ?? '#000000',
+    shadow: template.titleShadow ?? 0,
   };
   const waveform: WaveformLayer = {
-    id: 'waveform', type: 'waveform', visible: audio && recipe.overlayStyle === 'waveform', locked: false, opacity: 1,
+    id: 'waveform', type: 'waveform', visible: showWave, locked: false, opacity: 1,
     color: template.waveColor, y: 0.82,
   };
   const effect: EffectLayer = {
