@@ -3,6 +3,7 @@ export * from './AnchorSelector';
 export * from './CanvasLoopEngine';
 export * from './FeatureFlags';
 export * from './FrameExtractor';
+export * from './FrameMetrics';
 export * from './LocalLoopExporter';
 export * from './LocalLoopRepairTools';
 export * from './LoopCandidateFinder';
