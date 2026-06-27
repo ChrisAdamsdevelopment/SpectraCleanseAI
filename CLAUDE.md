@@ -11,7 +11,7 @@ Core flow: finished song → choose or define a song moment → audition visual 
 - Active app path: `apps/song-studio-desktop/`
 - Active foundation branch: `feat/song-studio-desktop-foundation`
 - Parent/foundation PR: #55
-- Song Moment Selector v1 PR #56 has been merged into the foundation branch.
+- Song Moment Selector v1 PR #56 and Promo Direction Selector v1 PR #58 have been merged into the foundation branch.
 - PR #51 is parked release-readiness work. Do not work on it unless explicitly asked.
 
 ## Product principles
