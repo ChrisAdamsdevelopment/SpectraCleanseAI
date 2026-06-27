@@ -39,6 +39,7 @@ export interface SongProject {
   clipDuration: string;      // e.g. "15"
   selectedMomentId: string | null;
   songAnalysis: SongAnalysis | null;
+  selectedPromoDirectionId: string | null;
   updatedAt: string;
 }
 
@@ -56,6 +57,7 @@ export function emptyProject(): SongProject {
     clipDuration: '6',
     selectedMomentId: null,
     songAnalysis: null,
+    selectedPromoDirectionId: null,
     updatedAt: new Date().toISOString(),
   };
 }
