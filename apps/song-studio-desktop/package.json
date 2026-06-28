@@ -12,7 +12,8 @@
     "tauri": "tauri",
     "render:smoke": "tsx render-core/smoke.mts",
     "canvas:smoke": "tsx src/canvas/smoke.mts",
-    "canvas:motion:test": "tsx src/canvas/motion-metrics.smoke.mts"
+    "canvas:motion:test": "tsx src/canvas/motion-metrics.smoke.mts",
+    "canvas:lab": "tsx src/canvas/canvas-lab.mts"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.1.1",
