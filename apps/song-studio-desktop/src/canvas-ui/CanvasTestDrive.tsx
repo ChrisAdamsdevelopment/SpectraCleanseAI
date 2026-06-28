@@ -46,7 +46,7 @@ export function CanvasTestDrive({ isTauri, onBack }: { isTauri: boolean; onBack:
   const [method, setMethod] = useState<CanvasMethod>('auto');
   const [compareMethods, setCompareMethods] = useState(false);
   const [status, setStatus] = useState<CanvasStatus>('idle');
-  const [logs, setLogs] = useState<string[]>(['Canvas Test Drive is local-only. Use Tauri dev mode for file picking and FFmpeg execution.']);
+  const [logs, setLogs] = useState<string[]>(['Canvas Test Drive is an internal owner/dev validation tool. Use Tauri dev mode for file picking and FFmpeg execution.']);
   const [result, setResult] = useState<CanvasLabResult | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
 
@@ -99,20 +99,28 @@ export function CanvasTestDrive({ isTauri, onBack }: { isTauri: boolean; onBack:
     <div className="studio canvas-drive">
       <div className="topbar">
         <div className="brand">Song Studio</div>
-        <span className="canvas-pill">Internal · local-only Canvas Test Drive</span>
+        <span className="canvas-pill">Internal/dev testing · not product-ready</span>
         <div className="spacer" />
-        <button className="ghost small" onClick={onBack}>← Back to Song Studio</button>
+        <button className="ghost small" onClick={onBack}>← Return to promo workspace</button>
       </div>
       {!isTauri && <div className="banner warn">Canvas Test Drive needs desktop mode: <code>npm run tauri dev</code>. Browser preview cannot pick files or run FFmpeg.</div>}
+      <section className="canvas-boundary" aria-label="Internal tools boundary">
+        <div>
+          <div className="guide-kicker">Advanced testing area</div>
+          <h1>Canvas Test Drive is for owner/dev validation</h1>
+          <p>Use this local harness to test loop candidates, diagnostics, and output files. It is internal-testable, not product-ready, and is not a required step for making a promo MP4.</p>
+        </div>
+        <button className="ghost small" onClick={onBack}>Return to main MP4 workflow</button>
+      </section>
       <div className="canvas-drive-main">
         <section className="canvas-panel">
-          <div className="canvas-panel-head"><span>1</span><div><h2>Load a local video</h2><p>No uploads, no cloud, no paid AI/provider calls. This runs the existing local Canvas lab.</p></div></div>
+          <div className="canvas-panel-head"><span>1</span><div><h2>Load a local test video</h2><p>No uploads, no cloud, no paid AI/provider calls. This runs the existing local Canvas lab for validation, not the creator promo MP4 path.</p></div></div>
           <div className="path-row"><button className="primary" onClick={chooseSource} disabled={!isTauri || status === 'running'}>Pick source video</button><code title={inputPath}>{inputPath || 'mp4, mov, m4v, webm'}</code></div>
           <div className="path-row"><button className="primary" onClick={chooseOutput} disabled={!isTauri || status === 'running'}>Pick output folder</button><code title={outputDir}>{outputDir || 'Choose a local workspace/output folder'}</code></div>
         </section>
 
         <section className="canvas-panel">
-          <div className="canvas-panel-head"><span>2</span><div><h2>Controls</h2><p>Small practical controls for judging whether the current loop engine is useful.</p></div></div>
+          <div className="canvas-panel-head"><span>2</span><div><h2>Internal controls</h2><p>Small practical controls for owner/dev validation of whether the current loop engine is useful.</p></div></div>
           <div className="canvas-controls-grid">
             <NumberField label="Anchor time seconds" value={anchorTimeSec} onChange={setAnchorTimeSec} step={0.1} />
             <NumberField label="Min duration" value={minDurationSec} onChange={setMinDurationSec} step={0.1} />
@@ -122,11 +130,11 @@ export function CanvasTestDrive({ isTauri, onBack }: { isTauri: boolean; onBack:
             <label className="canvas-field"><span>Method</span><select value={method} onChange={(e) => setMethod(e.target.value as CanvasMethod)}>{methodOptions.map((m) => <option key={m} value={m}>{m}</option>)}</select></label>
           </div>
           <label className="canvas-check"><input type="checkbox" checked={compareMethods} onChange={(e) => setCompareMethods(e.target.checked)} /> Compare all repair methods</label>
-          <button className="primary canvas-run" onClick={run} disabled={!canRun}>{status === 'running' ? 'Running Canvas…' : 'Run Canvas Test Drive'}</button>
+          <button className="primary canvas-run" onClick={run} disabled={!canRun}>{status === 'running' ? 'Running Canvas…' : 'Run internal Canvas test'}</button>
         </section>
 
         <section className="canvas-panel canvas-results">
-          <div className="canvas-panel-head"><span>3</span><div><h2>Results</h2><p>Status, report path, best candidate, readiness, and output files from the local run.</p></div></div>
+          <div className="canvas-panel-head"><span>3</span><div><h2>Validation results</h2><p>Status, report path, best candidate, readiness, and output files from this internal local run.</p></div></div>
           <span className={`status ${status === 'running' ? 'rendering' : status}`}>● {status}</span>
           <div className="canvas-result-grid">
             <ResultPath label="Report" path={result?.reportPath} copied={copied} onCopy={copyPath} />
