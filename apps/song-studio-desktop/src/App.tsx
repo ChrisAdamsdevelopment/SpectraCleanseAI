@@ -210,21 +210,34 @@ export default function App() {
         <Chip ok={!!project.audioPath} label={project.audioPath ? 'Audio ✓' : 'Audio'} onClick={() => choose('audio')} />
         <Chip ok={!!project.outputDir} label={project.outputDir ? 'Output ✓' : 'Output'} onClick={() => choose('output')} />
         <div className="spacer" />
-        {IS_TAURI && ffmpeg && <span className={`ff ${ffmpeg.found ? 'ok' : 'err'}`}>FFmpeg {ffmpeg.found ? 'ready' : 'missing'}</span>}
-        <button className="ghost small" onClick={() => setView('canvas-test-drive')}>Canvas Test Drive</button>
+        {IS_TAURI && ffmpeg && <span className={`ff ${ffmpeg.found ? 'ok' : 'err'}`}>MP4 export {ffmpeg.found ? 'ready' : 'needs setup'}</span>}
+        <button className="ghost small" onClick={() => setView('canvas-test-drive')}>Internal tools</button>
         <button className="ghost small" onClick={() => setView('start')}>← Start</button>
         <button className="ghost small" onClick={onSave} disabled={!IS_TAURI}>Save</button>
       </div>
 
       {!IS_TAURI && <div className="banner warn">Preview works in the browser, but file selection + rendering need <code>npm run tauri dev</code>.</div>}
 
-      {/* Main 3-column workspace */}
+      <div className="editor-guide">
+        <div>
+          <div className="guide-kicker">Your promo draft is ready to review</div>
+          <h1>Preview your promo</h1>
+          <p>Check the look, confirm the song moment and promo direction, then create your MP4.</p>
+        </div>
+        <div className="guide-steps" aria-label="Editor workflow">
+          <span>1. Review preview</span>
+          <span>2. Confirm moment</span>
+          <span>3. Create MP4</span>
+        </div>
+      </div>
+
+      {/* Main guided workspace */}
       <div className="main">
         <div className="left">
-          <h3>Directions</h3>
+          <h3>Pick a promo vibe</h3>
           <div className="direction-panel">
             {!project.audioPath && !project.coverPath ? (
-              <div className="direction-empty">Add a finished song and cover art to get direction recommendations.</div>
+              <div className="direction-empty">Add a finished song and cover art to see suggested promo directions.</div>
             ) : (
               promoDirections.map((candidate) => (
                 <button key={candidate.id} className={`direction-card${candidate.id === project.selectedPromoDirectionId ? ' selected' : ''}`} onClick={() => applyPromoDirection(candidate)}>
@@ -233,24 +246,24 @@ export default function App() {
                   <span className="direction-recipe">{promoDirectionRecipeLabel(candidate)}</span>
                   <span className="direction-reason">{candidate.reason}</span>
                   {candidate.warnings.length > 0 && <span className="direction-warning">{candidate.warnings[0]}</span>}
-                  <span className="direction-source">{candidate.id === project.selectedPromoDirectionId ? 'Using this direction' : 'Audition direction'}</span>
+                  <span className="direction-source">{candidate.id === project.selectedPromoDirectionId ? 'Using this direction' : 'Try this direction'}</span>
                 </button>
               ))
             )}
           </div>
-          <h3>Manual fallback</h3>
+          <h3>Choose promo type</h3>
           {CREATIVE_FUNCTIONS.map((f) => (
             <button key={f.id} className={`opt${f.id === project.functionId ? ' selected' : ''}`} onClick={() => applyRecipe(f.id, f.defaultRecipeId)}>
-              <b>{f.label}</b><span>{f.audio ? 'uses audio' : 'silent'}</span>
+              <b>{f.label}</b><span>{f.audio ? 'Song clip' : 'No audio needed'}</span>
             </button>
           ))}
-          <h3>Style</h3>
+          <h3>Choose a look</h3>
           {styleOptions.map((r) => (
             <button key={r.id} className={`opt${r.id === project.recipeId ? ' selected' : ''}`} onClick={() => applyRecipe(project.functionId, r.id)}>
               <b>{r.name}</b><span>{r.colorMood}</span>
             </button>
           ))}
-          <h3>Layers</h3>
+          <h3>Customize design</h3>
           {composition.layers.map((l) => (
             <button key={l.id} className={`layer${l.id === selectedId ? ' selected' : ''}`} onClick={() => setSelectedId(l.id)}>
               <span className={`dot${l.visible ? ' on' : ''}`} />{LAYER_LABELS[l.type] ?? l.type}
@@ -259,8 +272,17 @@ export default function App() {
         </div>
 
         <div className="center">
-          <Preview composition={composition} coverSrc={coverSrc} selectedId={selectedId} onSelect={setSelectedId} onMove={onMove} />
-          <div className="muted small">Click a layer to edit it · drag the cover or title to move it · final MP4 is rendered by FFmpeg.</div>
+          <div className="preview-stage">
+            <div className="preview-stage-head">
+              <div>
+                <div className="guide-kicker">Step 1</div>
+                <h2>Review the preview</h2>
+              </div>
+              <span>Drag the cover or title to adjust the layout.</span>
+            </div>
+            <Preview composition={composition} coverSrc={coverSrc} selectedId={selectedId} onSelect={setSelectedId} onMove={onMove} />
+          </div>
+          <div className="muted small">Click an element to customize it. When the draft looks right, use Create MP4 below.</div>
           <AudioPanel
             audioSrc={audioSrc}
             audioName={basename(project.audioPath)}
@@ -275,8 +297,8 @@ export default function App() {
 
         <div className="right">
           <div className="mode-toggle">
-            <button className={inspectorMode === 'simple' ? 'on' : ''} onClick={() => setInspectorMode('simple')}>Simple</button>
-            <button className={inspectorMode === 'advanced' ? 'on' : ''} onClick={() => setInspectorMode('advanced')}>Advanced</button>
+            <button className={inspectorMode === 'simple' ? 'on' : ''} onClick={() => setInspectorMode('simple')}>Quick edits</button>
+            <button className={inspectorMode === 'advanced' ? 'on' : ''} onClick={() => setInspectorMode('advanced')}>More controls</button>
           </div>
           <Inspector layer={selectedLayer} mode={inspectorMode} onChange={onInspectorChange} />
         </div>
@@ -287,7 +309,7 @@ export default function App() {
         <div className={`export-review${exportReview.ready ? ' ready' : ' blocked'}`}>
           <div className="export-review-head">
             <div>
-              <div className="export-kicker">Export review</div>
+              <div className="export-kicker">Before you render</div>
               <h3>{exportReview.title}</h3>
               <p>{exportReview.summary}</p>
             </div>
@@ -306,16 +328,16 @@ export default function App() {
           )}
         </div>
         <div className="clip">
-          {plan.audio && <Field label="Clip start" value={project.clipStart} onChange={(v) => updateManualClip({ clipStart: v })} />}
-          <Field label="Duration (s)" value={project.clipDuration} onChange={(v) => updateManualClip({ clipDuration: v })} />
+          {plan.audio && <Field label="Start at" value={project.clipStart} onChange={(v) => updateManualClip({ clipStart: v })} />}
+          <Field label="Length (s)" value={project.clipDuration} onChange={(v) => updateManualClip({ clipDuration: v })} />
           <div className="grow">
             {plan.ok
               ? <span className="muted small">{plan.width}×{plan.height} · {plan.durationSec}s · {plan.audio ? `${formatTime(plan.audioStartSec)}–${formatTime(plan.audioEndSec)}` : 'silent'} · {plan.outputName}</span>
               : <span className="warn small">{plan.errors[0]}</span>}
           </div>
           <span className={`status ${status}`}>● {status}</span>
-          <button className="primary" onClick={render} disabled={!IS_TAURI || busy || !plan.ok}>{busy ? 'Rendering…' : 'Render MP4'}</button>
-          <button className="ghost small" onClick={() => setShowLogs((v) => !v)}>{showLogs ? 'Hide log' : 'Log'}</button>
+          <button className="primary" onClick={render} disabled={!IS_TAURI || busy || !plan.ok}>{busy ? 'Creating MP4…' : 'Create MP4'}</button>
+          <button className="ghost small" onClick={() => setShowLogs((v) => !v)}>{showLogs ? 'Hide details' : 'Details'}</button>
         </div>
         {exportResult && (
           <div className={`export-result ${exportResult.status}`}>
