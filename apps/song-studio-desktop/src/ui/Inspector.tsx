@@ -8,7 +8,7 @@ export type InspectorMode = 'simple' | 'advanced';
 // Simple mode shows only the few controls that visibly matter; Advanced reveals
 // the rest. Position is primarily set by dragging in the preview.
 export function Inspector({ layer, mode, onChange }: { layer: Layer | undefined; mode: InspectorMode; onChange: (patch: Partial<Layer>) => void }) {
-  if (!layer) return <div className="inspector"><p className="muted">Click a layer in the preview to edit it.</p></div>;
+  if (!layer) return <div className="inspector"><p className="muted">Click something in the preview to customize it.</p></div>;
   const adv = mode === 'advanced';
   return (
     <div className="inspector">
@@ -92,7 +92,7 @@ function advancedControls(layer: Layer, onChange: (patch: Partial<Layer>) => voi
       return (<><div className="adv-sep">Advanced</div>
         <Range label="Position Y" min={0.3} max={0.95} step={0.01} value={l.y} onChange={(v) => onChange({ y: v })} />
         {opacity}
-        <p className="muted small">Preview waveform is approximate; export uses the real audio waveform.</p>
+        <p className="muted small">Preview waveform is approximate; the MP4 uses the real audio waveform.</p>
       </>);
     }
     default:
