@@ -9,6 +9,7 @@ export * from './LocalLoopExporter';
 export * from './LocalLoopRepairTools';
 export * from './LoopCandidateFinder';
 export * from './LoopScorer';
+export * from './LoopReadiness';
 export * from './ReportGenerator';
 export * from './VideoSpecValidator';
 export * from './providers/AIProviderInterface';
