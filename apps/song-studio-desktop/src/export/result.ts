@@ -55,11 +55,11 @@ function directionValue(project: SongProject, plan: RenderPlan): string {
 }
 
 function errorSummary(error?: string): string {
-  const message = (error || 'The render did not finish.').trim();
-  if (/No such filter: '?drawtext'?/i.test(message)) return 'FFmpeg could not render title text because the drawtext filter is unavailable.';
-  if (/ffmpeg/i.test(message)) return 'FFmpeg stopped before creating the final MP4.';
+  const message = (error || 'The MP4 was not created.').trim();
+  if (/No such filter: '?drawtext'?/i.test(message)) return 'The local video tool could not add title text because a text filter is unavailable.';
+  if (/ffmpeg/i.test(message)) return 'The local video tool stopped before creating the final MP4.';
   if (/permission|denied/i.test(message)) return 'Song Studio could not write to the selected output folder.';
-  return message.split('\n')[0] || 'The render did not finish.';
+  return message.split('\n')[0] || 'The MP4 was not created.';
 }
 
 export function buildExportResultSummary({ result, project, plan, selectedMoment }: ExportResultInput): ExportResultSummary {
@@ -94,7 +94,7 @@ export function buildExportResultSummary({ result, project, plan, selectedMoment
     warnings: [],
     rows: [
       { label: 'File', value: fileName },
-      { label: 'Saved to', value: folder || 'Output folder' },
+      { label: 'Save folder', value: folder || 'Selected save folder' },
       { label: 'Duration', value: `${plan.durationSec}s` },
       { label: 'Format', value: `${plan.width}×${plan.height} MP4` },
       { label: 'Song moment', value: momentValue(selectedMoment, plan) },

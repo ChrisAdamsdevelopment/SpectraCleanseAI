@@ -28,7 +28,7 @@ export function StartScreen({
       <div className="start-inner">
         <div className="start-head">
           <div className="brand-lg">Create a promo MP4 for your song</div>
-          <p>Add your audio and cover art, choose a promo style, and render a vertical video you can review.</p>
+          <p>Add your audio and cover art, choose a promo vibe, preview the draft, and create a vertical MP4 you can review.</p>
           <div className="start-path" aria-label="First promo path">
             {startStepLabels.map((label, index) => (
               <div className="path-pill" key={label}><span>{index + 1}</span>{label}</div>
@@ -89,7 +89,7 @@ export function StartScreen({
         <div className="start-foot">
           <button className="ghost small" onClick={onOpenProject} disabled={!isTauri}>Open a saved project</button>
           <button className="ghost small" onClick={onSkip}>Customize manually</button>
-          {!isTauri && <span className="muted small">Run with <code>npm run tauri dev</code> to choose files and render.</span>}
+          {!isTauri && <span className="muted small">Run with <code>npm run tauri dev</code> to choose files and create MP4s.</span>}
         </div>
       </div>
     </div>

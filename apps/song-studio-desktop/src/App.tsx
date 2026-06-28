@@ -213,15 +213,15 @@ export default function App() {
         <input className="t-artist" type="text" value={project.artist} placeholder="Artist" onChange={(e) => update({ artist: e.target.value })} />
         <Chip ok={!!project.coverPath} label={project.coverPath ? 'Cover ✓' : 'Cover'} onClick={() => choose('cover')} />
         <Chip ok={!!project.audioPath} label={project.audioPath ? 'Audio ✓' : 'Audio'} onClick={() => choose('audio')} />
-        <Chip ok={!!project.outputDir} label={project.outputDir ? 'Output ✓' : 'Output'} onClick={() => choose('output')} />
+        <Chip ok={!!project.outputDir} label={project.outputDir ? 'Save folder ✓' : 'Save folder'} onClick={() => choose('output')} />
         <div className="spacer" />
-        {IS_TAURI && ffmpeg && <span className={`ff ${ffmpeg.found ? 'ok' : 'err'}`}>MP4 export {ffmpeg.found ? 'ready' : 'needs setup'}</span>}
+        {IS_TAURI && ffmpeg && <span className={`ff ${ffmpeg.found ? 'ok' : 'err'}`}>Create MP4 {ffmpeg.found ? 'ready' : 'needs setup'}</span>}
         <button className="ghost small internal-tools-link" title="Owner/dev validation tools — not part of creating a promo MP4" onClick={() => setView('canvas-test-drive')}>Internal tools · dev/test</button>
         <button className="ghost small" onClick={() => setView('start')}>← Start</button>
         <button className="ghost small" onClick={onSave} disabled={!IS_TAURI}>Save</button>
       </div>
 
-      {!IS_TAURI && <div className="banner warn">Preview works in the browser, but file selection + rendering need <code>npm run tauri dev</code>.</div>}
+      {!IS_TAURI && <div className="banner warn">Preview works in the browser, but choosing files and creating MP4s needs <code>npm run tauri dev</code>.</div>}
 
       <div className="editor-guide">
         <div>
@@ -314,7 +314,7 @@ export default function App() {
         <div className={`export-review${exportReview.ready ? ' ready' : ' blocked'}`}>
           <div className="export-review-head">
             <div>
-              <div className="export-kicker">Before you render</div>
+              <div className="export-kicker">Before you create MP4</div>
               <h3>{exportReview.title}</h3>
               <p>{exportReview.summary}</p>
             </div>
@@ -340,7 +340,7 @@ export default function App() {
               ? <span className="muted small">{plan.width}×{plan.height} · {plan.durationSec}s · {plan.audio ? `${formatTime(plan.audioStartSec)}–${formatTime(plan.audioEndSec)}` : 'silent'} · {plan.outputName}</span>
               : <span className="warn small">{plan.errors[0]}</span>}
           </div>
-          <span className={`status ${status}`}>● {status}</span>
+          <span className={`status ${status}`}>● {statusLabel(status)}</span>
           <button className="primary" onClick={render} disabled={!IS_TAURI || busy || !plan.ok}>{busy ? 'Creating MP4…' : 'Create MP4'}</button>
           <button className="ghost small" onClick={() => setShowLogs((v) => !v)}>{showLogs ? 'Hide details' : 'Details'}</button>
         </div>
@@ -348,7 +348,7 @@ export default function App() {
           <div className={`export-result ${exportResult.status}`}>
             <div className="export-result-head">
               <div>
-                <div className="export-kicker">Export result</div>
+                <div className="export-kicker">Review your video</div>
                 <h3>{exportResult.title}</h3>
                 <p>{exportResult.summary}</p>
               </div>
@@ -360,7 +360,7 @@ export default function App() {
               ))}
             </div>
             {exportResult.outputPath && (
-              <div className="export-success-actions" aria-label="Export next actions">
+              <div className="export-success-actions" aria-label="MP4 next actions">
                 {exportResult.status === 'success' && safeConvert(exportResult.outputPath) && (
                   <a className="primary small action-link" href={safeConvert(exportResult.outputPath) ?? undefined} target="_blank" rel="noreferrer">Review MP4</a>
                 )}
@@ -383,10 +383,18 @@ export default function App() {
             )}
           </div>
         )}
-        {showLogs && <div className="logs">{logs.length ? logs.join('\n') : 'Logs will appear here.'}</div>}
+        {showLogs && <div className="logs">{logs.length ? logs.join('\n') : 'Details will appear here.'}</div>}
       </div>
     </div>
   );
+}
+
+function statusLabel(status: RenderStatus): string {
+  if (status === 'idle') return 'Not started';
+  if (status === 'ready') return 'Ready';
+  if (status === 'rendering') return 'Creating MP4';
+  if (status === 'success') return 'MP4 ready';
+  return 'Needs attention';
 }
 
 function Chip({ ok, label, onClick }: { ok: boolean; label: string; onClick: () => void }) {

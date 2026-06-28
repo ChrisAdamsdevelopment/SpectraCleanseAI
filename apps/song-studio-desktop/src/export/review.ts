@@ -37,7 +37,7 @@ function momentLabel(moment: SongMoment | null, plan: RenderPlan): string {
 }
 
 function directionLabel(project: SongProject): string {
-  if (!project.selectedPromoDirectionId) return 'No promo direction selected';
+  if (!project.selectedPromoDirectionId) return 'No promo vibe selected';
   const direction = getPromoDirectionCandidate(project, project.selectedPromoDirectionId);
   return direction ? direction.label : 'Previously selected direction unavailable';
 }
@@ -46,15 +46,15 @@ export function buildExportReview({ project, plan, composition, selectedMoment }
   const blockers = [...plan.errors];
   const warnings: string[] = [];
 
-  if (plan.audio && !selectedMoment) warnings.push('No selected song moment; export will use the manual clip start and duration.');
-  if (!project.selectedPromoDirectionId) warnings.push('No promo direction selected; export will use the current style settings.');
-  if (!project.title.trim()) warnings.push('Song title is missing, so the export will use a generic file name and no title text.');
+  if (plan.audio && !selectedMoment) warnings.push('No song moment selected; Song Studio will use the manual start and length.');
+  if (!project.selectedPromoDirectionId) warnings.push('No promo vibe selected; Song Studio will use the current look.');
+  if (!project.title.trim()) warnings.push('Song title is missing, so the MP4 will use a generic file name and no title text.');
   if (plan.durationSec < 6) warnings.push('Very short duration; the promo may end before the hook lands.');
   if (plan.durationSec > 30) warnings.push('Unusually long duration for a short-form promo.');
-  if (composition.layers.length === 0) warnings.push('Preview composition has no layers; the output may look empty.');
+  if (composition.layers.length === 0) warnings.push('The preview has no visible design pieces, so the MP4 may look empty.');
 
   const ready = blockers.length === 0;
-  const exportKind = plan.audio ? 'Audio promo clip' : 'Silent canvas loop';
+  const exportKind = plan.audio ? 'Song promo clip' : 'Cover-art promo loop';
   const title = ready ? 'Ready to create MP4' : 'Needs attention before you create the MP4';
   const summary = ready
     ? `${exportKind} using ${plan.recipeName || 'the selected style'}.`
@@ -71,9 +71,9 @@ export function buildExportReview({ project, plan, composition, selectedMoment }
       { label: 'What you’re making', value: [plan.functionLabel, plan.recipeName].filter(Boolean).join(' · ') || 'Choose a promo type' },
       { label: 'Song moment', value: momentLabel(selectedMoment, plan) },
       { label: 'Direction', value: directionLabel(project) },
-      { label: 'Assets', value: `Cover ${project.coverPath ? 'ready' : 'missing'} · Audio ${plan.audio ? (project.audioPath ? 'ready' : 'missing') : 'not needed'} · Output ${project.outputDir ? 'ready' : 'missing'}` },
+      { label: 'Assets', value: `Cover art ${project.coverPath ? 'ready' : 'missing'} · Song ${plan.audio ? (project.audioPath ? 'ready' : 'missing') : 'not needed'} · Save folder ${project.outputDir ? 'ready' : 'missing'}` },
       { label: 'Format', value: `${plan.width}×${plan.height} MP4 · ${plan.durationSec}s` },
-      { label: 'Audio range', value: plan.audio ? formatRange(plan.audioStartSec, plan.audioEndSec) : 'Silent export' },
+      { label: 'Song section', value: plan.audio ? formatRange(plan.audioStartSec, plan.audioEndSec) : 'No song audio' },
       { label: 'File name', value: plan.outputName },
     ],
   };
