@@ -55,10 +55,10 @@ export function buildExportReview({ project, plan, composition, selectedMoment }
 
   const ready = blockers.length === 0;
   const exportKind = plan.audio ? 'Audio promo clip' : 'Silent canvas loop';
-  const title = ready ? 'Ready to export' : 'Needs attention before export';
+  const title = ready ? 'Ready to create MP4' : 'Needs attention before you create the MP4';
   const summary = ready
     ? `${exportKind} using ${plan.recipeName || 'the selected style'}.`
-    : 'Fix the missing essentials below before rendering.';
+    : 'Fix the missing essentials below before creating your MP4.';
 
   return {
     ready,
@@ -66,7 +66,7 @@ export function buildExportReview({ project, plan, composition, selectedMoment }
     summary,
     blockers,
     warnings,
-    nextAction: ready ? 'Render MP4' : blockers[0] ?? 'Review export setup',
+    nextAction: ready ? 'Create MP4' : blockers[0] ?? 'Review the essentials',
     essentials: [
       { label: 'What you’re making', value: [plan.functionLabel, plan.recipeName].filter(Boolean).join(' · ') || 'Choose a promo type' },
       { label: 'Song moment', value: momentLabel(selectedMoment, plan) },
