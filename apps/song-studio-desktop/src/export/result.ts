@@ -16,6 +16,7 @@ export interface ExportResultSummary {
   rows: ExportResultRow[];
   nextAction: string;
   outputPath?: string;
+  folderPath?: string;
   warnings: string[];
 }
 
@@ -65,9 +66,9 @@ export function buildExportResultSummary({ result, project, plan, selectedMoment
   if (!result.ok) {
     return {
       status: 'failure',
-      title: 'Export failed',
+      title: 'Something needs attention before the MP4 can be created',
       summary: errorSummary(result.error),
-      nextAction: 'Check the output folder and render log, then try again.',
+      nextAction: 'Fix the item above, then try Create MP4 again.',
       warnings: result.error ? [result.error] : [],
       rows: [
         { label: 'Attempted file', value: plan.outputName },
@@ -85,10 +86,11 @@ export function buildExportResultSummary({ result, project, plan, selectedMoment
 
   return {
     status: 'success',
-    title: 'Export complete',
-    summary: 'Your promo MP4 is ready to review and post when it feels right.',
-    nextAction: 'Open the file from the saved folder and review it with sound on.',
+    title: 'Your MP4 is ready',
+    summary: 'Song Studio saved your promo video. Review it with sound on, then make another when you are ready.',
+    nextAction: 'Review your video or copy the saved path.',
     outputPath,
+    folderPath: folder,
     warnings: [],
     rows: [
       { label: 'File', value: fileName },
