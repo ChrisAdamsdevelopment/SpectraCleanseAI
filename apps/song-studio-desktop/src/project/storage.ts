@@ -5,6 +5,7 @@ import { emptyProject, type SongAnalysis, type SongMoment, type SongProject } fr
 // Allowed input formats for v1 (LIMITED — broader support is planned).
 export const AUDIO_EXTENSIONS = ['mp3', 'wav', 'm4a', 'aac', 'flac'];
 export const IMAGE_EXTENSIONS = ['png', 'jpg', 'jpeg', 'webp'];
+export const CANVAS_VIDEO_EXTENSIONS = ['mp4', 'mov', 'm4v', 'webm'];
 
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -82,6 +83,19 @@ export async function pickCoverImage(): Promise<string | null> {
 export async function pickOutputDir(): Promise<string | null> {
   const selected = await open({ multiple: false, directory: true });
   return typeof selected === 'string' ? selected : null;
+}
+
+export async function pickCanvasSourceVideo(): Promise<string | null> {
+  const selected = await open({
+    multiple: false,
+    directory: false,
+    filters: [{ name: 'Canvas source video', extensions: CANVAS_VIDEO_EXTENSIONS }],
+  });
+  return typeof selected === 'string' ? selected : null;
+}
+
+export async function pickCanvasOutputDir(): Promise<string | null> {
+  return pickOutputDir();
 }
 
 export async function saveProjectToFile(project: SongProject): Promise<string | null> {

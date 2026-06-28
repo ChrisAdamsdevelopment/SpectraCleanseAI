@@ -177,3 +177,31 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 .preview .bg-motion { animation: ssKenBurns 16s ease-in-out infinite alternate; will-change: transform; }
 @keyframes ssKenBurns { from { transform: scale(1.08); } to { transform: scale(1.16); } }
 @media (prefers-reduced-motion: reduce) { .preview .bg-motion { animation: none; transform: scale(1.12); } }
+
+/* Canvas Test Drive — internal/local app surface for exercising the Canvas lab. */
+.canvas-drive { grid-template-rows: auto auto 1fr; }
+.canvas-pill { color: var(--ok); border: 1px solid #1f5a3c; border-radius: 999px; padding: 4px 9px; font-size: 11px; }
+.canvas-drive-main { overflow: auto; padding: 14px; display: grid; gap: 12px; grid-template-columns: minmax(260px, .9fr) minmax(320px, 1fr) minmax(360px, 1.2fr); align-items: start; }
+.canvas-panel { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 14px; }
+.canvas-panel-head { display: flex; gap: 10px; align-items: flex-start; margin-bottom: 12px; }
+.canvas-panel-head > span { width: 24px; height: 24px; border-radius: 50%; background: var(--accent); display: grid; place-items: center; font-weight: 700; font-size: 12px; flex: 0 0 24px; }
+.canvas-panel h2 { margin: 0; font-size: 16px; }
+.canvas-panel p { margin: 4px 0 0; color: var(--muted); font-size: 12px; line-height: 1.4; }
+.path-row { display: grid; gap: 8px; margin-bottom: 10px; }
+.path-row code { min-height: 34px; display: flex; align-items: center; background: #0b0d11; border: 1px solid var(--border); color: #b9c0cc; border-radius: 8px; padding: 8px; font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.canvas-controls-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.canvas-field { display: flex; flex-direction: column; gap: 5px; color: var(--muted); font-size: 11px; }
+.canvas-field input, .canvas-field select { background: var(--panel-2); border: 1px solid var(--border); color: var(--text); border-radius: 7px; padding: 7px 8px; font-size: 13px; width: 100%; }
+.canvas-check { display: flex; align-items: center; gap: 8px; margin: 12px 0; color: var(--text); font-size: 13px; }
+.canvas-run { width: 100%; }
+.canvas-results { display: flex; flex-direction: column; gap: 10px; }
+.canvas-result-grid { display: grid; gap: 8px; }
+.canvas-summary { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.canvas-summary > div { background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px; padding: 8px; min-width: 0; }
+.canvas-summary span { display: block; color: var(--muted); font-size: 10px; margin-bottom: 3px; }
+.canvas-summary b { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+.canvas-output { margin-top: 0; }
+.canvas-output b { color: var(--text); }
+.method-list h3 { margin: 8px 0; font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+.canvas-log { max-height: 260px; }
+@media (max-width: 1050px) { .canvas-drive-main { grid-template-columns: 1fr; } }
