@@ -1,5 +1,6 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use serde::{Deserialize, Serialize};
 use tauri::Emitter;
 
 fn ffmpeg_exe_name() -> &'static str {
@@ -140,12 +141,112 @@ async fn run_ffmpeg(app: tauri::AppHandle, args: Vec<String>) -> Result<serde_js
     Ok(serde_json::json!({ "outputPath": out_path, "bytes": bytes }))
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CanvasLabOptions {
+    input_path: String,
+    output_dir: String,
+    anchor_time_sec: Option<f64>,
+    min_duration_sec: Option<f64>,
+    max_duration_sec: Option<f64>,
+    top_n: Option<u32>,
+    min_similarity_score: Option<f64>,
+    method: Option<String>,
+    compare_methods: Option<bool>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CanvasLabRunResult {
+    ok: bool,
+    error: Option<String>,
+    report: Option<serde_json::Value>,
+    report_path: Option<String>,
+    output_path: Option<String>,
+    workspace_path: Option<String>,
+    stdout: String,
+    stderr: String,
+}
+
+fn app_dir() -> Result<PathBuf, String> {
+    let cwd = std::env::current_dir().map_err(|e| format!("Could not read current dir: {e}"))?;
+    if cwd.join("package.json").exists() && cwd.join("src/canvas/canvas-lab.mts").exists() {
+        return Ok(cwd);
+    }
+    let nested = cwd.join("apps/song-studio-desktop");
+    if nested.join("package.json").exists() && nested.join("src/canvas/canvas-lab.mts").exists() {
+        return Ok(nested);
+    }
+    Err("Could not locate apps/song-studio-desktop from the current process. Run this in dev mode with `npm run tauri dev`.".to_string())
+}
+
+fn push_optional_arg<T: ToString>(args: &mut Vec<String>, name: &str, value: Option<T>) {
+    if let Some(value) = value {
+        args.push(format!("--{name}={}", value.to_string()));
+    }
+}
+
+fn parse_canvas_stdout(stdout: &str) -> Option<serde_json::Value> {
+    for (idx, ch) in stdout.char_indices() {
+        if ch == '{' {
+            if let Ok(value) = serde_json::from_str::<serde_json::Value>(&stdout[idx..]) {
+                return Some(value);
+            }
+        }
+    }
+    None
+}
+
+#[tauri::command]
+async fn run_canvas_lab(options: CanvasLabOptions) -> Result<CanvasLabRunResult, String> {
+    if options.input_path.trim().is_empty() || options.output_dir.trim().is_empty() {
+        return Err("Canvas Test Drive requires both an input video and output directory.".to_string());
+    }
+
+    let mut args = vec!["run".to_string(), "canvas:lab".to_string(), "--".to_string(), "--ffmpeg".to_string()];
+    args.push(format!("--input={}", options.input_path));
+    args.push(format!("--output-dir={}", options.output_dir));
+    push_optional_arg(&mut args, "anchor", options.anchor_time_sec);
+    push_optional_arg(&mut args, "min-duration", options.min_duration_sec);
+    push_optional_arg(&mut args, "max-duration", options.max_duration_sec);
+    push_optional_arg(&mut args, "top-n", options.top_n);
+    push_optional_arg(&mut args, "min-similarity", options.min_similarity_score);
+    if let Some(method) = options.method.filter(|m| !m.is_empty()) {
+        args.push(format!("--method={method}"));
+    }
+    if options.compare_methods.unwrap_or(false) {
+        args.push("--compare-methods".to_string());
+    }
+
+    let app_dir = app_dir()?;
+    let npm = if cfg!(windows) { "npm.cmd" } else { "npm" };
+    let output = Command::new(npm)
+        .current_dir(app_dir)
+        .args(&args)
+        .output()
+        .map_err(|e| format!("Failed to start Canvas lab through npm: {e}"))?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+    let parsed = parse_canvas_stdout(&stdout);
+    let report_path = parsed.as_ref().and_then(|v| v.get("reportPath")).and_then(|v| v.as_str()).map(|s| s.to_string());
+    let workspace_path = parsed.as_ref().and_then(|v| v.get("workspacePath")).and_then(|v| v.as_str()).map(|s| s.to_string());
+    let output_path = parsed.as_ref()
+        .and_then(|v| v.get("export"))
+        .and_then(|v| v.get("outputPath"))
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+
+    let error = if output.status.success() { None } else { Some(format!("Canvas lab exited with {}", output.status)) };
+    Ok(CanvasLabRunResult { ok: output.status.success(), error, report: parsed, report_path, output_path, workspace_path, stdout, stderr })
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
-        .invoke_handler(tauri::generate_handler![run_ffmpeg, font_path, resolve_font, ffmpeg_status])
+        .invoke_handler(tauri::generate_handler![run_ffmpeg, run_canvas_lab, font_path, resolve_font, ffmpeg_status])
         .run(tauri::generate_context!())
         .expect("error while running Song Studio");
 }

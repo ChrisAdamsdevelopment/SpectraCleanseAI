@@ -18,6 +18,7 @@ import { StartScreen } from './ui/StartScreen';
 import { buildPromoDirectionCandidates, getSelectedSongMoment, promoDirectionRecipeLabel, type PromoDirectionCandidate } from './promo/directions';
 import { buildExportReview } from './export/review';
 import { buildExportResultSummary } from './export/result';
+import { CanvasTestDrive } from './canvas-ui/CanvasTestDrive';
 
 const IS_TAURI = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in (window as object);
 const basename = (p: string | null) => (p ? p.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || p : '');
@@ -40,7 +41,7 @@ export default function App() {
   const [copiedOutputPath, setCopiedOutputPath] = useState(false);
   const [busy, setBusy] = useState(false);
   const [ffmpeg, setFfmpeg] = useState<FfmpegStatus | null>(null);
-  const [view, setView] = useState<'start' | 'editor'>('start');
+  const [view, setView] = useState<'start' | 'editor' | 'canvas-test-drive'>('start');
   const [inspectorMode, setInspectorMode] = useState<InspectorMode>('simple');
   const [audioDurationSec, setAudioDurationSec] = useState<number | null>(null);
 
@@ -184,6 +185,10 @@ export default function App() {
     catch (e) { addLog(`load failed: ${e}`); }
   }
 
+  if (view === 'canvas-test-drive') {
+    return <CanvasTestDrive isTauri={IS_TAURI} onBack={() => setView('editor')} />;
+  }
+
   if (view === 'start') {
     return (
       <StartScreen
@@ -206,6 +211,7 @@ export default function App() {
         <Chip ok={!!project.outputDir} label={project.outputDir ? 'Output ✓' : 'Output'} onClick={() => choose('output')} />
         <div className="spacer" />
         {IS_TAURI && ffmpeg && <span className={`ff ${ffmpeg.found ? 'ok' : 'err'}`}>FFmpeg {ffmpeg.found ? 'ready' : 'missing'}</span>}
+        <button className="ghost small" onClick={() => setView('canvas-test-drive')}>Canvas Test Drive</button>
         <button className="ghost small" onClick={() => setView('start')}>← Start</button>
         <button className="ghost small" onClick={onSave} disabled={!IS_TAURI}>Save</button>
       </div>
