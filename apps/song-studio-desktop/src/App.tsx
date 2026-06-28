@@ -163,12 +163,17 @@ export default function App() {
     addLog(`[render] ${plan.functionLabel} · ${plan.recipeName} -> ${outputPath}`);
     try {
       const res = await tauriRenderEngine.render(job, addLog);
-      setResult(res); setStatus(res.ok ? 'success' : 'error');
+      setResult(res); setStatus(res.ok ? 'success' : 'error'); setShowLogs(!res.ok);
       addLog(res.ok ? `[render] success (${res.bytes ?? 0} bytes)` : `[render] failed: ${res.error}`);
     } catch (e) {
       const m = e instanceof Error ? e.message : String(e);
       setResult({ ok: false, error: m }); setStatus('error'); addLog(`[render] error: ${m}`);
     } finally { setBusy(false); }
+  }
+  function clearExportResult() {
+    setResult(null);
+    setCopiedOutputPath(false);
+    if (status === 'success' || status === 'error') setStatus('ready');
   }
   async function copyOutputPath(path: string) {
     try {
@@ -355,9 +360,20 @@ export default function App() {
               ))}
             </div>
             {exportResult.outputPath && (
+              <div className="export-success-actions" aria-label="Export next actions">
+                {exportResult.status === 'success' && safeConvert(exportResult.outputPath) && (
+                  <a className="primary small action-link" href={safeConvert(exportResult.outputPath) ?? undefined} target="_blank" rel="noreferrer">Review MP4</a>
+                )}
+                {'clipboard' in navigator && <button className="ghost small" onClick={() => copyOutputPath(exportResult.outputPath!)}>{copiedOutputPath ? 'Copied' : 'Copy file path'}</button>}
+                {exportResult.status === 'success' && <button className="ghost small" onClick={clearExportResult}>Make another promo</button>}
+              </div>
+            )}
+            {exportResult.outputPath && (
               <div className="output-path">
-                <span title={exportResult.outputPath}>{exportResult.outputPath}</span>
-                {'clipboard' in navigator && <button className="ghost small" onClick={() => copyOutputPath(exportResult.outputPath!)}>{copiedOutputPath ? 'Copied' : 'Copy path'}</button>}
+                <div>
+                  <strong>Saved file path</strong>
+                  <span title={exportResult.outputPath}>{exportResult.outputPath}</span>
+                </div>
               </div>
             )}
             {exportResult.warnings.length > 0 && (
