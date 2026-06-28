@@ -10,6 +10,7 @@ export * from './LocalLoopRepairTools';
 export * from './LoopCandidateFinder';
 export * from './LoopScorer';
 export * from './LoopReadiness';
+export * from './CanvasLabControls';
 export * from './ReportGenerator';
 export * from './VideoSpecValidator';
 export * from './providers/AIProviderInterface';
