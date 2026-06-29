@@ -65,3 +65,13 @@ export function buildSongAnalysis({ audioPath, durationSec, manualStartSec, manu
 
   return { audioPath, analyzedAt, durationSec: safeDuration, moments: moments.slice(0, 5), selectedMomentId: selectedMomentId ?? null };
 }
+
+// Pick a sensible default song section so a music promo always has the song in
+// use without the creator hunting for it. Prefers the highest-confidence
+// auto-suggested moment (a manual selection is only used as a last resort).
+export function pickDefaultMoment(analysis: SongAnalysis | null): SongMoment | null {
+  if (!analysis || analysis.moments.length === 0) return null;
+  const auto = analysis.moments.filter((m) => m.source !== 'manual');
+  const pool = auto.length > 0 ? auto : analysis.moments;
+  return pool.reduce((best, moment) => (moment.confidence > best.confidence ? moment : best), pool[0]);
+}

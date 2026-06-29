@@ -12,7 +12,7 @@ import { pickAudioFile, pickCoverImage, pickOutputDir, saveProjectToFile, loadPr
 import { Preview } from './ui/Preview';
 import { Inspector, type InspectorMode } from './ui/Inspector';
 import { AudioPanel } from './ui/AudioPanel';
-import { buildSongAnalysis } from './audio/songMoments';
+import { buildSongAnalysis, pickDefaultMoment } from './audio/songMoments';
 import type { SongMoment } from './project/types';
 import { StartScreen } from './ui/StartScreen';
 import { buildPromoDirectionCandidates, getSelectedSongMoment, promoDirectionRecipeLabel, type PromoDirectionCandidate } from './promo/directions';
@@ -78,7 +78,13 @@ export default function App() {
   function applyRecipe(functionId: string, recipeId: string) {
     const f = getFunction(functionId); const recipe = getRecipe(recipeId);
     if (!f || !recipe) return;
-    const next: SongProject = { ...project, functionId, recipeId, selectedPromoDirectionId: null, clipDuration: String(recipe.defaultDurationSec), clipStart: f.audio ? project.clipStart : '0:00' };
+    let next: SongProject = { ...project, functionId, recipeId, selectedPromoDirectionId: null, clipDuration: String(recipe.defaultDurationSec), clipStart: f.audio ? project.clipStart : '0:00' };
+    // Music promos should use the song by default: if analysis is ready and nothing
+    // is picked yet, auto-select a sensible section so the song is always in use.
+    if (f.audio && project.audioPath && project.songAnalysis && !project.selectedMomentId) {
+      const def = pickDefaultMoment(project.songAnalysis);
+      if (def) next = { ...next, selectedMomentId: def.id, clipStart: formatTime(def.startSec), clipDuration: String(def.durationSec), songAnalysis: { ...project.songAnalysis, selectedMomentId: def.id } };
+    }
     setProject(next);
     setComposition(recipeToComposition(recipe, getTemplate(recipe.visualTemplateId), { title: next.title }));
     setSelectedId('cover_art');
@@ -125,6 +131,16 @@ export default function App() {
       selectedMomentId: project.selectedMomentId,
     });
     setAudioDurationSec(durationSec);
+    // For a music promo with nothing chosen yet, auto-select a default section so
+    // the song is always used and visibly shown (no hunting for the moment picker).
+    const f = getFunction(project.functionId);
+    if (f?.audio && !project.selectedMomentId) {
+      const def = pickDefaultMoment(analysis);
+      if (def) {
+        update({ songAnalysis: { ...analysis, selectedMomentId: def.id }, selectedMomentId: def.id, clipStart: formatTime(def.startSec), clipDuration: String(def.durationSec) });
+        return;
+      }
+    }
     update({ songAnalysis: analysis });
   }
   function selectMoment(moment: SongMoment) {
@@ -288,6 +304,24 @@ export default function App() {
             <Preview composition={composition} coverSrc={coverSrc} selectedId={selectedId} onSelect={setSelectedId} onMove={onMove} />
           </div>
           <div className="muted small">Click an element to customize it. When the draft looks right, use Create MP4 below.</div>
+          {plan.audio ? (
+            selectedMoment ? (
+              <div className="song-usage on">
+                <b>Using your song: {formatTime(selectedMoment.startSec)}–{formatTime(selectedMoment.endSec)}</b>
+                <span>This section plays in your MP4. Motion is style-based in this version — pick a different section below to change what plays.</span>
+              </div>
+            ) : (
+              <div className="song-usage">
+                <b>Pick the part of your song to use</b>
+                <span>Choose a song section below — that part will play in your MP4.</span>
+              </div>
+            )
+          ) : project.audioPath ? (
+            <div className="song-usage warn">
+              <b>This promo is silent and won’t use your song.</b>
+              <span>Switch to a music promo to use the audio. <button className="link-btn" onClick={() => applyRecipe('make_hook_promo', getFunction('make_hook_promo')?.defaultRecipeId ?? 'vertical_promo')}>Switch to Music Promo</button></span>
+            </div>
+          ) : null}
           <AudioPanel
             audioSrc={audioSrc}
             audioName={basename(project.audioPath)}

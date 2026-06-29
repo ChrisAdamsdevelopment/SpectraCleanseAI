@@ -54,10 +54,12 @@ export function buildExportReview({ project, plan, composition, selectedMoment }
   if (composition.layers.length === 0) warnings.push('The preview has no visible design pieces, so the MP4 may look empty.');
 
   const ready = blockers.length === 0;
-  const exportKind = plan.audio ? 'Song promo clip' : 'Cover-art promo loop';
   const title = ready ? 'Ready to create MP4' : 'Needs attention before you create the MP4';
+  const songLine = plan.audio
+    ? `Uses your song from ${formatRange(plan.audioStartSec, plan.audioEndSec)}`
+    : 'Silent — this promo does not use your song';
   const summary = ready
-    ? `${exportKind} using ${plan.recipeName || 'the selected style'}.`
+    ? `${songLine} · ${plan.recipeName || 'selected style'}.`
     : 'Fix the missing essentials below before creating your MP4.';
 
   return {

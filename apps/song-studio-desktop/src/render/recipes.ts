@@ -103,7 +103,7 @@ export const CREATIVE_FUNCTIONS: CreativeFunction[] = [
   {
     id: 'make_canvas',
     label: 'Make a Release Card',
-    description: 'A short silent vertical loop for release announcements (Spotify Canvas-style).',
+    description: 'A short silent vertical loop for release announcements — cover art only, no song audio.',
     audio: false,
     defaultRecipeId: 'clean_canvas',
   },

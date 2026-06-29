@@ -233,3 +233,16 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 .method-list h3 { margin: 8px 0; font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
 .canvas-log { max-height: 260px; }
 @media (max-width: 1050px) { .canvas-drive-main { grid-template-columns: 1fr; } .editor-guide, .canvas-boundary { align-items: flex-start; flex-direction: column; } .guide-steps { justify-content: flex-start; } }
+
+/* Song-as-the-spine: make it obvious the MP4 uses the chosen song section. */
+.song-usage { margin: 8px 0 4px; padding: 9px 12px; border: 1px solid var(--border); border-left: 3px solid var(--accent, #4f8cff); border-radius: 8px; background: var(--panel); display: flex; flex-direction: column; gap: 2px; }
+.song-usage b { font-size: 13px; color: var(--text); }
+.song-usage span { font-size: 11px; color: var(--muted); }
+.song-usage.on { border-left-color: var(--ok, #3ad07a); }
+.song-usage.warn { border-left-color: var(--warn, #d8a23a); }
+.song-usage.warn b { color: var(--warn, #d8a23a); }
+.link-btn { background: none; border: none; padding: 0; color: var(--accent, #4f8cff); font: inherit; font-size: 11px; cursor: pointer; text-decoration: underline; }
+.audio-using { font-size: 12px; color: var(--text); margin-bottom: 6px; padding: 5px 8px; border-radius: 6px; background: rgba(79,140,255,.10); border: 1px solid rgba(79,140,255,.25); }
+.audio-using b { color: var(--text); }
+.audio-state { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; padding: 0 6px; }
+.audio-state.playing { color: var(--ok, #3ad07a); }
