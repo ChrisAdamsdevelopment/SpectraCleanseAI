@@ -6,15 +6,16 @@ import { recipeToComposition, updateLayer, getLayer, LAYER_LABELS } from './rend
 import { tauriRenderEngine, getFfmpegStatus } from './render/engine';
 import type { RenderJob, RenderResult, RenderStatus, FfmpegStatus, Composition, Layer } from './render/types';
 import { buildRenderPlan } from './render/plan';
-import { emptyProject, type SongProject } from './project/types';
+import { emptyReleaseProject, emptyOutput, mergeProjectView, type ProjectOutput, type ReleaseProject, type SongProject } from './project/types';
 import { formatTime, parseTime } from './lib/time';
-import { pickAudioFile, pickCoverImage, pickOutputDir, saveProjectToFile, loadProjectFromFile, normalizeProject } from './project/storage';
+import { pickAudioFile, pickCoverImage, pickOutputDir, saveReleaseProjectToFile, loadReleaseProjectFromFile, normalizeReleaseProject } from './project/storage';
 import { Preview } from './ui/Preview';
 import { Inspector, type InspectorMode } from './ui/Inspector';
 import { AudioPanel } from './ui/AudioPanel';
 import { buildSongAnalysis, pickDefaultMoment } from './audio/songMoments';
 import type { SongMoment } from './project/types';
 import { StartScreen } from './ui/StartScreen';
+import { ProjectHome } from './ui/ProjectHome';
 import { buildPromoDirectionCandidates, getSelectedSongMoment, promoDirectionRecipeLabel, type PromoDirectionCandidate } from './promo/directions';
 import { buildExportReview } from './export/review';
 import { buildExportResultSummary } from './export/result';
@@ -31,8 +32,8 @@ function compositionFor(project: SongProject): Composition {
 }
 
 export default function App() {
-  const [project, setProject] = useState<SongProject>(emptyProject());
-  const [composition, setComposition] = useState<Composition>(() => compositionFor(emptyProject()));
+  const [releaseProject, setReleaseProject] = useState<ReleaseProject>(emptyReleaseProject());
+  const [composition, setComposition] = useState<Composition>(() => compositionFor(mergeProjectView(emptyReleaseProject(), emptyOutput())));
   const [selectedId, setSelectedId] = useState<string>('cover_art');
   const [status, setStatus] = useState<RenderStatus>('idle');
   const [logs, setLogs] = useState<string[]>([]);
@@ -41,9 +42,22 @@ export default function App() {
   const [copiedOutputPath, setCopiedOutputPath] = useState(false);
   const [busy, setBusy] = useState(false);
   const [ffmpeg, setFfmpeg] = useState<FfmpegStatus | null>(null);
-  const [view, setView] = useState<'start' | 'editor' | 'canvas-test-drive'>('start');
+  const [view, setView] = useState<'start' | 'home' | 'editor' | 'canvas-test-drive'>('start');
   const [inspectorMode, setInspectorMode] = useState<InspectorMode>('simple');
   const [audioDurationSec, setAudioDurationSec] = useState<number | null>(null);
+
+  // The output currently open in the editor. ReleaseProject.outputs starts
+  // empty (no output exists until the user picks a type); the synthetic
+  // fallback below only matters so `project` below always type-checks — it is
+  // never rendered, since the editor view is only reached after an output id
+  // is set on the release project.
+  const activeOutput = useMemo<ProjectOutput>(
+    () => releaseProject.outputs.find((o) => o.id === releaseProject.activeOutputId) ?? releaseProject.outputs[0] ?? emptyOutput(),
+    [releaseProject],
+  );
+  // The merged single-output view the renderer/editor/export/promo modules
+  // already understand — see project/types.ts mergeProjectView.
+  const project: SongProject = useMemo(() => mergeProjectView(releaseProject, activeOutput), [releaseProject, activeOutput]);
 
   const fn = getFunction(project.functionId);
   const styleOptions = useMemo(() => (fn ? recipesForFunction(fn) : []), [fn]);
@@ -56,7 +70,16 @@ export default function App() {
   const audioSrc = IS_TAURI && project.audioPath ? safeConvert(project.audioPath) : null;
   const selectedLayer = getLayer(composition, selectedId);
 
-  const update = (patch: Partial<SongProject>) => setProject((p) => ({ ...p, ...patch }));
+  const touch = () => new Date().toISOString();
+  const updateShared = (patch: Partial<Pick<ReleaseProject, 'title' | 'artist' | 'audioPath' | 'coverPath' | 'outputDir' | 'songAnalysis'>>) =>
+    setReleaseProject((rp) => ({ ...rp, ...patch, updatedAt: touch() }));
+  const updateActiveOutput = (patch: Partial<ProjectOutput>) =>
+    setReleaseProject((rp) => ({
+      ...rp,
+      outputs: rp.outputs.map((o) => (o.id === rp.activeOutputId ? { ...o, ...patch, updatedAt: touch() } : o)),
+      updatedAt: touch(),
+    }));
+
   const refreshSongAnalysis = (base: SongProject, durationSec: number, selectedMomentId: string | null) => {
     if (!base.audioPath) return null;
     return buildSongAnalysis({
@@ -67,103 +90,159 @@ export default function App() {
       selectedMomentId,
     });
   };
-  const updateManualClip = (patch: Partial<Pick<SongProject, 'clipStart' | 'clipDuration'>>) => setProject((p) => {
-    const next = { ...p, ...patch, selectedMomentId: null, selectedPromoDirectionId: null };
-    return { ...next, songAnalysis: audioDurationSec !== null ? refreshSongAnalysis(next, audioDurationSec, null) : next.songAnalysis ? { ...next.songAnalysis, selectedMomentId: null } : null };
-  });
+  const updateManualClip = (patch: Partial<Pick<SongProject, 'clipStart' | 'clipDuration'>>) => {
+    const clipStart = patch.clipStart ?? activeOutput.clipStart;
+    const clipDuration = patch.clipDuration ?? activeOutput.clipDuration;
+    updateActiveOutput({ clipStart, clipDuration, selectedMomentId: null, selectedPromoDirectionId: null });
+    if (audioDurationSec !== null) {
+      updateShared({ songAnalysis: refreshSongAnalysis({ ...project, clipStart, clipDuration }, audioDurationSec, null) });
+    }
+  };
   const addLog = (line: string) => setLogs((l) => [...l, line]);
 
   useEffect(() => { if (IS_TAURI) getFfmpegStatus().then(setFfmpeg).catch(() => setFfmpeg(null)); }, []);
 
+  // Build a fresh output for a creative function, auto-selecting a default
+  // song section when the function uses audio (mirrors Song-as-the-spine).
+  function buildOutputFor(functionId: string, recipeId?: string): ProjectOutput {
+    const f = getFunction(functionId);
+    const recipe = getRecipe(recipeId ?? f?.defaultRecipeId ?? 'clean_canvas') ?? getRecipe('clean_canvas')!;
+    const output = emptyOutput(functionId, recipe.id, recipe.defaultDurationSec, recipe.name);
+    if (f?.audio && releaseProject.audioPath && releaseProject.songAnalysis) {
+      const def = pickDefaultMoment(releaseProject.songAnalysis);
+      if (def) return { ...output, selectedMomentId: def.id, clipStart: formatTime(def.startSec), clipDuration: String(def.durationSec) };
+    }
+    return output;
+  }
+
+  function openComposition(recipeId: string, title: string) {
+    const recipe = getRecipe(recipeId) ?? getRecipe('clean_canvas')!;
+    setComposition(recipeToComposition(recipe, getTemplate(recipe.visualTemplateId), { title }));
+    setSelectedId('cover_art');
+  }
+
   function applyRecipe(functionId: string, recipeId: string) {
     const f = getFunction(functionId); const recipe = getRecipe(recipeId);
     if (!f || !recipe) return;
-    let next: SongProject = { ...project, functionId, recipeId, selectedPromoDirectionId: null, clipDuration: String(recipe.defaultDurationSec), clipStart: f.audio ? project.clipStart : '0:00' };
+    let patch: Partial<ProjectOutput> = {
+      functionId, recipeId, selectedPromoDirectionId: null,
+      clipDuration: String(recipe.defaultDurationSec),
+      clipStart: f.audio ? activeOutput.clipStart : '0:00',
+    };
     // Music promos should use the song by default: if analysis is ready and nothing
     // is picked yet, auto-select a sensible section so the song is always in use.
-    if (f.audio && project.audioPath && project.songAnalysis && !project.selectedMomentId) {
+    if (f.audio && project.audioPath && project.songAnalysis && !activeOutput.selectedMomentId) {
       const def = pickDefaultMoment(project.songAnalysis);
-      if (def) next = { ...next, selectedMomentId: def.id, clipStart: formatTime(def.startSec), clipDuration: String(def.durationSec), songAnalysis: { ...project.songAnalysis, selectedMomentId: def.id } };
+      if (def) patch = { ...patch, selectedMomentId: def.id, clipStart: formatTime(def.startSec), clipDuration: String(def.durationSec) };
     }
-    setProject(next);
-    setComposition(recipeToComposition(recipe, getTemplate(recipe.visualTemplateId), { title: next.title }));
-    setSelectedId('cover_art');
+    updateActiveOutput(patch);
+    openComposition(recipeId, project.title);
     if (status === 'idle') setStatus('ready');
   }
+
+  // Start screen "Make a X" -> creates the project's first output and opens
+  // it directly in the editor (the proven fast path; unchanged from before
+  // this slice). Returning to / reaching Project Home happens via the new
+  // "My release" button in the editor topbar, or by opening a saved project.
   function startMake(functionId: string) {
-    const f = getFunction(functionId);
-    if (f) applyRecipe(functionId, f.defaultRecipeId);
+    const output = buildOutputFor(functionId);
+    setReleaseProject((rp) => ({ ...rp, outputs: [...rp.outputs, output], activeOutputId: output.id, updatedAt: touch() }));
+    openComposition(output.recipeId, releaseProject.title);
+    if (status === 'idle') setStatus('ready');
+    setView('editor');
+  }
+
+  // "Customize manually" -> same default blank output as before, straight to editor.
+  function skipToManualEditor() {
+    const output = buildOutputFor('make_canvas', 'clean_canvas');
+    setReleaseProject((rp) => ({ ...rp, outputs: [...rp.outputs, output], activeOutputId: output.id, updatedAt: touch() }));
+    openComposition(output.recipeId, releaseProject.title);
+    setView('editor');
+  }
+
+  // Project Home "Create another output" -> new output, straight to its editor.
+  function createOutput(functionId: string) {
+    const output = buildOutputFor(functionId);
+    setReleaseProject((rp) => ({ ...rp, outputs: [...rp.outputs, output], activeOutputId: output.id, updatedAt: touch() }));
+    openComposition(output.recipeId, releaseProject.title);
+    setResult(null); setShowLogs(false); setLogs([]);
+    setStatus('ready');
+    setView('editor');
+  }
+
+  // Project Home "Open" on an existing output card.
+  function openOutput(outputId: string) {
+    const output = releaseProject.outputs.find((o) => o.id === outputId);
+    if (!output) return;
+    setReleaseProject((rp) => ({ ...rp, activeOutputId: outputId }));
+    openComposition(output.recipeId, releaseProject.title);
+    setResult(null); setShowLogs(false); setLogs([]);
+    setStatus(output.status === 'rendered' ? 'success' : 'ready');
     setView('editor');
   }
 
   function applyPromoDirection(candidate: PromoDirectionCandidate) {
     const f = getFunction(candidate.functionId); const recipe = getRecipe(candidate.recipeId);
     if (!f || !recipe) return;
-    const clipStart = f.audio ? (candidate.clipStart ?? project.clipStart) : '0:00';
-    const clipDuration = f.audio ? (candidate.clipDuration ?? project.clipDuration) : String(recipe.defaultDurationSec);
-    const next: SongProject = {
-      ...project,
-      functionId: candidate.functionId,
-      recipeId: candidate.recipeId,
-      clipStart,
-      clipDuration,
-      selectedMomentId: candidate.momentId ?? project.selectedMomentId,
-      songAnalysis: project.songAnalysis ? { ...project.songAnalysis, selectedMomentId: candidate.momentId ?? project.selectedMomentId } : project.songAnalysis,
+    const clipStart = f.audio ? (candidate.clipStart ?? activeOutput.clipStart) : '0:00';
+    const clipDuration = f.audio ? (candidate.clipDuration ?? activeOutput.clipDuration) : String(recipe.defaultDurationSec);
+    updateActiveOutput({
+      functionId: candidate.functionId, recipeId: candidate.recipeId, clipStart, clipDuration,
+      selectedMomentId: candidate.momentId ?? activeOutput.selectedMomentId,
       selectedPromoDirectionId: candidate.id,
-    };
-    setProject(next);
-    setComposition(recipeToComposition(recipe, getTemplate(recipe.visualTemplateId), { title: next.title }));
-    setSelectedId('cover_art');
+    });
+    openComposition(candidate.recipeId, project.title);
     if (status === 'idle') setStatus('ready');
   }
 
   function setTitle(text: string) {
-    update({ title: text });
+    updateShared({ title: text });
     setComposition((c) => updateLayer(c, 'title_text', { text, visible: text.length > 0 }));
   }
   function onAudioMetadata(durationSec: number) {
-    if (!project.audioPath) return;
+    if (!releaseProject.audioPath) return;
     const analysis = buildSongAnalysis({
-      audioPath: project.audioPath,
+      audioPath: releaseProject.audioPath,
       durationSec,
-      manualStartSec: parseTime(project.clipStart),
-      manualDurationSec: parseTime(project.clipDuration),
-      selectedMomentId: project.selectedMomentId,
+      manualStartSec: parseTime(activeOutput.clipStart),
+      manualDurationSec: parseTime(activeOutput.clipDuration),
+      selectedMomentId: activeOutput.selectedMomentId,
     });
     setAudioDurationSec(durationSec);
     // For a music promo with nothing chosen yet, auto-select a default section so
     // the song is always used and visibly shown (no hunting for the moment picker).
-    const f = getFunction(project.functionId);
-    if (f?.audio && !project.selectedMomentId) {
+    const f = getFunction(activeOutput.functionId);
+    if (f?.audio && !activeOutput.selectedMomentId) {
       const def = pickDefaultMoment(analysis);
       if (def) {
-        update({ songAnalysis: { ...analysis, selectedMomentId: def.id }, selectedMomentId: def.id, clipStart: formatTime(def.startSec), clipDuration: String(def.durationSec) });
+        updateShared({ songAnalysis: analysis });
+        updateActiveOutput({ selectedMomentId: def.id, clipStart: formatTime(def.startSec), clipDuration: String(def.durationSec) });
         return;
       }
     }
-    update({ songAnalysis: analysis });
+    updateShared({ songAnalysis: analysis });
   }
   function selectMoment(moment: SongMoment) {
-    update({
-      selectedPromoDirectionId: null,
-      selectedMomentId: moment.id,
-      songAnalysis: project.songAnalysis ? { ...project.songAnalysis, selectedMomentId: moment.id } : project.songAnalysis,
-      clipStart: formatTime(moment.startSec),
-      clipDuration: String(moment.durationSec),
-    });
+    updateActiveOutput({ selectedPromoDirectionId: null, selectedMomentId: moment.id, clipStart: formatTime(moment.startSec), clipDuration: String(moment.durationSec) });
   }
   function onInspectorChange(patch: Partial<Layer>) {
     setComposition((c) => updateLayer(c, selectedId, patch));
-    if (selectedId === 'title_text' && typeof (patch as { text?: string }).text === 'string') update({ title: (patch as { text: string }).text });
+    if (selectedId === 'title_text' && typeof (patch as { text?: string }).text === 'string') updateShared({ title: (patch as { text: string }).text });
   }
   function onMove(id: string, x: number, y: number) {
     setComposition((c) => updateLayer(c, id, { x, y } as Partial<Layer>));
   }
   async function choose(kind: 'audio' | 'cover' | 'output') {
     try {
-      if (kind === 'audio') { const p = await pickAudioFile(); if (p) { setAudioDurationSec(null); update({ audioPath: p, selectedMomentId: null, songAnalysis: null, selectedPromoDirectionId: null }); } }
-      if (kind === 'cover') { const p = await pickCoverImage(); if (p) update({ coverPath: p, selectedPromoDirectionId: null }); }
-      if (kind === 'output') { const p = await pickOutputDir(); if (p) update({ outputDir: p }); }
+      if (kind === 'audio') {
+        const p = await pickAudioFile();
+        if (p) { setAudioDurationSec(null); updateShared({ audioPath: p, songAnalysis: null }); updateActiveOutput({ selectedMomentId: null, selectedPromoDirectionId: null }); }
+      }
+      if (kind === 'cover') {
+        const p = await pickCoverImage();
+        if (p) { updateShared({ coverPath: p }); updateActiveOutput({ selectedPromoDirectionId: null }); }
+      }
+      if (kind === 'output') { const p = await pickOutputDir(); if (p) updateShared({ outputDir: p }); }
       if (status === 'idle') setStatus('ready');
     } catch (e) { addLog(`[error] file selection failed: ${e instanceof Error ? e.message : String(e)}`); }
   }
@@ -181,9 +260,16 @@ export default function App() {
       const res = await tauriRenderEngine.render(job, addLog);
       setResult(res); setStatus(res.ok ? 'success' : 'error'); setShowLogs(!res.ok);
       addLog(res.ok ? `[render] success (${res.bytes ?? 0} bytes)` : `[render] failed: ${res.error}`);
+      // Record the result back onto the active output so it survives switching
+      // to a different output and reloading the saved project.
+      updateActiveOutput({
+        status: res.ok ? 'rendered' : 'error',
+        lastRender: res.ok ? { outputPath, bytes: res.bytes, renderedAt: new Date().toISOString() } : activeOutput.lastRender,
+      });
     } catch (e) {
       const m = e instanceof Error ? e.message : String(e);
       setResult({ ok: false, error: m }); setStatus('error'); addLog(`[render] error: ${m}`);
+      updateActiveOutput({ status: 'error' });
     } finally { setBusy(false); }
   }
   function clearExportResult() {
@@ -200,10 +286,20 @@ export default function App() {
       addLog(`[export] copy output path failed: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
-  async function onSave() { try { const p = await saveProjectToFile(project); if (p) addLog(`[project] saved -> ${p}`); } catch (e) { addLog(`save failed: ${e}`); } }
+  async function onSave() { try { const p = await saveReleaseProjectToFile(releaseProject); if (p) addLog(`[project] saved -> ${p}`); } catch (e) { addLog(`save failed: ${e}`); } }
   async function onLoad() {
-    try { const p = await loadProjectFromFile(); if (p) { const m = normalizeProject(p); setAudioDurationSec(m.songAnalysis?.durationSec ?? null); setProject(m); setComposition(compositionFor(m)); setStatus('ready'); setView('editor'); } }
-    catch (e) { addLog(`load failed: ${e}`); }
+    try {
+      const p = await loadReleaseProjectFromFile();
+      if (p) {
+        const rp = normalizeReleaseProject(p);
+        setAudioDurationSec(rp.songAnalysis?.durationSec ?? null);
+        setReleaseProject(rp);
+        const opened = rp.outputs.find((o) => o.id === rp.activeOutputId) ?? rp.outputs[0];
+        if (opened) openComposition(opened.recipeId, rp.title);
+        setStatus('ready');
+        setView('home');
+      }
+    } catch (e) { addLog(`load failed: ${e}`); }
   }
 
   if (view === 'canvas-test-drive') {
@@ -213,9 +309,20 @@ export default function App() {
   if (view === 'start') {
     return (
       <StartScreen
-        isTauri={IS_TAURI} coverSrc={coverSrc} coverName={basename(project.coverPath)} audioName={basename(project.audioPath)}
+        isTauri={IS_TAURI} coverSrc={coverSrc} coverName={basename(releaseProject.coverPath)} audioName={basename(releaseProject.audioPath)}
         onPickCover={() => choose('cover')} onPickAudio={() => choose('audio')}
-        onStart={startMake} onOpenProject={onLoad} onSkip={() => setView('editor')}
+        onStart={startMake} onOpenProject={onLoad} onSkip={skipToManualEditor}
+      />
+    );
+  }
+
+  if (view === 'home') {
+    return (
+      <ProjectHome
+        isTauri={IS_TAURI} releaseProject={releaseProject} coverSrc={coverSrc}
+        onPickCover={() => choose('cover')} onPickAudio={() => choose('audio')}
+        onCreateOutput={createOutput} onOpenOutput={openOutput}
+        onBackToStart={() => setView('start')} onSave={onSave}
       />
     );
   }
@@ -226,13 +333,14 @@ export default function App() {
       <div className="topbar">
         <div className="brand">Song Studio</div>
         <input className="t-title" type="text" value={project.title} placeholder="Song title" onChange={(e) => setTitle(e.target.value)} />
-        <input className="t-artist" type="text" value={project.artist} placeholder="Artist" onChange={(e) => update({ artist: e.target.value })} />
+        <input className="t-artist" type="text" value={project.artist} placeholder="Artist" onChange={(e) => updateShared({ artist: e.target.value })} />
         <Chip ok={!!project.coverPath} label={project.coverPath ? 'Cover ✓' : 'Cover'} onClick={() => choose('cover')} />
         <Chip ok={!!project.audioPath} label={project.audioPath ? 'Audio ✓' : 'Audio'} onClick={() => choose('audio')} />
         <Chip ok={!!project.outputDir} label={project.outputDir ? 'Save folder ✓' : 'Save folder'} onClick={() => choose('output')} />
         <div className="spacer" />
         {IS_TAURI && ffmpeg && <span className={`ff ${ffmpeg.found ? 'ok' : 'err'}`}>Create MP4 {ffmpeg.found ? 'ready' : 'needs setup'}</span>}
         <button className="ghost small internal-tools-link" title="Owner/dev validation tools — not part of creating a promo MP4" onClick={() => setView('canvas-test-drive')}>Internal tools · dev/test</button>
+        <button className="ghost small" onClick={() => setView('home')}>My release</button>
         <button className="ghost small" onClick={() => setView('start')}>← Start</button>
         <button className="ghost small" onClick={onSave} disabled={!IS_TAURI}>Save</button>
       </div>
@@ -241,7 +349,7 @@ export default function App() {
 
       <div className="editor-guide">
         <div>
-          <div className="guide-kicker">Your promo draft is ready to review</div>
+          <div className="guide-kicker">Editing one promo asset for {releaseProject.title.trim() || 'your release'}</div>
           <h1>Preview your promo</h1>
           <p>Check the look, confirm the song moment and promo direction, then create your MP4.</p>
         </div>
@@ -399,6 +507,7 @@ export default function App() {
                   <a className="primary small action-link" href={safeConvert(exportResult.outputPath) ?? undefined} target="_blank" rel="noreferrer">Review MP4</a>
                 )}
                 {'clipboard' in navigator && <button className="ghost small" onClick={() => copyOutputPath(exportResult.outputPath!)}>{copiedOutputPath ? 'Copied' : 'Copy file path'}</button>}
+                {exportResult.status === 'success' && <button className="ghost small" onClick={() => setView('home')}>Back to my release</button>}
                 {exportResult.status === 'success' && <button className="ghost small" onClick={clearExportResult}>Make another promo</button>}
               </div>
             )}
