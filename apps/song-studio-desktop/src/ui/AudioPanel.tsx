@@ -22,6 +22,8 @@ export function AudioPanel({
   const [playing, setPlaying] = useState(false);
   const [error, setError] = useState(false);
 
+  const selectedSection = analysis?.moments.find((m) => m.id === selectedMomentId) ?? null;
+
   if (!audioName) {
     return <div className="audio-panel muted">{required ? 'This function uses song audio. Choose an audio file first.' : 'No audio (this function is silent).'}</div>;
   }
@@ -41,9 +43,13 @@ export function AudioPanel({
 
   return (
     <div className="audio-panel">
+      {selectedSection && (
+        <div className="audio-using">Using your song: <b>{formatTime(selectedSection.startSec)}–{formatTime(selectedSection.endSec)}</b> · {Math.round(selectedSection.durationSec)}s plays in your MP4</div>
+      )}
       <div className="audio-row">
         <button onClick={toggle} className="play" disabled={!audioSrc || error}>{playing ? '❚❚' : '►'}</button>
         <div className="audio-name" title={audioName}>{audioName}</div>
+        <div className={`audio-state ${playing ? 'playing' : ''}`}>{audioSrc ? (playing ? 'Playing' : 'Paused') : ''}</div>
         <div className="audio-time">{formatTime(time)} / {duration ? formatTime(duration) : '—:—'}</div>
       </div>
       {audioSrc && (
