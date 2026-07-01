@@ -1,9 +1,12 @@
 import { CREATIVE_FUNCTIONS, getFunction } from '../render/recipes';
+import { outputTypeAction, outputTypeNoun } from './outputTypeLabels';
 import type { ProjectOutput, ReleaseProject } from '../project/types';
 
-// Project Home: the front door once a release project has song/cover/outputs.
-// A release assistant view — "here is your song release, here are the promo
-// assets you can make from it" — not a technical render/editor panel.
+// Project Home: the front door once a project has song/cover/outputs. A
+// release-assistant view — "here is your project, here are the outputs you
+// can make from it" — not a technical render/editor panel. Vocabulary is
+// unified with the Editor and Start Screen: Project = container, Output =
+// video result (see UX-CLARITY-001 / outputTypeLabels.ts).
 export function ProjectHome({
   isTauri, releaseProject, coverSrc, onPickCover, onPickAudio, onCreateOutput, onOpenOutput, onBackToStart, onSave,
 }: {
@@ -26,16 +29,16 @@ export function ProjectHome({
     <div className="home">
       <div className="home-inner">
         <div className="home-topbar">
-          <div className="brand">Song Studio</div>
+          <div className="brand">Song Studio <span className="brand-scope">· Project Home</span></div>
           <div className="spacer" />
-          <button className="ghost small" onClick={onBackToStart}>Start a new project</button>
+          <button className="ghost small" onClick={onBackToStart}>New project</button>
           <button className="ghost small" onClick={onSave} disabled={!isTauri}>Save</button>
         </div>
 
         <div className="home-head">
-          <div className="guide-kicker">Your release</div>
-          <h1>{releaseProject.title.trim() || 'Untitled song'}</h1>
-          <p>One song, one set of materials — make as many promo assets from it as you need.</p>
+          <div className="guide-kicker">Your project</div>
+          <h1>{releaseProject.title.trim() || 'Untitled project'}</h1>
+          <p>This project holds your song and cover art. Every output below is a separate video made from it.</p>
         </div>
 
         <div className="home-summary">
@@ -56,9 +59,9 @@ export function ProjectHome({
         </div>
 
         <div className="home-outputs">
-          <h3>Release assets for this song</h3>
+          <h3>Outputs in this project</h3>
           {releaseProject.outputs.length === 0 ? (
-            <div className="direction-empty">Build your release pack — create your first promo asset below.</div>
+            <div className="direction-empty">No outputs yet — create your first one below.</div>
           ) : (
             <div className="output-grid">
               {releaseProject.outputs.map((output) => (
@@ -69,7 +72,7 @@ export function ProjectHome({
         </div>
 
         <div className="home-create">
-          <h3>Create another output</h3>
+          <h3>Create a new output</h3>
           <p className="muted small">Each one reuses your song and cover art, styled for a different promo.</p>
           <div className="output-type-grid">
             {CREATIVE_FUNCTIONS.map((f) => {
@@ -79,7 +82,7 @@ export function ProjectHome({
               const hint = blockedNoCover ? 'Add cover art first' : blockedNoAudio ? 'Add a song first' : f.audio ? 'Uses your song' : 'Cover art only';
               return (
                 <button key={f.id} className="output-type-card" onClick={() => onCreateOutput(f.id)} disabled={disabled}>
-                  <div className="mc-title">{createOutputLabel(f.id, f.label)}</div>
+                  <div className="mc-title">{outputTypeAction(f.id, f.label)}</div>
                   <div className="mc-desc">{f.description}</div>
                   <div className={`mc-hint${disabled && (blockedNoCover || blockedNoAudio) ? ' warn' : ''}`}>{hint}</div>
                 </button>
@@ -92,13 +95,6 @@ export function ProjectHome({
   );
 }
 
-function createOutputLabel(functionId: string, fallback: string): string {
-  if (functionId === 'make_canvas') return 'Make a Spotify Canvas';
-  if (functionId === 'make_hook_promo') return 'Make a short promo';
-  if (functionId === 'make_visualizer') return 'Make a visualizer';
-  return fallback;
-}
-
 function OutputCard({ output, onOpen }: { output: ProjectOutput; onOpen: () => void }) {
   const fn = getFunction(output.functionId);
   return (
@@ -107,7 +103,7 @@ function OutputCard({ output, onOpen }: { output: ProjectOutput; onOpen: () => v
         <b>{output.name}</b>
         <span className={`output-status ${output.status}`}>{statusLabel(output.status)}</span>
       </div>
-      <div className="output-card-type">{fn?.label ?? output.functionId}</div>
+      <div className="output-card-type">{outputTypeNoun(output.functionId, fn?.label ?? output.functionId)}</div>
       <div className="output-card-render">{output.lastRender ? renderSummary(output.lastRender) : 'Not created yet'}</div>
       <span className="output-card-open">Open</span>
     </button>

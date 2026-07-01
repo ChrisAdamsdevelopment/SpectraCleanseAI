@@ -281,3 +281,8 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 .output-type-card:hover:not(:disabled) { border-color: var(--accent); background: #1b2536; }
 .output-type-card:disabled { opacity: .55; cursor: not-allowed; }
 @media (max-width: 720px) { .home-summary, .output-type-grid { grid-template-columns: 1fr; } }
+
+/* UX-CLARITY-001: screen-identity suffix on the brand mark, and the
+   project -> output breadcrumb separator in the editor guide kicker. */
+.brand-scope { color: var(--muted); font-weight: 400; }
+.breadcrumb-sep { color: var(--muted); }

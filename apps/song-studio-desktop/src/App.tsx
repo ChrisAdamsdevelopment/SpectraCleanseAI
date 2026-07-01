@@ -16,6 +16,7 @@ import { buildSongAnalysis, pickDefaultMoment } from './audio/songMoments';
 import type { SongMoment } from './project/types';
 import { StartScreen } from './ui/StartScreen';
 import { ProjectHome } from './ui/ProjectHome';
+import { outputTypeNoun } from './ui/outputTypeLabels';
 import { buildPromoDirectionCandidates, getSelectedSongMoment, promoDirectionRecipeLabel, type PromoDirectionCandidate } from './promo/directions';
 import { buildExportReview } from './export/review';
 import { buildExportResultSummary } from './export/result';
@@ -143,7 +144,7 @@ export default function App() {
   // Start screen "Make a X" -> creates the project's first output and opens
   // it directly in the editor (the proven fast path; unchanged from before
   // this slice). Returning to / reaching Project Home happens via the new
-  // "My release" button in the editor topbar, or by opening a saved project.
+  // "Project Home" button in the editor topbar, or by opening a saved project.
   function startMake(functionId: string) {
     const output = buildOutputFor(functionId);
     setReleaseProject((rp) => ({ ...rp, outputs: [...rp.outputs, output], activeOutputId: output.id, updatedAt: touch() }));
@@ -331,7 +332,7 @@ export default function App() {
     <div className="studio">
       {/* Top project bar */}
       <div className="topbar">
-        <div className="brand">Song Studio</div>
+        <div className="brand">Song Studio <span className="brand-scope">· Editing Output</span></div>
         <input className="t-title" type="text" value={project.title} placeholder="Song title" onChange={(e) => setTitle(e.target.value)} />
         <input className="t-artist" type="text" value={project.artist} placeholder="Artist" onChange={(e) => updateShared({ artist: e.target.value })} />
         <Chip ok={!!project.coverPath} label={project.coverPath ? 'Cover ✓' : 'Cover'} onClick={() => choose('cover')} />
@@ -340,8 +341,8 @@ export default function App() {
         <div className="spacer" />
         {IS_TAURI && ffmpeg && <span className={`ff ${ffmpeg.found ? 'ok' : 'err'}`}>Create MP4 {ffmpeg.found ? 'ready' : 'needs setup'}</span>}
         <button className="ghost small internal-tools-link" title="Owner/dev validation tools — not part of creating a promo MP4" onClick={() => setView('canvas-test-drive')}>Internal tools · dev/test</button>
-        <button className="ghost small" onClick={() => setView('home')}>My release</button>
-        <button className="ghost small" onClick={() => setView('start')}>← Start</button>
+        <button className="ghost small" onClick={() => setView('home')}>Project Home</button>
+        <button className="ghost small" onClick={() => setView('start')}>New project</button>
         <button className="ghost small" onClick={onSave} disabled={!IS_TAURI}>Save</button>
       </div>
 
@@ -349,8 +350,8 @@ export default function App() {
 
       <div className="editor-guide">
         <div>
-          <div className="guide-kicker">Editing one promo asset for {releaseProject.title.trim() || 'your release'}</div>
-          <h1>Preview your promo</h1>
+          <div className="guide-kicker">{releaseProject.title.trim() || 'Untitled project'} <span className="breadcrumb-sep">›</span> {activeOutput.name}</div>
+          <h1>Preview this output</h1>
           <p>Check the look, confirm the song moment and promo direction, then create your MP4.</p>
         </div>
         <div className="guide-steps" aria-label="Editor workflow">
@@ -380,10 +381,10 @@ export default function App() {
               ))
             )}
           </div>
-          <h3>Choose promo type</h3>
+          <h3>Change output type</h3>
           {CREATIVE_FUNCTIONS.map((f) => (
             <button key={f.id} className={`opt${f.id === project.functionId ? ' selected' : ''}`} onClick={() => applyRecipe(f.id, f.defaultRecipeId)}>
-              <b>{f.label}</b><span>{f.audio ? 'Song clip' : 'No audio needed'}</span>
+              <b>{outputTypeNoun(f.id, f.label)}</b><span>{f.audio ? 'Song clip' : 'No audio needed'}</span>
             </button>
           ))}
           <h3>Choose a look</h3>
@@ -427,7 +428,7 @@ export default function App() {
           ) : project.audioPath ? (
             <div className="song-usage warn">
               <b>This promo is silent and won’t use your song.</b>
-              <span>Switch to a music promo to use the audio. <button className="link-btn" onClick={() => applyRecipe('make_hook_promo', getFunction('make_hook_promo')?.defaultRecipeId ?? 'vertical_promo')}>Switch to Music Promo</button></span>
+              <span>Switch to a short promo output to use the audio. <button className="link-btn" onClick={() => applyRecipe('make_hook_promo', getFunction('make_hook_promo')?.defaultRecipeId ?? 'vertical_promo')}>Switch to {outputTypeNoun('make_hook_promo', 'Short promo')}</button></span>
             </div>
           ) : null}
           <AudioPanel
@@ -507,7 +508,7 @@ export default function App() {
                   <a className="primary small action-link" href={safeConvert(exportResult.outputPath) ?? undefined} target="_blank" rel="noreferrer">Review MP4</a>
                 )}
                 {'clipboard' in navigator && <button className="ghost small" onClick={() => copyOutputPath(exportResult.outputPath!)}>{copiedOutputPath ? 'Copied' : 'Copy file path'}</button>}
-                {exportResult.status === 'success' && <button className="ghost small" onClick={() => setView('home')}>Back to my release</button>}
+                {exportResult.status === 'success' && <button className="ghost small" onClick={() => setView('home')}>Back to Project Home</button>}
                 {exportResult.status === 'success' && <button className="ghost small" onClick={clearExportResult}>Make another promo</button>}
               </div>
             )}
