@@ -4,7 +4,7 @@ import type { Composition, BackgroundLayer, CoverLayer, TitleLayer, WaveformLaye
 import { getLayer } from '../render/composition';
 import { getFontFamily } from '../lib/fonts';
 
-const PREVIEW_W = 300;
+const PREVIEW_W = 360;
 const PREVIEW_H = Math.round((PREVIEW_W * 16) / 9);
 const SF = PREVIEW_W / 1080;
 const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n));

@@ -29,25 +29,19 @@ button.primary { background: var(--accent); border: 1px solid var(--accent); col
 .internal-tools-link { border-color: #5f4824; color: var(--warn); }
 button:disabled { opacity: .5; cursor: not-allowed; }
 
-/* Guided editor header */
-.editor-guide { display: flex; justify-content: space-between; gap: 18px; align-items: center; padding: 14px 16px 12px; border-bottom: 1px solid var(--border); background: linear-gradient(180deg, rgba(79, 140, 255, .10), rgba(23, 26, 33, .88)); }
-.editor-guide h1 { margin: 2px 0 3px; font-size: 22px; letter-spacing: -.03em; }
-.editor-guide p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.4; }
+/* Guided editor header — a compact identity strip, not a competing banner. */
+.editor-guide { padding: 8px 16px; border-bottom: 1px solid var(--border); background: linear-gradient(180deg, rgba(79, 140, 255, .08), rgba(23, 26, 33, .88)); }
+.editor-guide h1 { margin: 1px 0 0; font-size: 15px; font-weight: 600; letter-spacing: -.01em; }
 .guide-kicker { color: var(--accent); font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
-.guide-steps { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 7px; }
-.guide-steps span { border: 1px solid rgba(79, 140, 255, .35); color: var(--text); background: rgba(79, 140, 255, .10); border-radius: 999px; padding: 6px 10px; font-size: 12px; white-space: nowrap; }
 
-/* Main guided workspace */
-.main { display: grid; grid-template-columns: 210px 1fr 250px; gap: 12px; padding: 12px; overflow: hidden; min-height: 0; }
+/* Main workspace: center preview dominates; left/right are narrower supporting rails. */
+.main { display: grid; grid-template-columns: 260px minmax(0, 1fr) 250px; gap: 16px; padding: 14px; overflow: hidden; min-height: 0; }
 .left, .right { overflow: auto; min-height: 0; }
 .center { display: flex; flex-direction: column; align-items: center; gap: 10px; overflow: auto; min-height: 0; }
-.preview-stage { width: fit-content; max-width: 100%; background: var(--panel); border: 1px solid rgba(79, 140, 255, .28); border-radius: 14px; padding: 12px; box-shadow: 0 22px 55px rgba(0, 0, 0, .28); }
-.preview-stage-head { display: flex; justify-content: space-between; gap: 18px; align-items: flex-end; margin-bottom: 10px; }
-.preview-stage-head h2 { margin: 2px 0 0; font-size: 16px; }
-.preview-stage-head span { color: var(--muted); font-size: 12px; text-align: right; max-width: 220px; line-height: 1.35; }
+.preview-stage { width: fit-content; max-width: 100%; background: var(--panel); border: 1px solid rgba(79, 140, 255, .28); border-radius: 14px; padding: 14px; box-shadow: 0 26px 60px rgba(0, 0, 0, .32); }
 
-.left h3 { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 14px 0 6px; }
-.left h3:first-child { margin-top: 0; }
+.left h3, .advanced-body h3 { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 14px 0 6px; }
+.left h3:first-child, .advanced-body h3:first-child { margin-top: 0; }
 .opt { width: 100%; text-align: left; display: flex; flex-direction: column; gap: 2px; background: var(--panel); border: 1px solid var(--border); color: var(--text); border-radius: 8px; padding: 8px 10px; margin-bottom: 6px; }
 .opt b { font-size: 13px; } .opt span { font-size: 11px; color: var(--muted); }
 .opt.selected { border-color: var(--accent); background: #1b2536; }
@@ -77,8 +71,8 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 .swatches input[type=color] { width: 26px; height: 22px; padding: 0; background: none; border: 1px solid var(--border); border-radius: 5px; }
 .small { font-size: 11px; } .muted { color: var(--muted); } .warn { color: var(--warn); } .err { color: var(--err); }
 
-/* Audio panel */
-.audio-panel { width: 300px; background: var(--panel-2); border: 1px solid var(--border); border-radius: 10px; padding: 10px; display: flex; flex-direction: column; gap: 6px; }
+/* Audio panel — lives in the left rail; fluid width, not a fixed center-column size. */
+.audio-panel { width: 100%; background: var(--panel-2); border: 1px solid var(--border); border-radius: 10px; padding: 10px; display: flex; flex-direction: column; gap: 6px; margin-bottom: 6px; }
 .audio-panel.muted { color: var(--muted); font-size: 12px; }
 .audio-row { display: flex; align-items: center; gap: 8px; }
 .audio-panel .play { width: 30px; height: 30px; border-radius: 50%; border: 1px solid var(--border); background: var(--panel); color: var(--text); }
@@ -286,3 +280,26 @@ button:disabled { opacity: .5; cursor: not-allowed; }
    project -> output breadcrumb separator in the editor guide kicker. */
 .brand-scope { color: var(--muted); font-weight: 400; }
 .breadcrumb-sep { color: var(--muted); }
+
+/* Workspace transformation v1: compact cover-art card in the left rail
+   (Song -> Cover art -> Direction). */
+.cover-mini { width: 100%; text-align: left; display: flex; align-items: center; gap: 10px; background: var(--panel); border: 1px dashed var(--border); color: var(--text); border-radius: 10px; padding: 8px; margin-bottom: 10px; }
+.cover-mini:hover { border-color: var(--accent); }
+.cover-mini-thumb { width: 40px; height: 40px; object-fit: cover; border-radius: 7px; flex: 0 0 40px; }
+.cover-mini-thumb.placeholder { display: grid; place-items: center; background: var(--panel-2); color: var(--muted); font-size: 18px; border-style: solid; border: 1px solid var(--border); }
+.cover-mini-label { font-size: 12px; font-weight: 600; }
+.cover-mini-name { font-size: 11px; color: var(--muted); max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Advanced controls: a single closed-by-default drawer for output type, look,
+   layers, and sliders — Layer 3 in the design system, never the front door. */
+.advanced-panel { background: var(--panel-2); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+.advanced-panel-head { width: 100%; display: flex; justify-content: space-between; align-items: center; gap: 10px; background: transparent; border: none; color: var(--text); padding: 12px; text-align: left; }
+.advanced-panel-head h3 { margin: 0; font-size: 12px; text-transform: none; letter-spacing: normal; color: var(--text); font-weight: 600; }
+.advanced-summary { display: block; margin-top: 2px; font-size: 11px; color: var(--muted); }
+.advanced-toggle { flex: 0 0 auto; font-size: 11px; color: var(--accent); border: 1px solid rgba(79, 140, 255, .35); border-radius: 999px; padding: 3px 9px; }
+.advanced-panel.open .advanced-panel-head { border-bottom: 1px solid var(--border); }
+.advanced-body { padding: 4px 12px 12px; }
+
+/* Bottom review panel: keep blockers always visible; put the technical
+   essentials grid behind a Details toggle instead of always rendering it. */
+.export-review-actions { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }

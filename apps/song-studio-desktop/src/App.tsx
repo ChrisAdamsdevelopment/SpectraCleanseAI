@@ -46,6 +46,11 @@ export default function App() {
   const [view, setView] = useState<'start' | 'home' | 'editor' | 'canvas-test-drive'>('start');
   const [inspectorMode, setInspectorMode] = useState<InspectorMode>('simple');
   const [audioDurationSec, setAudioDurationSec] = useState<number | null>(null);
+  // Workspace-clarity v1: advanced editing (output type / look / layers /
+  // sliders) is a closed-by-default drawer, not a permanently-open rail.
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  // The technical review grid is collapsed by default; blockers stay visible.
+  const [reviewDetailsOpen, setReviewDetailsOpen] = useState(false);
 
   // The output currently open in the editor. ReleaseProject.outputs starts
   // empty (no output exists until the user picks a type); the synthetic
@@ -349,21 +354,34 @@ export default function App() {
       {!IS_TAURI && <div className="banner warn">Preview works in the browser, but choosing files and creating MP4s needs <code>npm run tauri dev</code>.</div>}
 
       <div className="editor-guide">
-        <div>
-          <div className="guide-kicker">{releaseProject.title.trim() || 'Untitled project'} <span className="breadcrumb-sep">›</span> {activeOutput.name}</div>
-          <h1>Preview this output</h1>
-          <p>Check the look, confirm the song moment and promo direction, then create your MP4.</p>
-        </div>
-        <div className="guide-steps" aria-label="Editor workflow">
-          <span>1. Review preview</span>
-          <span>2. Confirm moment</span>
-          <span>3. Create MP4</span>
-        </div>
+        <div className="guide-kicker">{releaseProject.title.trim() || 'Untitled project'} <span className="breadcrumb-sep">›</span> {activeOutput.name}</div>
+        <h1>Preview this output</h1>
       </div>
 
-      {/* Main guided workspace */}
+      {/* Main workspace: eye path is Preview -> Current Output -> Song -> Cover art -> Direction -> Advanced. */}
       <div className="main">
         <div className="left">
+          <h3>Song</h3>
+          <AudioPanel
+            audioSrc={audioSrc}
+            audioName={basename(project.audioPath)}
+            required={plan.audio}
+            analysis={project.songAnalysis}
+            selectedMomentId={project.selectedMomentId}
+            onMetadata={onAudioMetadata}
+            onSelectMoment={selectMoment}
+            onUseCurrentTime={(s) => updateManualClip({ clipStart: formatTime(s) })}
+          />
+
+          <h3>Cover art</h3>
+          <button className="cover-mini" onClick={() => choose('cover')}>
+            {coverSrc ? <img className="cover-mini-thumb" src={coverSrc} alt="cover" /> : <div className="cover-mini-thumb placeholder">▢</div>}
+            <div className="cover-mini-text">
+              <div className="cover-mini-label">{project.coverPath ? 'Cover art added' : 'Add cover art'}</div>
+              <div className="cover-mini-name">{basename(project.coverPath) || 'png · jpg · webp'}</div>
+            </div>
+          </button>
+
           <h3>Pick a promo vibe</h3>
           <div className="direction-panel">
             {!project.audioPath && !project.coverPath ? (
@@ -381,48 +399,22 @@ export default function App() {
               ))
             )}
           </div>
-          <h3>Change output type</h3>
-          {CREATIVE_FUNCTIONS.map((f) => (
-            <button key={f.id} className={`opt${f.id === project.functionId ? ' selected' : ''}`} onClick={() => applyRecipe(f.id, f.defaultRecipeId)}>
-              <b>{outputTypeNoun(f.id, f.label)}</b><span>{f.audio ? 'Song clip' : 'No audio needed'}</span>
-            </button>
-          ))}
-          <h3>Choose a look</h3>
-          {styleOptions.map((r) => (
-            <button key={r.id} className={`opt${r.id === project.recipeId ? ' selected' : ''}`} onClick={() => applyRecipe(project.functionId, r.id)}>
-              <b>{r.name}</b><span>{r.colorMood}</span>
-            </button>
-          ))}
-          <h3>Customize design</h3>
-          {composition.layers.map((l) => (
-            <button key={l.id} className={`layer${l.id === selectedId ? ' selected' : ''}`} onClick={() => setSelectedId(l.id)}>
-              <span className={`dot${l.visible ? ' on' : ''}`} />{LAYER_LABELS[l.type] ?? l.type}
-            </button>
-          ))}
         </div>
 
         <div className="center">
           <div className="preview-stage">
-            <div className="preview-stage-head">
-              <div>
-                <div className="guide-kicker">Step 1</div>
-                <h2>Review the preview</h2>
-              </div>
-              <span>Drag the cover or title to adjust the layout.</span>
-            </div>
             <Preview composition={composition} coverSrc={coverSrc} selectedId={selectedId} onSelect={setSelectedId} onMove={onMove} />
           </div>
-          <div className="muted small">Click an element to customize it. When the draft looks right, use Create MP4 below.</div>
           {plan.audio ? (
             selectedMoment ? (
               <div className="song-usage on">
                 <b>Using your song: {formatTime(selectedMoment.startSec)}–{formatTime(selectedMoment.endSec)}</b>
-                <span>This section plays in your MP4. Motion is style-based in this version — pick a different section below to change what plays.</span>
+                <span>This section plays in your MP4. Motion is style-based in this version — pick a different section on the left to change what plays.</span>
               </div>
             ) : (
               <div className="song-usage">
                 <b>Pick the part of your song to use</b>
-                <span>Choose a song section below — that part will play in your MP4.</span>
+                <span>Choose a song section on the left — that part will play in your MP4.</span>
               </div>
             )
           ) : project.audioPath ? (
@@ -431,24 +423,46 @@ export default function App() {
               <span>Switch to a short promo output to use the audio. <button className="link-btn" onClick={() => applyRecipe('make_hook_promo', getFunction('make_hook_promo')?.defaultRecipeId ?? 'vertical_promo')}>Switch to {outputTypeNoun('make_hook_promo', 'Short promo')}</button></span>
             </div>
           ) : null}
-          <AudioPanel
-            audioSrc={audioSrc}
-            audioName={basename(project.audioPath)}
-            required={plan.audio}
-            analysis={project.songAnalysis}
-            selectedMomentId={project.selectedMomentId}
-            onMetadata={onAudioMetadata}
-            onSelectMoment={selectMoment}
-            onUseCurrentTime={(s) => updateManualClip({ clipStart: formatTime(s) })}
-          />
+          <div className="muted small">Click or drag an element in the preview to customize it.</div>
         </div>
 
         <div className="right">
-          <div className="mode-toggle">
-            <button className={inspectorMode === 'simple' ? 'on' : ''} onClick={() => setInspectorMode('simple')}>Quick edits</button>
-            <button className={inspectorMode === 'advanced' ? 'on' : ''} onClick={() => setInspectorMode('advanced')}>More controls</button>
+          <div className={`advanced-panel${advancedOpen ? ' open' : ''}`}>
+            <button className="advanced-panel-head" onClick={() => setAdvancedOpen((v) => !v)} aria-expanded={advancedOpen}>
+              <div>
+                <h3>Advanced controls</h3>
+                <span className="advanced-summary">{outputTypeNoun(project.functionId, fn?.label ?? project.functionId)} · {getRecipe(project.recipeId)?.name ?? 'Style'}</span>
+              </div>
+              <span className="advanced-toggle">{advancedOpen ? 'Hide' : 'Show'}</span>
+            </button>
+            {advancedOpen && (
+              <div className="advanced-body">
+                <h3>Change output type</h3>
+                {CREATIVE_FUNCTIONS.map((f) => (
+                  <button key={f.id} className={`opt${f.id === project.functionId ? ' selected' : ''}`} onClick={() => applyRecipe(f.id, f.defaultRecipeId)}>
+                    <b>{outputTypeNoun(f.id, f.label)}</b><span>{f.audio ? 'Song clip' : 'No audio needed'}</span>
+                  </button>
+                ))}
+                <h3>Choose a look</h3>
+                {styleOptions.map((r) => (
+                  <button key={r.id} className={`opt${r.id === project.recipeId ? ' selected' : ''}`} onClick={() => applyRecipe(project.functionId, r.id)}>
+                    <b>{r.name}</b><span>{r.colorMood}</span>
+                  </button>
+                ))}
+                <h3>Customize design</h3>
+                {composition.layers.map((l) => (
+                  <button key={l.id} className={`layer${l.id === selectedId ? ' selected' : ''}`} onClick={() => setSelectedId(l.id)}>
+                    <span className={`dot${l.visible ? ' on' : ''}`} />{LAYER_LABELS[l.type] ?? l.type}
+                  </button>
+                ))}
+                <div className="mode-toggle">
+                  <button className={inspectorMode === 'simple' ? 'on' : ''} onClick={() => setInspectorMode('simple')}>Quick edits</button>
+                  <button className={inspectorMode === 'advanced' ? 'on' : ''} onClick={() => setInspectorMode('advanced')}>More controls</button>
+                </div>
+                <Inspector layer={selectedLayer} mode={inspectorMode} onChange={onInspectorChange} />
+              </div>
+            )}
           </div>
-          <Inspector layer={selectedLayer} mode={inspectorMode} onChange={onInspectorChange} />
         </div>
       </div>
 
@@ -461,18 +475,29 @@ export default function App() {
               <h3>{exportReview.title}</h3>
               <p>{exportReview.summary}</p>
             </div>
-            <div className="export-next">Next: {exportReview.nextAction}</div>
+            <div className="export-review-actions">
+              <div className="export-next">Next: {exportReview.nextAction}</div>
+              <button className="ghost small" onClick={() => setReviewDetailsOpen((v) => !v)}>{reviewDetailsOpen ? 'Hide details' : 'Details'}</button>
+            </div>
           </div>
-          <div className="export-rows">
-            {exportReview.essentials.map((row) => (
-              <div className="export-row" key={row.label}><span>{row.label}</span><b>{row.value}</b></div>
-            ))}
-          </div>
-          {(exportReview.blockers.length > 0 || exportReview.warnings.length > 0) && (
+          {exportReview.blockers.length > 0 && (
             <div className="export-notices">
               {exportReview.blockers.map((blocker) => <div className="export-notice blocker" key={blocker}>Needs: {blocker}</div>)}
-              {exportReview.warnings.map((warning) => <div className="export-notice warning" key={warning}>Check: {warning}</div>)}
             </div>
+          )}
+          {reviewDetailsOpen && (
+            <>
+              <div className="export-rows">
+                {exportReview.essentials.map((row) => (
+                  <div className="export-row" key={row.label}><span>{row.label}</span><b>{row.value}</b></div>
+                ))}
+              </div>
+              {exportReview.warnings.length > 0 && (
+                <div className="export-notices">
+                  {exportReview.warnings.map((warning) => <div className="export-notice warning" key={warning}>Check: {warning}</div>)}
+                </div>
+              )}
+            </>
           )}
         </div>
         <div className="clip">
