@@ -33,6 +33,10 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 .editor-guide { padding: 8px 16px; border-bottom: 1px solid var(--border); background: linear-gradient(180deg, rgba(79, 140, 255, .08), rgba(23, 26, 33, .88)); }
 .editor-guide h1 { margin: 1px 0 0; font-size: 15px; font-weight: 600; letter-spacing: -.01em; }
 .guide-kicker { color: var(--accent); font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+/* UX-005: Loop Preview Header — static-text loop identity, only shown for
+   loop-based outputs (Spotify Canvas today). Lightweight: one small line,
+   no new panel, no interactivity. */
+.loop-header { margin-top: 3px; font-size: 11px; color: var(--muted); }
 
 /* Main workspace: center preview dominates; left/right are narrower supporting rails. */
 .main { display: grid; grid-template-columns: 260px minmax(0, 1fr) 250px; gap: 16px; padding: 14px; overflow: hidden; min-height: 0; }

@@ -355,6 +355,11 @@ export default function App() {
       <div className="editor-guide">
         <div className="guide-kicker">{releaseProject.title.trim() || 'Untitled project'} <span className="breadcrumb-sep">›</span> {activeOutput.name}</div>
         <h1>Preview this output</h1>
+        {activeOutput.loopCore && (
+          <div className="loop-header">
+            {plan.durationSec}s loop · repeats over full song <span className="breadcrumb-sep">·</span> {activeOutput.loopCore.continuityMode === 'soft-loop' ? 'Soft loop' : 'Hard loop'}
+          </div>
+        )}
       </div>
 
       {/* Main workspace: eye path is Preview -> Current Output -> Song -> Cover art -> Direction -> Advanced. */}

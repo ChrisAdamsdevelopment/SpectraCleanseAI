@@ -96,6 +96,70 @@ export interface ProjectOutput {
   lastRender: OutputLastRender | null;
   createdAt: string;
   updatedAt: string;
+  // UX-005: passive loop-structure metadata for loop-based outputs (Spotify
+  // Canvas today). Null for non-loop outputs (short promo, visualizer). This
+  // is a data hook only — nothing reads it to drive rendering yet; the render
+  // engine still renders purely from clipStart/clipDuration/recipeId as before.
+  loopCore: LoopCore | null;
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Loop Core (UX-005 foundation). Spotify Canvas is a loop-design problem, not
+// a timeline-editing problem: an N-second visual sequence that repeats over
+// the whole song. This is the minimal structural backbone future systems
+// (beat sync, motion mapping, multi-image sequencing) will build on — it is
+// NOT wired into rendering, scoring, or any UI editing surface yet. Today
+// only a lightweight, read-only "Loop Preview Header" (static text) reads
+// continuityMode from it; loopDurationSec for display always comes from the
+// live render plan, never from a copy stored here, so the header can never
+// drift out of sync with what will actually render.
+// ─────────────────────────────────────────────────────────────────────────
+
+/** 'hard-loop' cuts directly back to the start frame; 'soft-loop' implies a
+ * future crossfade/blend back to the start. No repair logic exists yet for
+ * either — this only labels intent for later systems to read. */
+export type LoopContinuityMode = 'hard-loop' | 'soft-loop';
+
+/** Time + label only. Reserved for a future beat-sync system to populate;
+ * nothing generates, reads, or renders from this array yet. */
+export interface LoopAnchorPoint {
+  id: string;
+  timeSec: number;
+  label: string;
+}
+
+/** Reserved for a future multi-image-sequencing hook (e.g. "swap to image N
+ * at this timestamp"). Not populated or consumed by any code yet. */
+export interface LoopVisualStateMarker {
+  id: string;
+  timeSec: number;
+  label: string;
+}
+
+export interface LoopCore {
+  loopDurationSec: number;                    // seconds; see note above re: display
+  anchorPoints: LoopAnchorPoint[];             // future beat-sync hook
+  continuityMode: LoopContinuityMode;
+  motionIntensity: number;                     // 0..1 scalar; future motion-mapping hook
+  visualStateMarkers?: LoopVisualStateMarker[]; // future multi-image-sequencing hook
+}
+
+/** Pure builder for a default LoopCore, derived from the output's own clip
+ * duration (never a disconnected hardcoded number) so it can never claim a
+ * duration different from what will actually render. */
+export function defaultLoopCore(loopDurationSec: number): LoopCore {
+  return {
+    loopDurationSec,
+    anchorPoints: [],
+    continuityMode: 'hard-loop',
+    motionIntensity: 0.5,
+    visualStateMarkers: undefined,
+  };
+}
+
+/** Spotify Canvas is currently the only loop-based output type. */
+export function isLoopOutputType(functionId: string): boolean {
+  return functionId === 'make_canvas';
 }
 
 // Reserved for Phase 2 (artist photos, extra images, references, logo). The
@@ -145,6 +209,7 @@ export function emptyOutput(functionId = 'make_canvas', recipeId = 'clean_canvas
     lastRender: null,
     createdAt: now,
     updatedAt: now,
+    loopCore: isLoopOutputType(functionId) ? defaultLoopCore(defaultDurationSec) : null,
   };
 }
 
