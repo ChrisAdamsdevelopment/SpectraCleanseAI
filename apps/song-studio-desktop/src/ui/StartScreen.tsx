@@ -1,4 +1,5 @@
 import { CREATIVE_FUNCTIONS } from '../render/recipes';
+import { outputTypeAction } from './outputTypeLabels';
 
 const primaryFunctionId = 'make_hook_promo';
 
@@ -27,7 +28,7 @@ export function StartScreen({
     <div className="start">
       <div className="start-inner">
         <div className="start-head">
-          <div className="brand-lg">Create a promo MP4 for your song</div>
+          <div className="brand-lg">Start a project for your song</div>
           <p>Add your audio and cover art, choose a promo vibe, preview the draft, and create a vertical MP4 you can review.</p>
           <div className="start-path" aria-label="First promo path">
             {startStepLabels.map((label, index) => (
@@ -61,7 +62,7 @@ export function StartScreen({
           <div className="step-no">2</div>
           <div className="step-body">
             <div className="step-kicker">First useful output</div>
-            <div className="step-title">Choose the promo MP4 to create</div>
+            <div className="step-title">Choose your first output</div>
             <p className="step-copy">Start with a music promo video. You can customize after the first draft.</p>
             <div className="make-cards">
               {CREATIVE_FUNCTIONS.map((f) => {
@@ -76,7 +77,7 @@ export function StartScreen({
                 return (
                   <button key={f.id} className={`make-card${isPrimary ? ' primary-path' : ''}`} onClick={() => onStart(f.id)} disabled={disabled}>
                     {isPrimary && <div className="mc-badge">Start here</div>}
-                    <div className="mc-title">{isPrimary ? 'Make a music promo video' : f.label}</div>
+                    <div className="mc-title">{outputTypeAction(f.id, f.label)}</div>
                     <div className="mc-desc">{f.description}</div>
                     <div className={`mc-hint${disabled && (blockedNoCover || blockedNoAudio) ? ' warn' : ''}`}>{hint}</div>
                   </button>

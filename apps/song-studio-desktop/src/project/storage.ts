@@ -1,6 +1,10 @@
 import { open, save } from '@tauri-apps/plugin-dialog';
 import { writeTextFile, readTextFile } from '@tauri-apps/plugin-fs';
-import { emptyProject, type SongAnalysis, type SongMoment, type SongProject } from './types';
+import {
+  emptyOutput, emptyReleaseProject, makeOutputId,
+  type OutputLastRender, type OutputStatus, type ProjectAsset, type ProjectAssetRole, type ProjectOutput,
+  type ReleaseProject, type SongAnalysis, type SongMoment,
+} from './types';
 
 // Allowed input formats for v1 (LIMITED — broader support is planned).
 export const AUDIO_EXTENSIONS = ['mp3', 'wav', 'm4a', 'aac', 'flac'];
@@ -44,21 +48,101 @@ function normalizeAnalysis(value: unknown): SongAnalysis | null {
   };
 }
 
-export function normalizeProject(value: unknown): SongProject {
-  const base = emptyProject();
-  if (!isRecord(value)) return base;
-  const merged: SongProject = { ...base, ...(value as Partial<SongProject>) };
-  const songAnalysis = normalizeAnalysis(value.songAnalysis);
-  const selectedMomentId = typeof value.selectedMomentId === 'string' && songAnalysis?.moments.some((m) => m.id === value.selectedMomentId) ? value.selectedMomentId : null;
+// Legacy single-output project (schemaVersion 2 and earlier/unversioned) had
+// no friendly output name; give the migrated output a readable one.
+const LEGACY_FUNCTION_LABELS: Record<string, string> = {
+  make_canvas: 'Release card',
+  make_hook_promo: 'Music promo',
+  make_visualizer: 'Visualizer',
+};
+
+function normalizeOutputStatus(value: unknown): OutputStatus {
+  return value === 'rendered' || value === 'error' ? value : 'draft';
+}
+
+function normalizeLastRender(value: unknown): OutputLastRender | null {
+  if (!isRecord(value) || typeof value.outputPath !== 'string') return null;
   return {
-    ...merged,
-    schemaVersion: 2,
+    outputPath: value.outputPath,
+    bytes: typeof value.bytes === 'number' ? value.bytes : undefined,
+    renderedAt: typeof value.renderedAt === 'string' ? value.renderedAt : new Date().toISOString(),
+  };
+}
+
+function normalizeOutput(value: unknown): ProjectOutput | null {
+  if (!isRecord(value)) return null;
+  const now = new Date().toISOString();
+  return {
+    id: typeof value.id === 'string' && value.id ? value.id : makeOutputId(),
+    name: typeof value.name === 'string' && value.name ? value.name : 'Output',
+    functionId: typeof value.functionId === 'string' ? value.functionId : 'make_canvas',
+    recipeId: typeof value.recipeId === 'string' ? value.recipeId : 'clean_canvas',
+    clipStart: typeof value.clipStart === 'string' ? value.clipStart : '0:00',
+    clipDuration: typeof value.clipDuration === 'string' ? value.clipDuration : '6',
+    selectedMomentId: typeof value.selectedMomentId === 'string' ? value.selectedMomentId : null,
+    selectedPromoDirectionId: typeof value.selectedPromoDirectionId === 'string' ? value.selectedPromoDirectionId : null,
+    status: normalizeOutputStatus(value.status),
+    lastRender: normalizeLastRender(value.lastRender),
+    createdAt: typeof value.createdAt === 'string' ? value.createdAt : now,
+    updatedAt: typeof value.updatedAt === 'string' ? value.updatedAt : now,
+  };
+}
+
+function normalizeAsset(value: unknown): ProjectAsset | null {
+  if (!isRecord(value) || typeof value.path !== 'string') return null;
+  const role: ProjectAssetRole = value.role === 'artist-photo' || value.role === 'extra' || value.role === 'reference' || value.role === 'logo' ? value.role : 'cover';
+  return { id: typeof value.id === 'string' && value.id ? value.id : makeOutputId(), role, path: value.path, label: typeof value.label === 'string' ? value.label : undefined };
+}
+
+/**
+ * Normalize any saved Song Studio project file into a ReleaseProject.
+ *
+ * Handles two shapes: a current release project (has an `outputs` array), or
+ * a legacy single-output project (schemaVersion 2 and earlier), which is
+ * migrated into a release project with exactly one output carrying over every
+ * selection it had. The legacy shape never recorded render history, so the
+ * migrated output honestly starts as 'draft' rather than fabricating one.
+ */
+export function normalizeReleaseProject(value: unknown): ReleaseProject {
+  const base = emptyReleaseProject();
+  if (!isRecord(value)) return base;
+
+  const songAnalysis = normalizeAnalysis(value.songAnalysis);
+  const shared = {
+    title: typeof value.title === 'string' ? value.title : '',
+    artist: typeof value.artist === 'string' ? value.artist : '',
     audioPath: typeof value.audioPath === 'string' ? value.audioPath : null,
     coverPath: typeof value.coverPath === 'string' ? value.coverPath : null,
     outputDir: typeof value.outputDir === 'string' ? value.outputDir : null,
+    updatedAt: typeof value.updatedAt === 'string' ? value.updatedAt : base.updatedAt,
+  };
+
+  if (Array.isArray(value.outputs)) {
+    const normalized = value.outputs.map(normalizeOutput).filter((o): o is ProjectOutput => Boolean(o));
+    const outputs = normalized.length > 0 ? normalized : [emptyOutput()];
+    const activeOutputId = typeof value.activeOutputId === 'string' && outputs.some((o) => o.id === value.activeOutputId) ? value.activeOutputId : outputs[0].id;
+    const assets = Array.isArray(value.assets) ? value.assets.map(normalizeAsset).filter((a): a is ProjectAsset => Boolean(a)) : [];
+    return { ...base, ...shared, songAnalysis, assets, outputs, activeOutputId };
+  }
+
+  // Legacy single-output shape — migrate into one output.
+  const functionId = typeof value.functionId === 'string' ? value.functionId : 'make_canvas';
+  const recipeId = typeof value.recipeId === 'string' ? value.recipeId : 'clean_canvas';
+  const selectedMomentId = typeof value.selectedMomentId === 'string' && songAnalysis?.moments.some((m) => m.id === value.selectedMomentId) ? value.selectedMomentId : null;
+  const migratedOutput: ProjectOutput = {
+    ...emptyOutput(functionId, recipeId, 6, LEGACY_FUNCTION_LABELS[functionId] ?? 'Output'),
+    clipStart: typeof value.clipStart === 'string' ? value.clipStart : '0:00',
+    clipDuration: typeof value.clipDuration === 'string' ? value.clipDuration : '6',
     selectedMomentId,
-    songAnalysis: songAnalysis ? { ...songAnalysis, selectedMomentId } : null,
     selectedPromoDirectionId: typeof value.selectedPromoDirectionId === 'string' ? value.selectedPromoDirectionId : null,
+  };
+  return {
+    ...base,
+    ...shared,
+    songAnalysis: songAnalysis ? { ...songAnalysis, selectedMomentId } : null,
+    assets: [],
+    outputs: [migratedOutput],
+    activeOutputId: migratedOutput.id,
   };
 }
 
@@ -98,18 +182,18 @@ export async function pickCanvasOutputDir(): Promise<string | null> {
   return pickOutputDir();
 }
 
-export async function saveProjectToFile(project: SongProject): Promise<string | null> {
+export async function saveReleaseProjectToFile(project: ReleaseProject): Promise<string | null> {
   const target = await save({
     defaultPath: `${(project.title || 'song').replace(/[^a-z0-9-_ ]/gi, '_') || 'song'}.songstudio.json`,
     filters: [{ name: 'Song Studio Project', extensions: ['json'] }],
   });
   if (!target) return null;
-  const payload: SongProject = { ...project, updatedAt: new Date().toISOString() };
+  const payload: ReleaseProject = { ...project, updatedAt: new Date().toISOString() };
   await writeTextFile(target, JSON.stringify(payload, null, 2));
   return target;
 }
 
-export async function loadProjectFromFile(): Promise<SongProject | null> {
+export async function loadReleaseProjectFromFile(): Promise<ReleaseProject | null> {
   const selected = await open({
     multiple: false,
     directory: false,
@@ -117,5 +201,5 @@ export async function loadProjectFromFile(): Promise<SongProject | null> {
   });
   if (typeof selected !== 'string') return null;
   const text = await readTextFile(selected);
-  return normalizeProject(JSON.parse(text));
+  return normalizeReleaseProject(JSON.parse(text));
 }
