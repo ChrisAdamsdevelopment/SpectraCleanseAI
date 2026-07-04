@@ -163,11 +163,15 @@ Do not start UX-001. Do not create implementation tasks for UX-001. Do not redes
 
 ## 6. Current Sprint / Current Focus
 
-Current priority: UX Recovery / Guided MVP flow.
+_Updated after UX-007 — see `docs/ai-scrum/ux-007-canvas-loop-composer.md` for full detail; this section intentionally records only current status, not the full history of UX-001 through UX-007, all of which have since shipped._
 
-Current focus is recording SCRUM-001 as a durable process rule. Product implementation work remains gated by story readiness and owner approval.
+Current priority: first real creative workflow (Contextual Workspace + Canvas Loop Composer).
 
-UX-001 remains `PROPOSED` until it has a clear user story, acceptance criteria, non-goals, test path, completion target, and owner approval.
+Most recently completed: UX-007 — made `ContextMode` drive real behavior across three UI surfaces (left rail, center timeline, silent-output messaging) instead of one read-only card, and made LoopCore's `motionIntensity` genuinely affect the rendered output via the existing zoompan filter (no FFmpeg/rendering-engine change). Status: EXECUTED, owner acceptance required (user-facing).
+
+Explicit decision recorded: multi-image / visual-asset work (E2-style) is **NOT YET** ready — the render engine is single-cover-image only. The exact prerequisite (extend `Composition`/`buildFfmpegArgs` to support N image layers) is the recommended next milestone alongside adding Canvas-specific motion templates (unblocked now).
+
+UX-001 remains historically `PROPOSED` in this document's original text below but has since shipped (UX-001A–E, merged). Treat the sections below as the original process record, not current product state — current state lives in the dated UX-00X story docs in this folder.
 
 ## 7. Story Template
 

@@ -2,11 +2,14 @@ import { useEffect, useMemo, useState } from 'react';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { CREATIVE_FUNCTIONS, getFunction, getRecipe, recipesForFunction } from './render/recipes';
 import { getTemplate } from './render/templates';
-import { recipeToComposition, updateLayer, getLayer, LAYER_LABELS } from './render/composition';
+import { recipeToComposition, updateLayer, getLayer, LAYER_LABELS, motionIntensityToZoom } from './render/composition';
 import { tauriRenderEngine, getFfmpegStatus } from './render/engine';
 import type { RenderJob, RenderResult, RenderStatus, FfmpegStatus, Composition, Layer } from './render/types';
 import { buildRenderPlan } from './render/plan';
-import { emptyReleaseProject, emptyOutput, mergeProjectView, type ProjectOutput, type ReleaseProject, type SongProject } from './project/types';
+import {
+  emptyReleaseProject, emptyOutput, mergeProjectView, defaultLoopCore, isLoopOutputType,
+  type LoopCore, type ProjectOutput, type ReleaseProject, type SongProject,
+} from './project/types';
 import { formatTime, parseTime } from './lib/time';
 import { pickAudioFile, pickCoverImage, pickOutputDir, saveReleaseProjectToFile, loadReleaseProjectFromFile, normalizeReleaseProject } from './project/storage';
 import { Preview } from './ui/Preview';
@@ -127,10 +130,40 @@ export default function App() {
     return output;
   }
 
-  function openComposition(recipeId: string, title: string) {
+  function openComposition(recipeId: string, title: string, motionIntensity?: number) {
     const recipe = getRecipe(recipeId) ?? getRecipe('clean_canvas')!;
-    setComposition(recipeToComposition(recipe, getTemplate(recipe.visualTemplateId), { title }));
+    setComposition(recipeToComposition(recipe, getTemplate(recipe.visualTemplateId), { title, motionIntensity }));
     setSelectedId('cover_art');
+  }
+
+  // Recompute loopCore for a (possibly new) functionId: preserve an existing
+  // loopCore when the output is still loop-typed, create a fresh one when it
+  // just BECAME loop-typed, or null it out when it's no longer loop-typed —
+  // so switching output type via "Change output type"/a promo direction never
+  // leaves a stale or missing LoopCore behind.
+  function loopCoreFor(functionId: string, recipeDefaultDurationSec: number, existing: LoopCore | null): LoopCore | null {
+    if (!isLoopOutputType(functionId)) return null;
+    return existing ?? defaultLoopCore(recipeDefaultDurationSec);
+  }
+
+  // UX-007: the Loop workspace's Continuity/Motion controls. Motion genuinely
+  // changes what renders (see recipeToComposition's motionIntensity opt) —
+  // it re-derives the background zoom from the SAME template baseline used at
+  // creation time and applies it to the live composition immediately, so the
+  // Preview updates as the slider moves. Continuity is saved for a future
+  // soft-loop (crossfade) render path that does not exist yet; selecting it
+  // does not change today's render (communicated in the UI, not hidden).
+  function updateLoopCore(patch: Partial<LoopCore>) {
+    if (!activeOutput.loopCore) return;
+    const nextLoopCore: LoopCore = { ...activeOutput.loopCore, ...patch };
+    updateActiveOutput({ loopCore: nextLoopCore });
+    const recipe = getRecipe(activeOutput.recipeId);
+    if (recipe && typeof patch.motionIntensity === 'number') {
+      const template = getTemplate(recipe.visualTemplateId);
+      const baseZoom = template.bgZoom ?? (recipe.motionStyle === 'zoom' ? 0.2 : 0);
+      const zoom = motionIntensityToZoom(baseZoom, nextLoopCore.motionIntensity);
+      setComposition((c) => updateLayer(c, 'background', { zoom } as Partial<Layer>));
+    }
   }
 
   function applyRecipe(functionId: string, recipeId: string) {
@@ -140,6 +173,7 @@ export default function App() {
       functionId, recipeId, selectedPromoDirectionId: null,
       clipDuration: String(recipe.defaultDurationSec),
       clipStart: f.audio ? activeOutput.clipStart : '0:00',
+      loopCore: loopCoreFor(functionId, recipe.defaultDurationSec, activeOutput.loopCore),
     };
     // Music promos should use the song by default: if analysis is ready and nothing
     // is picked yet, auto-select a sensible section so the song is always in use.
@@ -148,7 +182,7 @@ export default function App() {
       if (def) patch = { ...patch, selectedMomentId: def.id, clipStart: formatTime(def.startSec), clipDuration: String(def.durationSec) };
     }
     updateActiveOutput(patch);
-    openComposition(recipeId, project.title);
+    openComposition(recipeId, project.title, patch.loopCore?.motionIntensity);
     if (status === 'idle') setStatus('ready');
   }
 
@@ -159,7 +193,7 @@ export default function App() {
   function startMake(functionId: string) {
     const output = buildOutputFor(functionId);
     setReleaseProject((rp) => ({ ...rp, outputs: [...rp.outputs, output], activeOutputId: output.id, updatedAt: touch() }));
-    openComposition(output.recipeId, releaseProject.title);
+    openComposition(output.recipeId, releaseProject.title, output.loopCore?.motionIntensity);
     if (status === 'idle') setStatus('ready');
     setView('editor');
   }
@@ -168,7 +202,7 @@ export default function App() {
   function skipToManualEditor() {
     const output = buildOutputFor('make_canvas', 'clean_canvas');
     setReleaseProject((rp) => ({ ...rp, outputs: [...rp.outputs, output], activeOutputId: output.id, updatedAt: touch() }));
-    openComposition(output.recipeId, releaseProject.title);
+    openComposition(output.recipeId, releaseProject.title, output.loopCore?.motionIntensity);
     setView('editor');
   }
 
@@ -176,7 +210,7 @@ export default function App() {
   function createOutput(functionId: string) {
     const output = buildOutputFor(functionId);
     setReleaseProject((rp) => ({ ...rp, outputs: [...rp.outputs, output], activeOutputId: output.id, updatedAt: touch() }));
-    openComposition(output.recipeId, releaseProject.title);
+    openComposition(output.recipeId, releaseProject.title, output.loopCore?.motionIntensity);
     setResult(null); setShowLogs(false); setLogs([]);
     setStatus('ready');
     setView('editor');
@@ -187,7 +221,7 @@ export default function App() {
     const output = releaseProject.outputs.find((o) => o.id === outputId);
     if (!output) return;
     setReleaseProject((rp) => ({ ...rp, activeOutputId: outputId }));
-    openComposition(output.recipeId, releaseProject.title);
+    openComposition(output.recipeId, releaseProject.title, output.loopCore?.motionIntensity);
     setResult(null); setShowLogs(false); setLogs([]);
     setStatus(output.status === 'rendered' ? 'success' : 'ready');
     setView('editor');
@@ -198,12 +232,14 @@ export default function App() {
     if (!f || !recipe) return;
     const clipStart = f.audio ? (candidate.clipStart ?? activeOutput.clipStart) : '0:00';
     const clipDuration = f.audio ? (candidate.clipDuration ?? activeOutput.clipDuration) : String(recipe.defaultDurationSec);
+    const loopCore = loopCoreFor(candidate.functionId, recipe.defaultDurationSec, activeOutput.loopCore);
     updateActiveOutput({
       functionId: candidate.functionId, recipeId: candidate.recipeId, clipStart, clipDuration,
       selectedMomentId: candidate.momentId ?? activeOutput.selectedMomentId,
       selectedPromoDirectionId: candidate.id,
+      loopCore,
     });
-    openComposition(candidate.recipeId, project.title);
+    openComposition(candidate.recipeId, project.title, loopCore?.motionIntensity);
     if (status === 'idle') setStatus('ready');
   }
 
@@ -307,7 +343,7 @@ export default function App() {
         setAudioDurationSec(rp.songAnalysis?.durationSec ?? null);
         setReleaseProject(rp);
         const opened = rp.outputs.find((o) => o.id === rp.activeOutputId) ?? rp.outputs[0];
-        if (opened) openComposition(opened.recipeId, rp.title);
+        if (opened) openComposition(opened.recipeId, rp.title, opened.loopCore?.motionIntensity);
         setStatus('ready');
         setView('home');
       }
@@ -372,17 +408,52 @@ export default function App() {
       {/* Main workspace: eye path is Preview -> Current Output -> Song -> Cover art -> Direction -> Advanced. */}
       <div className="main">
         <div className="left">
-          <h3>Song</h3>
-          <AudioPanel
-            audioSrc={audioSrc}
-            audioName={basename(project.audioPath)}
-            required={plan.audio}
-            analysis={project.songAnalysis}
-            selectedMomentId={project.selectedMomentId}
-            onMetadata={onAudioMetadata}
-            onSelectMoment={selectMoment}
-            onUseCurrentTime={(s) => updateManualClip({ clipStart: formatTime(s) })}
-          />
+          {contextMode.mode === 'canvas-edit' && activeOutput.loopCore ? (
+            <>
+              <h3>Loop</h3>
+              <div className="loop-workspace">
+                <div className="loop-row">
+                  <span>Loop length</span>
+                  <div className="loop-length-field">
+                    <input type="text" value={project.clipDuration} onChange={(e) => updateManualClip({ clipDuration: e.target.value })} />
+                    <span className="muted small">sec</span>
+                  </div>
+                </div>
+                <div className="loop-row">
+                  <span>Continuity</span>
+                  <div className="loop-continuity-toggle">
+                    <button className={activeOutput.loopCore.continuityMode === 'hard-loop' ? 'on' : ''} onClick={() => updateLoopCore({ continuityMode: 'hard-loop' })}>Hard loop</button>
+                    <button className={activeOutput.loopCore.continuityMode === 'soft-loop' ? 'on' : ''} onClick={() => updateLoopCore({ continuityMode: 'soft-loop' })}>Soft loop</button>
+                  </div>
+                </div>
+                {activeOutput.loopCore.continuityMode === 'soft-loop' && (
+                  <p className="muted small">Soft loop (crossfade) is saved for later — rendering is the same as Hard loop today.</p>
+                )}
+                <div className="loop-row">
+                  <span>Motion <b>{Math.round(activeOutput.loopCore.motionIntensity * 100)}%</b></span>
+                </div>
+                <input
+                  type="range" min={0} max={1} step={0.05} value={activeOutput.loopCore.motionIntensity}
+                  onChange={(e) => updateLoopCore({ motionIntensity: Number(e.target.value) })}
+                />
+                <p className="muted small">This loop repeats continuously — Spotify plays it behind your full song, not just once.</p>
+              </div>
+            </>
+          ) : (
+            <>
+              <h3>Song</h3>
+              <AudioPanel
+                audioSrc={audioSrc}
+                audioName={basename(project.audioPath)}
+                required={plan.audio}
+                analysis={project.songAnalysis}
+                selectedMomentId={project.selectedMomentId}
+                onMetadata={onAudioMetadata}
+                onSelectMoment={selectMoment}
+                onUseCurrentTime={(s) => updateManualClip({ clipStart: formatTime(s) })}
+              />
+            </>
+          )}
 
           <h3>Cover art</h3>
           <button className="cover-mini" onClick={() => choose('cover')}>
@@ -393,30 +464,43 @@ export default function App() {
             </div>
           </button>
 
-          <h3>Pick a promo vibe</h3>
-          <div className="direction-panel">
-            {!project.audioPath && !project.coverPath ? (
-              <div className="direction-empty">Add a finished song and cover art to see suggested promo directions.</div>
-            ) : (
-              promoDirections.map((candidate) => (
-                <button key={candidate.id} className={`direction-card${candidate.id === project.selectedPromoDirectionId ? ' selected' : ''}`} onClick={() => applyPromoDirection(candidate)}>
-                  <span className="direction-top"><b>{candidate.label}</b><span>{Math.round(candidate.fit * 100)}% fit</span></span>
-                  <span className="direction-purpose">{candidate.purpose}</span>
-                  <span className="direction-recipe">{promoDirectionRecipeLabel(candidate)}</span>
-                  <span className="direction-reason">{candidate.reason}</span>
-                  {candidate.warnings.length > 0 && <span className="direction-warning">{candidate.warnings[0]}</span>}
-                  <span className="direction-source">{candidate.id === project.selectedPromoDirectionId ? 'Using this direction' : 'Try this direction'}</span>
-                </button>
-              ))
-            )}
-          </div>
+          {contextMode.mode !== 'canvas-edit' && (
+            <>
+              <h3>Pick a promo vibe</h3>
+              <div className="direction-panel">
+                {!project.audioPath && !project.coverPath ? (
+                  <div className="direction-empty">Add a finished song and cover art to see suggested promo directions.</div>
+                ) : (
+                  promoDirections.map((candidate) => (
+                    <button key={candidate.id} className={`direction-card${candidate.id === project.selectedPromoDirectionId ? ' selected' : ''}`} onClick={() => applyPromoDirection(candidate)}>
+                      <span className="direction-top"><b>{candidate.label}</b><span>{Math.round(candidate.fit * 100)}% fit</span></span>
+                      <span className="direction-purpose">{candidate.purpose}</span>
+                      <span className="direction-recipe">{promoDirectionRecipeLabel(candidate)}</span>
+                      <span className="direction-reason">{candidate.reason}</span>
+                      {candidate.warnings.length > 0 && <span className="direction-warning">{candidate.warnings[0]}</span>}
+                      <span className="direction-source">{candidate.id === project.selectedPromoDirectionId ? 'Using this direction' : 'Try this direction'}</span>
+                    </button>
+                  ))
+                )}
+              </div>
+            </>
+          )}
         </div>
 
         <div className="center">
           <div className="preview-stage">
             <Preview composition={composition} coverSrc={coverSrc} selectedId={selectedId} onSelect={setSelectedId} onMove={onMove} />
           </div>
-          {plan.audio ? (
+          {contextMode.mode === 'canvas-edit' ? (
+            <div className="loop-span">
+              <div className="loop-span-track">
+                <span className="loop-span-marker" style={{ left: '0%' }}><b>Start</b>0:00</span>
+                <span className="loop-span-marker" style={{ left: '50%' }}><b>Mid</b>{formatTime(plan.durationSec / 2)}</span>
+                <span className="loop-span-marker end" style={{ left: '100%' }}><b>End</b>{formatTime(plan.durationSec)}</span>
+              </div>
+              <p className="muted small">This {plan.durationSec}s loop repeats continuously — Spotify plays it behind your full song, not just once.</p>
+            </div>
+          ) : plan.audio ? (
             selectedMoment ? (
               <div className="song-usage on">
                 <b>Using your song: {formatTime(selectedMoment.startSec)}–{formatTime(selectedMoment.endSec)}</b>
@@ -510,16 +594,6 @@ export default function App() {
             </>
           )}
         </div>
-        {contextMode.mode === 'canvas-edit' && activeOutput.loopCore && (
-          <div className="loop-motion-summary">
-            <span className="loop-motion-kicker">Loop + Motion summary</span>
-            <div className="loop-motion-rows">
-              <span>Loop length <b>{plan.durationSec}s</b></span>
-              <span>Continuity <b>{activeOutput.loopCore.continuityMode === 'soft-loop' ? 'Soft loop' : 'Hard loop'}</b></span>
-              <span>Motion <b>{Math.round(activeOutput.loopCore.motionIntensity * 100)}%</b></span>
-            </div>
-          </div>
-        )}
         <div className="clip">
           {plan.audio && <Field label="Start at" value={project.clipStart} onChange={(v) => updateManualClip({ clipStart: v })} />}
           <Field label="Length (s)" value={project.clipDuration} onChange={(v) => updateManualClip({ clipDuration: v })} />

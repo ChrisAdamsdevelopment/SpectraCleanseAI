@@ -3,19 +3,29 @@ import type {
   BackgroundLayer, CoverLayer, TitleLayer, WaveformLayer, EffectLayer,
 } from './types';
 
+// UX-007: maps a 0..1 LoopCore.motionIntensity onto a template's baseline zoom
+// amount. motionIntensity === 0.5 (the default new outputs are created with)
+// always reproduces the template's untouched baseZoom exactly, so existing
+// projects that never touch the Motion control render identically to before
+// this change; only actively moving the slider changes the rendered zoom.
+export function motionIntensityToZoom(baseZoom: number, motionIntensity: number): number {
+  return baseZoom * (0.5 + motionIntensity);
+}
+
 // Compile a recipe + template into an editable layer stack. The user edits the
 // returned Composition; the preview and the FFmpeg exporter both read it.
 export function recipeToComposition(
   recipe: RenderRecipe,
   template: VisualTemplate,
-  opts: { title?: string } = {},
+  opts: { title?: string; motionIntensity?: number } = {},
 ): Composition {
   const audio = recipe.audioRequired;
   const showWave = audio && recipe.overlayStyle === 'waveform';
   // Center the cover when nothing sits below it; only nudge up to clear a waveform.
   const coverY = showWave ? 0.43 : audio ? 0.46 : 0.5;
   // Motion now applies to every recipe (Ken Burns slow zoom), audio or not.
-  const zoom = template.bgZoom ?? (recipe.motionStyle === 'zoom' ? 0.2 : 0);
+  const baseZoom = template.bgZoom ?? (recipe.motionStyle === 'zoom' ? 0.2 : 0);
+  const zoom = typeof opts.motionIntensity === 'number' ? motionIntensityToZoom(baseZoom, opts.motionIntensity) : baseZoom;
 
   const background: BackgroundLayer = {
     id: 'background', type: 'background', visible: true, locked: false, opacity: 1,
