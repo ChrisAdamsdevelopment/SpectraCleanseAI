@@ -19,6 +19,19 @@ Current product status: Song Studio Desktop is testable but confusing, not owner
 
 Canvas Test Drive status: Internal testable, not product-ready, and needs owner validation.
 
+
+## 1A. Song Studio Product Doctrine — Release Project
+
+Durable direction for Song Studio Desktop:
+
+- Your song is finished. Song Studio helps create everything you need to promote it.
+- The Release Project is the product: it is the shared container for the song, cover art, future release materials, and every deliverable made from them.
+- One Release Project can produce many Outputs. The Editor is one specialized workspace inside that Release Project, not the product itself.
+- The Canvas Loop Composer is one specialized Output workspace; future lyric, teaser, announcement, social, batch, variant, artist identity, AI Producer, and larger release-pack tracks should also live inside the Release Project when they become real.
+- Make the creator feel like "I am preparing my release," not "I am editing a video" or managing unrelated files.
+- Do not avoid powerful outcomes. Avoid powerful interfaces: keep advanced rendering capability behind simple release-preparation decisions.
+- Release Readiness should truthfully tell the creator what is done, what needs attention, and what comes next based on real project data. It must not claim platform publishing, distribution, analytics, release dates, lyrics, artist branding, batch packs, or AI judgment before those capabilities exist.
+
 ## 2. Working Agreement
 
 This is a lightweight working system, not a second project and not a giant Scrum system. It exists to keep future ChatGPT, Claude, Codex, and GitHub work aligned on proof, scope, PR, and story-gate rules.

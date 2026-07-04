@@ -1,4 +1,5 @@
-import { CREATIVE_FUNCTIONS, getFunction } from '../render/recipes';
+import { deriveReleaseReadiness, readinessStatusClass, readinessStatusLabel, type OutputTypeReadiness } from '../project/readiness';
+import { getFunction } from '../render/recipes';
 import { outputTypeAction, outputTypeNoun } from './outputTypeLabels';
 import type { ProjectOutput, ReleaseProject } from '../project/types';
 
@@ -24,6 +25,14 @@ export function ProjectHome({
   const hasAudio = Boolean(releaseProject.audioPath);
   const audioName = basename(releaseProject.audioPath);
   const coverName = basename(releaseProject.coverPath);
+  const readiness = deriveReleaseReadiness(releaseProject);
+  const runNextAction = () => {
+    const action = readiness.nextAction;
+    if (action.kind === 'add-song') onPickAudio();
+    else if (action.kind === 'add-cover') onPickCover();
+    else if (action.outputId) onOpenOutput(action.outputId);
+    else if (action.functionId) onCreateOutput(action.functionId);
+  };
 
   return (
     <div className="home">
@@ -38,7 +47,32 @@ export function ProjectHome({
         <div className="home-head">
           <div className="guide-kicker">Your project</div>
           <h1>{releaseProject.title.trim() || 'Untitled project'}</h1>
-          <p>This project holds your song and cover art. Every output below is a separate video made from it.</p>
+          <p>Prepare the shared materials and promotional Outputs for this release. Your song and cover art are reused across every Output you make here.</p>
+        </div>
+
+        <div className="readiness-panel">
+          <div>
+            <div className="guide-kicker">Release Readiness v1</div>
+            <h2>Prepare my release</h2>
+            <p>Readiness here only reflects Song Studio's current materials and supported Outputs.</p>
+          </div>
+          <div className="readiness-stats">
+            <ReadinessStat value={`${readiness.essentialsAdded}/${readiness.essentialsTotal}`} label="essentials added" />
+            <ReadinessStat value={String(readiness.createdOutputs)} label="created Outputs" />
+            <ReadinessStat value={String(readiness.draftOutputs)} label="draft Outputs" />
+            <ReadinessStat value={String(readiness.needsAttentionOutputs)} label="need attention" />
+            <ReadinessStat value={String(readiness.unstartedOutputTypes)} label="types not started" />
+          </div>
+          <button className="next-action" onClick={runNextAction} disabled={!isTauri}>
+            <span>Next best action</span>
+            <b>{readiness.nextAction.title}</b>
+            <small>{readiness.nextAction.detail}</small>
+          </button>
+        </div>
+
+        <div className="home-section-heading">
+          <h3>Project essentials</h3>
+          <p>Shared release materials reused by current Outputs.</p>
         </div>
 
         <div className="home-summary">
@@ -59,38 +93,58 @@ export function ProjectHome({
         </div>
 
         <div className="home-outputs">
-          <h3>Outputs in this project</h3>
-          {releaseProject.outputs.length === 0 ? (
-            <div className="direction-empty">No outputs yet — create your first one below.</div>
-          ) : (
-            <div className="output-grid">
-              {releaseProject.outputs.map((output) => (
-                <OutputCard key={output.id} output={output} onOpen={() => onOpenOutput(output.id)} />
-              ))}
-            </div>
-          )}
-        </div>
-
-        <div className="home-create">
-          <h3>Create a new output</h3>
-          <p className="muted small">Each one reuses your song and cover art, styled for a different promo.</p>
-          <div className="output-type-grid">
-            {CREATIVE_FUNCTIONS.map((f) => {
-              const blockedNoCover = !hasCover;
-              const blockedNoAudio = f.audio && !hasAudio;
-              const disabled = !isTauri || blockedNoCover || blockedNoAudio;
-              const hint = blockedNoCover ? 'Add cover art first' : blockedNoAudio ? 'Add a song first' : f.audio ? 'Uses your song' : 'Cover art only';
-              return (
-                <button key={f.id} className="output-type-card" onClick={() => onCreateOutput(f.id)} disabled={disabled}>
-                  <div className="mc-title">{outputTypeAction(f.id, f.label)}</div>
-                  <div className="mc-desc">{f.description}</div>
-                  <div className={`mc-hint${disabled && (blockedNoCover || blockedNoAudio) ? ' warn' : ''}`}>{hint}</div>
-                </button>
-              );
-            })}
+          <div className="home-section-heading">
+            <h3>Output readiness</h3>
+            <p>What you have created and what you can make next from this release project.</p>
+          </div>
+          <div className="output-readiness-list">
+            {readiness.outputTypes.map((type) => (
+              <OutputTypeRow
+                key={type.functionId}
+                type={type}
+                hasAudio={hasAudio}
+                hasCover={hasCover}
+                isTauri={isTauri}
+                onCreate={() => onCreateOutput(type.functionId)}
+                onOpenOutput={onOpenOutput}
+              />
+            ))}
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+function ReadinessStat({ value, label }: { value: string; label: string }) {
+  return <div className="readiness-stat"><b>{value}</b><span>{label}</span></div>;
+}
+
+function OutputTypeRow({ type, hasAudio, hasCover, isTauri, onCreate, onOpenOutput }: { type: OutputTypeReadiness; hasAudio: boolean; hasCover: boolean; isTauri: boolean; onCreate: () => void; onOpenOutput: (outputId: string) => void }) {
+  const blockedNoCover = !hasCover;
+  const blockedNoAudio = type.audioRequired && !hasAudio;
+  const disabled = !isTauri || blockedNoCover || blockedNoAudio;
+  const hint = blockedNoCover ? 'Add cover art first' : blockedNoAudio ? 'Add a song first' : type.audioRequired ? 'Uses your song and cover art' : 'Uses your cover art';
+  const primary = type.outputs.find((output) => output.status === 'error') ?? type.outputs.find((output) => output.status === 'draft') ?? type.outputs[0];
+  return (
+    <div className="output-type-row">
+      <div className="output-type-main">
+        <div className="output-card-top">
+          <b>{outputTypeAction(type.functionId, type.label)}</b>
+          <span className={`output-status ${readinessStatusClass(type.state)}`}>{readinessStatusLabel(type.state)}</span>
+        </div>
+        <div className="output-card-type">{type.description}</div>
+        <div className="output-card-render">{type.outputs.length ? `${type.outputs.length} version${type.outputs.length === 1 ? '' : 's'} · ${type.createdCount} created · ${type.draftCount} draft · ${type.needsAttentionCount} need attention` : hint}</div>
+        <div className="output-row-actions">
+          {primary && <button className="ghost small" onClick={() => onOpenOutput(primary.id)}>{primary.status === 'rendered' ? 'Open' : 'Continue'}</button>}
+          <button className="ghost small" onClick={onCreate} disabled={disabled}>{type.outputs.length ? 'Create another' : 'Start'}</button>
+        </div>
+      </div>
+      {type.outputs.length > 0 && (
+        <div className="output-variants">
+          {type.outputs.map((output) => <OutputCard key={output.id} output={output} onOpen={() => onOpenOutput(output.id)} />)}
+        </div>
+      )}
     </div>
   );
 }

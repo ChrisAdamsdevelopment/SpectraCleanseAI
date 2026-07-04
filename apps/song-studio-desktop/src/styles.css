@@ -343,3 +343,26 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 /* Bottom review panel: keep blockers always visible; put the technical
    essentials grid behind a Details toggle instead of always rendering it. */
 .export-review-actions { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+.readiness-panel { background: linear-gradient(135deg, rgba(79,140,255,.16), rgba(58,208,122,.08)); border: 1px solid var(--border); border-radius: 16px; padding: 16px; margin-bottom: 22px; display: grid; grid-template-columns: 1.25fr 1fr; gap: 14px; align-items: stretch; }
+.readiness-panel h2 { margin: 4px 0 6px; font-size: 22px; }
+.readiness-panel p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.45; }
+.readiness-stats { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; grid-column: 1 / -1; }
+.readiness-stat { background: rgba(10,14,22,.55); border: 1px solid var(--border); border-radius: 10px; padding: 10px; min-width: 0; }
+.readiness-stat b { display: block; font-size: 18px; line-height: 1; }
+.readiness-stat span { display: block; margin-top: 5px; color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: .05em; }
+.next-action { text-align: left; background: var(--panel); color: var(--text); border: 1px solid var(--accent); border-radius: 12px; padding: 12px; display: flex; flex-direction: column; gap: 4px; cursor: pointer; }
+.next-action:hover:not(:disabled) { background: #1b2536; }
+.next-action:disabled { opacity: .55; cursor: not-allowed; }
+.next-action span { color: var(--accent); font-size: 10px; text-transform: uppercase; letter-spacing: .06em; }
+.next-action b { font-size: 14px; }
+.next-action small { color: var(--muted); line-height: 1.35; }
+.home-section-heading { margin: 0 0 10px; }
+.home-section-heading h3 { margin: 0; font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+.home-section-heading p { margin: 4px 0 0; color: var(--muted); font-size: 12px; }
+.output-readiness-list { display: flex; flex-direction: column; gap: 12px; }
+.output-type-row { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 14px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
+.output-type-main { display: flex; flex-direction: column; gap: 7px; }
+.output-row-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 2px; }
+.output-variants { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; }
+.output-status.not-started { color: var(--muted); border-color: var(--border); }
+@media (max-width: 720px) { .readiness-panel, .readiness-stats { grid-template-columns: 1fr; } }
