@@ -25,6 +25,8 @@ import { resolveContextMode } from './ui/contextMode';
 import { buildPromoDirectionCandidates, getSelectedSongMoment, promoDirectionRecipeLabel, type PromoDirectionCandidate } from './promo/directions';
 import { buildExportReview } from './export/review';
 import { buildExportResultSummary } from './export/result';
+import { applyFailedRender, applySuccessfulRender, invalidateOutputRender, invalidateOutputsForSharedInput, type SharedRenderInput } from './project/renderFreshness';
+import { effectiveOutputState } from './project/readiness';
 import { CanvasTestDrive } from './canvas-ui/CanvasTestDrive';
 
 const IS_TAURI = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in (window as object);
@@ -87,20 +89,48 @@ export default function App() {
   const selectedLayer = getLayer(composition, selectedId);
 
   const touch = () => new Date().toISOString();
-  const updateShared = (patch: Partial<Pick<ReleaseProject, 'title' | 'artist' | 'audioPath' | 'coverPath' | 'outputDir' | 'songAnalysis'>>) =>
-    setReleaseProject((rp) => ({ ...rp, ...patch, updatedAt: touch() }));
+  function clearStaleRenderResult() {
+    setResult(null);
+    setCopiedOutputPath(false);
+    if (status === 'success' || status === 'error') setStatus('ready');
+  }
+  function sharedRenderInputFor(patch: Partial<Pick<ReleaseProject, 'title' | 'artist' | 'audioPath' | 'coverPath' | 'outputDir' | 'songAnalysis'>>): SharedRenderInput | null {
+    if ('coverPath' in patch) return 'coverPath';
+    if ('audioPath' in patch) return 'audioPath';
+    if ('title' in patch) return 'title';
+    if ('artist' in patch) return 'artist';
+    if ('outputDir' in patch) return 'outputDir';
+    if ('songAnalysis' in patch) return 'songAnalysis';
+    return null;
+  }
+  const updateShared = (patch: Partial<Pick<ReleaseProject, 'title' | 'artist' | 'audioPath' | 'coverPath' | 'outputDir' | 'songAnalysis'>>) => {
+    const sharedInput = sharedRenderInputFor(patch);
+    setReleaseProject((rp) => ({
+      ...rp,
+      ...patch,
+      outputs: sharedInput ? invalidateOutputsForSharedInput(rp.outputs, sharedInput) : rp.outputs,
+      updatedAt: touch(),
+    }));
+    if (sharedInput === 'coverPath' || sharedInput === 'audioPath' || sharedInput === 'title') clearStaleRenderResult();
+  };
   const synchronizeLoopDuration = (output: ProjectOutput): ProjectOutput => {
     if (!output.loopCore || !isLoopOutputType(output.functionId)) return output;
     const parsedDuration = parseTime(output.clipDuration);
     if (parsedDuration === null || parsedDuration <= 0 || output.loopCore.loopDurationSec === parsedDuration) return output;
     return { ...output, loopCore: { ...output.loopCore, loopDurationSec: parsedDuration } };
   };
-  const updateActiveOutput = (patch: Partial<ProjectOutput>) =>
+  const updateActiveOutput = (patch: Partial<ProjectOutput>, options: { renderAffecting?: boolean } = {}) => {
     setReleaseProject((rp) => ({
       ...rp,
-      outputs: rp.outputs.map((o) => (o.id === rp.activeOutputId ? synchronizeLoopDuration({ ...o, ...patch, updatedAt: touch() }) : o)),
+      outputs: rp.outputs.map((o) => {
+        if (o.id !== rp.activeOutputId) return o;
+        const next = synchronizeLoopDuration({ ...o, ...patch, updatedAt: touch() });
+        return options.renderAffecting ? invalidateOutputRender(next) : next;
+      }),
       updatedAt: touch(),
     }));
+    if (options.renderAffecting) clearStaleRenderResult();
+  };
 
   const refreshSongAnalysis = (base: SongProject, durationSec: number, selectedMomentId: string | null) => {
     if (!base.audioPath) return null;
@@ -115,7 +145,7 @@ export default function App() {
   const updateManualClip = (patch: Partial<Pick<SongProject, 'clipStart' | 'clipDuration'>>) => {
     const clipStart = patch.clipStart ?? activeOutput.clipStart;
     const clipDuration = patch.clipDuration ?? activeOutput.clipDuration;
-    updateActiveOutput({ clipStart, clipDuration, selectedMomentId: null, selectedPromoDirectionId: null });
+    updateActiveOutput({ clipStart, clipDuration, selectedMomentId: null, selectedPromoDirectionId: null }, { renderAffecting: true });
     if (audioDurationSec !== null) {
       updateShared({ songAnalysis: refreshSongAnalysis({ ...project, clipStart, clipDuration }, audioDurationSec, null) });
     }
@@ -163,7 +193,7 @@ export default function App() {
   function updateLoopCore(patch: Partial<LoopCore>) {
     if (!activeOutput.loopCore) return;
     const nextLoopCore: LoopCore = { ...activeOutput.loopCore, ...patch };
-    updateActiveOutput({ loopCore: nextLoopCore });
+    updateActiveOutput({ loopCore: nextLoopCore }, { renderAffecting: typeof patch.motionIntensity === 'number' });
     const recipe = getRecipe(activeOutput.recipeId);
     if (recipe && typeof patch.motionIntensity === 'number') {
       const template = getTemplate(recipe.visualTemplateId);
@@ -188,7 +218,7 @@ export default function App() {
       const def = pickDefaultMoment(project.songAnalysis);
       if (def) patch = { ...patch, selectedMomentId: def.id, clipStart: formatTime(def.startSec), clipDuration: String(def.durationSec), loopCore: loopCoreFor(functionId, def.durationSec, activeOutput.loopCore) };
     }
-    updateActiveOutput(patch);
+    updateActiveOutput(patch, { renderAffecting: true });
     openComposition(recipeId, project.title, patch.loopCore?.motionIntensity);
     if (status === 'idle') setStatus('ready');
   }
@@ -230,7 +260,7 @@ export default function App() {
     setReleaseProject((rp) => ({ ...rp, activeOutputId: outputId }));
     openComposition(output.recipeId, releaseProject.title, output.loopCore?.motionIntensity);
     setResult(null); setShowLogs(false); setLogs([]);
-    setStatus(output.status === 'rendered' ? 'success' : 'ready');
+    setStatus(effectiveOutputState(output) === 'created' ? 'success' : 'ready');
     setView('editor');
   }
 
@@ -245,7 +275,7 @@ export default function App() {
       selectedMomentId: candidate.momentId ?? activeOutput.selectedMomentId,
       selectedPromoDirectionId: candidate.id,
       loopCore,
-    });
+    }, { renderAffecting: true });
     openComposition(candidate.recipeId, project.title, loopCore?.motionIntensity);
     if (status === 'idle') setStatus('ready');
   }
@@ -271,21 +301,23 @@ export default function App() {
       const def = pickDefaultMoment(analysis);
       if (def) {
         updateShared({ songAnalysis: analysis });
-        updateActiveOutput({ selectedMomentId: def.id, clipStart: formatTime(def.startSec), clipDuration: String(def.durationSec) });
+        updateActiveOutput({ selectedMomentId: def.id, clipStart: formatTime(def.startSec), clipDuration: String(def.durationSec) }, { renderAffecting: true });
         return;
       }
     }
     updateShared({ songAnalysis: analysis });
   }
   function selectMoment(moment: SongMoment) {
-    updateActiveOutput({ selectedPromoDirectionId: null, selectedMomentId: moment.id, clipStart: formatTime(moment.startSec), clipDuration: String(moment.durationSec) });
+    updateActiveOutput({ selectedPromoDirectionId: null, selectedMomentId: moment.id, clipStart: formatTime(moment.startSec), clipDuration: String(moment.durationSec) }, { renderAffecting: true });
   }
   function onInspectorChange(patch: Partial<Layer>) {
     setComposition((c) => updateLayer(c, selectedId, patch));
+    updateActiveOutput({}, { renderAffecting: true });
     if (selectedId === 'title_text' && typeof (patch as { text?: string }).text === 'string') updateShared({ title: (patch as { text: string }).text });
   }
   function onMove(id: string, x: number, y: number) {
     setComposition((c) => updateLayer(c, id, { x, y } as Partial<Layer>));
+    updateActiveOutput({}, { renderAffecting: true });
   }
   async function choose(kind: 'audio' | 'cover' | 'output') {
     try {
@@ -317,14 +349,13 @@ export default function App() {
       addLog(res.ok ? `[render] success (${res.bytes ?? 0} bytes)` : `[render] failed: ${res.error}`);
       // Record the result back onto the active output so it survives switching
       // to a different output and reloading the saved project.
-      updateActiveOutput({
-        status: res.ok ? 'rendered' : 'error',
-        lastRender: res.ok ? { outputPath, bytes: res.bytes, renderedAt: new Date().toISOString() } : activeOutput.lastRender,
-      });
+      updateActiveOutput(res.ok
+        ? applySuccessfulRender(activeOutput, { outputPath, bytes: res.bytes, renderedAt: new Date().toISOString() })
+        : applyFailedRender(activeOutput));
     } catch (e) {
       const m = e instanceof Error ? e.message : String(e);
       setResult({ ok: false, error: m }); setStatus('error'); addLog(`[render] error: ${m}`);
-      updateActiveOutput({ status: 'error' });
+      updateActiveOutput(applyFailedRender(activeOutput));
     } finally { setBusy(false); }
   }
   function clearExportResult() {
