@@ -3,9 +3,13 @@ import type { OutputLastRender, ProjectOutput } from './types';
 
 export type SharedRenderInput = 'audioPath' | 'coverPath' | 'title' | 'artist' | 'outputDir' | 'songAnalysis';
 
+export interface RenderAttempt {
+  outputId: string;
+  renderRevision: number;
+}
+
 export function invalidateOutputRender(output: ProjectOutput): ProjectOutput {
-  if (output.status === 'draft' && output.lastRender === null) return output;
-  return { ...output, status: 'draft', lastRender: null };
+  return { ...output, status: 'draft', lastRender: null, renderRevision: output.renderRevision + 1 };
 }
 
 export function applySuccessfulRender(output: ProjectOutput, lastRender: OutputLastRender): ProjectOutput {
@@ -42,4 +46,8 @@ export function shouldInvalidateForSharedInput(output: ProjectOutput, input: Sha
 
 export function invalidateOutputsForSharedInput(outputs: ProjectOutput[], input: SharedRenderInput): ProjectOutput[] {
   return outputs.map((output) => (shouldInvalidateForSharedInput(output, input) ? invalidateOutputRender(output) : output));
+}
+
+export function canApplyRenderAttempt(output: ProjectOutput, attempt: RenderAttempt): boolean {
+  return output.id === attempt.outputId && output.renderRevision === attempt.renderRevision;
 }

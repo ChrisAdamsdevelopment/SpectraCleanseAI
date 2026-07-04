@@ -94,6 +94,7 @@ export interface ProjectOutput {
   selectedPromoDirectionId: string | null;
   status: OutputStatus;
   lastRender: OutputLastRender | null;
+  renderRevision: number;
   createdAt: string;
   updatedAt: string;
   // UX-005: passive loop-structure metadata for loop-based outputs (Spotify
@@ -212,6 +213,7 @@ export function emptyOutput(functionId = 'make_canvas', recipeId = 'clean_canvas
     selectedPromoDirectionId: null,
     status: 'draft',
     lastRender: null,
+    renderRevision: 0,
     createdAt: now,
     updatedAt: now,
     loopCore: isLoopOutputType(functionId) ? defaultLoopCore(defaultDurationSec) : null,
