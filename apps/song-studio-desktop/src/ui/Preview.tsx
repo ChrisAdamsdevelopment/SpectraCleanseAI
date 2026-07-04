@@ -62,6 +62,11 @@ export function Preview({
               position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', cursor: 'pointer', boxShadow: ring('background'),
               filter: `blur(${Math.min((bg.blur ?? 0) * 0.6, 24)}px) brightness(${1 + bg.brightness}) saturate(${bg.saturation}) contrast(${bg.contrast ?? 1})`,
               // No inline transform when animating: the .bg-motion keyframes own it (hints the exported Ken Burns zoom).
+              // UX-007: --ss-zoom-to tracks the REAL zoom amount (so the Motion
+              // slider produces genuine visual feedback) — at zoom=0.16 (today's
+              // untouched default) this evaluates to exactly 1.16, identical to
+              // the previous hardcoded keyframe end value.
+              ...((bg.zoom ?? 0) > 0 ? { ['--ss-zoom-to' as 'opacity']: String(1.08 + (bg.zoom ?? 0) * 0.5) as unknown as number } : {}),
               transform: (bg.zoom ?? 0) > 0 ? undefined : `scale(${1.1 + (bg.zoom ?? 0) * 0.5})`, opacity: bg.opacity,
             }}
           />

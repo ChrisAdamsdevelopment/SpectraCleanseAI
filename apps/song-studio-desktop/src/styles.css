@@ -38,12 +38,28 @@ button:disabled { opacity: .5; cursor: not-allowed; }
    no new panel, no interactivity. */
 .loop-header { margin-top: 3px; font-size: 11px; color: var(--muted); }
 
-/* UX-006: Loop + Motion summary — read-only, canvas-edit mode only. Reuses
-   the .bottom panel's existing bordered-card language; not a new panel. */
-.loop-motion-summary { margin-bottom: 8px; padding: 8px 12px; border: 1px solid var(--border); border-left: 3px solid var(--accent); border-radius: 8px; background: var(--panel); }
-.loop-motion-kicker { display: block; font-size: 10px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin-bottom: 4px; }
-.loop-motion-rows { display: flex; flex-wrap: wrap; gap: 16px; font-size: 12px; color: var(--muted); }
-.loop-motion-rows b { color: var(--text); font-weight: 600; margin-left: 4px; }
+/* UX-007: Loop workspace (left rail) — the Canvas Loop Composer's first real,
+   interactive contextual surface. Replaces UX-006's read-only bottom summary. */
+.loop-workspace { background: var(--panel-2); border: 1px solid var(--border); border-radius: 10px; padding: 10px; margin-bottom: 10px; display: flex; flex-direction: column; gap: 8px; }
+.loop-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; color: var(--muted); }
+.loop-row b { color: var(--text); font-weight: 600; }
+.loop-length-field { display: flex; align-items: center; gap: 6px; }
+.loop-length-field input { width: 56px; background: var(--panel); border: 1px solid var(--border); color: var(--text); border-radius: 6px; padding: 4px 6px; font-size: 13px; text-align: right; }
+.loop-continuity-toggle { display: flex; gap: 4px; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 3px; }
+.loop-continuity-toggle button { background: transparent; border: none; color: var(--muted); border-radius: 6px; padding: 4px 8px; font-size: 11px; }
+.loop-continuity-toggle button.on { background: var(--accent); color: #fff; font-weight: 600; }
+.loop-workspace input[type=range] { width: 100%; }
+
+/* UX-007: Loop span timeline (center column, canvas-edit only) — a truthful
+   Start/Mid/End marker bar computed from the real render-plan duration, not
+   an invented song timeline (Canvas renders silently; there is no song
+   position to plot here). */
+.loop-span { width: 100%; max-width: 360px; }
+.loop-span-track { position: relative; height: 28px; background: var(--panel); border: 1px solid var(--border); border-radius: 999px; margin-bottom: 4px; }
+.loop-span-marker { position: absolute; top: 50%; transform: translate(-50%, -50%); display: flex; flex-direction: column; align-items: center; gap: 0; font-size: 9px; color: var(--muted); white-space: nowrap; }
+.loop-span-marker b { color: var(--text); font-size: 9px; text-transform: uppercase; letter-spacing: .04em; }
+.loop-span-marker::before { content: ''; position: absolute; top: -14px; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+.loop-span-marker.end::before { background: var(--ok); }
 
 /* Main workspace: center preview dominates; left/right are narrower supporting rails. */
 .main { display: grid; grid-template-columns: 260px minmax(0, 1fr) 250px; gap: 16px; padding: 14px; overflow: hidden; min-height: 0; }
@@ -215,7 +231,10 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 /* Demo-Ready Output Pack v1 — preview hint of the exported Ken Burns slow zoom.
    Approximation only; the real motion is produced by ffmpeg zoompan at export. */
 .preview .bg-motion { animation: ssKenBurns 16s ease-in-out infinite alternate; will-change: transform; }
-@keyframes ssKenBurns { from { transform: scale(1.08); } to { transform: scale(1.16); } }
+/* UX-007: end scale now tracks --ss-zoom-to (the real zoom amount) instead of
+   a hardcoded 1.16, so the Motion Intensity control has genuine visual
+   feedback. Falls back to 1.16 (today's fixed value) if unset. */
+@keyframes ssKenBurns { from { transform: scale(1.08); } to { transform: scale(var(--ss-zoom-to, 1.16)); } }
 @media (prefers-reduced-motion: reduce) { .preview .bg-motion { animation: none; transform: scale(1.12); } }
 
 /* Canvas Test Drive — internal/local app surface for exercising the Canvas lab. */

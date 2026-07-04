@@ -2,6 +2,9 @@
 
 _Last updated: 2026-06-27._
 
+> **Scope note (added by UX-007, see `docs/ai-scrum/ux-007-canvas-loop-composer.md`):**
+> This document describes the **internal Canvas Loop Lab** (`src/canvas/*`, exposed only via the internal/dev "Canvas Test Drive" surface) — a video-file-input frame-extraction and loop-scoring engine. It is a genuinely separate system from the **creator-facing Spotify Canvas output**, which renders from a single cover image + recipe/template through `render/composition.ts` + `render/ffmpegArgs.ts` and has no connection to this Lab's real scoring capability today. Do not assume the Lab's frame-comparison/seam-scoring logic is wired into the creator-facing Output editor — it is not. Bridging the two is tracked as an open dependency, not yet started.
+
 ## Product vision
 
 Canvas Loop Engine helps musicians turn a finished song moment into a short vertical video loop worth posting. The creator uploads or imports a short clip, selects the frame they want the loop to return to, and Song Studio finds, previews, repairs, and exports a smooth Canvas-style loop.
