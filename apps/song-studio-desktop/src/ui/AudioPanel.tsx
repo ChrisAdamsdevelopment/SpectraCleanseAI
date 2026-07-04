@@ -6,6 +6,7 @@ import type { SongAnalysis, SongMoment } from '../project/types';
 // "use current time as the clip start". Not a waveform timeline.
 export function AudioPanel({
   audioSrc, audioName, required, analysis, selectedMomentId, onMetadata, onSelectMoment, onUseCurrentTime,
+  compact = false, referenceOnly = false,
 }: {
   audioSrc: string | null;
   audioName: string;
@@ -15,6 +16,8 @@ export function AudioPanel({
   onMetadata: (durationSec: number) => void;
   onSelectMoment: (moment: SongMoment) => void;
   onUseCurrentTime: (sec: number) => void;
+  compact?: boolean;
+  referenceOnly?: boolean;
 }) {
   const ref = useRef<HTMLAudioElement>(null);
   const [time, setTime] = useState(0);
@@ -23,7 +26,7 @@ export function AudioPanel({
   const [error, setError] = useState(false);
 
   if (!audioName) {
-    return <div className="audio-panel muted">{required ? 'This function uses song audio. Choose an audio file first.' : 'No audio (this function is silent).'}</div>;
+    return <div className={`audio-panel muted${compact ? ' compact' : ''}`}>{required ? 'This function uses song audio. Choose an audio file first.' : 'Add a song to judge this visual loop against the real music.'}</div>;
   }
 
   const toggle = () => {
@@ -40,7 +43,7 @@ export function AudioPanel({
   };
 
   return (
-    <div className="audio-panel">
+    <div className={`audio-panel${compact ? ' compact' : ''}`}>
       {/* Which section plays in the MP4 is already stated once, prominently,
           in the "Current output" banner under the preview — the selected
           moment card below is highlighted, so this panel doesn't repeat it. */}
@@ -54,10 +57,15 @@ export function AudioPanel({
         <input type="range" min={0} max={duration || 0} step={0.1} value={time}
           onChange={(e) => { const v = Number(e.target.value); if (ref.current) ref.current.currentTime = v; setTime(v); }} />
       )}
-      <div className="audio-row">
-        <button className="ghost small" onClick={() => onUseCurrentTime(time)} disabled={!audioSrc}>Use current time as clip start</button>
-      </div>
-      {analysis?.moments.length ? (
+      {!referenceOnly && (
+        <div className="audio-row">
+          <button className="ghost small" onClick={() => onUseCurrentTime(time)} disabled={!audioSrc}>Use current time as clip start</button>
+        </div>
+      )}
+      {referenceOnly && (
+        <p className="muted small">Reference only: play or scrub the real song while watching the loop. The Canvas MP4 export stays silent.</p>
+      )}
+      {!referenceOnly && analysis?.moments.length ? (
         <div className="moment-list">
           <div className="moment-head">Suggested song moments</div>
           {analysis.moments.map((moment) => {
@@ -71,7 +79,7 @@ export function AudioPanel({
             );
           })}
         </div>
-      ) : audioSrc ? <div className="muted small">Load the audio preview to generate deterministic moment suggestions.</div> : null}
+      ) : !referenceOnly && audioSrc ? <div className="muted small">Load the audio preview to generate deterministic moment suggestions.</div> : null}
       {error && <div className="muted small err">Audio selected but could not be previewed.</div>}
       {audioSrc && (
         <audio

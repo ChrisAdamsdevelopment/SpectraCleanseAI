@@ -83,12 +83,12 @@ function normalizeVisualStateMarker(value: unknown): LoopVisualStateMarker | nul
 
 // UX-005: loopCore is optional/nullable, so files saved before this change
 // load unaffected — a missing or invalid loopCore just normalizes to a fresh
-// default (loop-type outputs) or null (non-loop outputs). loopDurationSec
-// always falls back to the output's own real clip duration, never a
-// hardcoded number, so it can't silently disagree with what will render.
+// default (loop-type outputs) or null (non-loop outputs). clipDuration is the
+// authoritative persisted duration; loopDurationSec is normalized to that same
+// value so older/scratch files cannot silently disagree with what will render.
 function normalizeLoopCore(value: unknown, functionId: string, fallbackDurationSec: number): LoopCore | null {
   if (isRecord(value)) {
-    const loopDurationSec = typeof value.loopDurationSec === 'number' && value.loopDurationSec > 0 ? value.loopDurationSec : fallbackDurationSec;
+    const loopDurationSec = fallbackDurationSec;
     const anchorPoints = Array.isArray(value.anchorPoints) ? value.anchorPoints.map(normalizeAnchorPoint).filter((a): a is LoopAnchorPoint => Boolean(a)) : [];
     const continuityMode: LoopContinuityMode = value.continuityMode === 'soft-loop' ? 'soft-loop' : 'hard-loop';
     const motionIntensity = typeof value.motionIntensity === 'number' ? Math.min(1, Math.max(0, value.motionIntensity)) : 0.5;
