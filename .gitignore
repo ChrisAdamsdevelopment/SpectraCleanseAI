@@ -28,3 +28,7 @@ npm-debug.log*
 Thumbs.db
 .vscode/
 .idea/
+
+# ── Song Studio generated harness output ─────────────────────────────────────
+apps/song-studio-desktop/out/
+apps/song-studio-desktop/.canvas-lab/

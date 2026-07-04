@@ -1,0 +1,98 @@
+import type { VisualTemplate } from './types';
+
+// Deterministic FFmpeg looks. Demo-Ready Output Pack v1 re-art-directs these so
+// the default export reads like usable short-form music promo content, not a
+// generic technical render: subtle Ken Burns motion, a cinematic background
+// grade, soft cover depth, and clean stroked typography kept inside the safe
+// TikTok/Reels text zone (no heavy black slab). Every field maps to a reliable
+// FFmpeg filter (see ffmpegArgs.ts) — nothing here is preview-only.
+export const VISUAL_TEMPLATES: VisualTemplate[] = [
+  {
+    id: 'cover_focus',
+    label: 'Cover Motion Teaser',
+    description: 'Centered cover art floating over a blurred, slowly zooming version of itself, with clean readable text.',
+    coverScale: 0.74,
+    bgBlur: 24,
+    bgBrightness: -0.14,
+    bgSaturation: 1.06,
+    bgContrast: 1.06,
+    bgZoom: 0.16,
+    vignette: true,
+    titleFontSize: 62,
+    titleBoxAlpha: 0.4,
+    titleBox: false,
+    titleY: 0.8,
+    titleStroke: 3,
+    titleStrokeColor: '#000000',
+    titleShadow: 4,
+    coverShadow: 0.5,
+    waveColor: '#ffffff',
+  },
+  {
+    id: 'dark_street',
+    label: 'Dark Hook Promo',
+    description: 'Darker, higher-contrast cinematic background with a vignette, soft motion, and a bold high-impact title.',
+    coverScale: 0.8,
+    bgBlur: 16,
+    bgBrightness: -0.34,
+    bgSaturation: 0.92,
+    bgContrast: 1.14,
+    bgZoom: 0.14,
+    vignette: true,
+    titleFontSize: 86,
+    titleBoxAlpha: 0.55,
+    titleBox: false,
+    titleY: 0.8,
+    titleStroke: 4,
+    titleStrokeColor: '#000000',
+    titleShadow: 5,
+    coverShadow: 0.6,
+    waveColor: '#ffffff',
+  },
+  {
+    id: 'release_card',
+    label: 'Clean Release Card',
+    description: 'Minimal release-announcement layout: smaller centered cover, generous space, and a calm label-style title.',
+    coverScale: 0.62,
+    bgBlur: 28,
+    bgBrightness: -0.1,
+    bgSaturation: 1.0,
+    bgContrast: 1.04,
+    bgZoom: 0.1,
+    vignette: false,
+    titleFontSize: 56,
+    titleBoxAlpha: 0.35,
+    titleBox: false,
+    titleY: 0.74,
+    titleStroke: 2,
+    titleStrokeColor: '#000000',
+    titleShadow: 3,
+    coverShadow: 0.5,
+    waveColor: '#ffffff',
+  },
+  {
+    id: 'neon_pulse',
+    label: 'Neon Pulse',
+    description: 'Saturated, moody background with a cyan waveform emphasis (audio-visualizer direction).',
+    coverScale: 0.78,
+    bgBlur: 18,
+    bgBrightness: -0.18,
+    bgSaturation: 1.35,
+    bgContrast: 1.05,
+    bgZoom: 0.12,
+    vignette: false,
+    titleFontSize: 70,
+    titleBoxAlpha: 0.35,
+    titleBox: false,
+    titleY: 0.8,
+    titleStroke: 3,
+    titleStrokeColor: '#000000',
+    titleShadow: 4,
+    coverShadow: 0.35,
+    waveColor: '#4fd1ff',
+  },
+];
+
+export function getTemplate(id: string): VisualTemplate {
+  return VISUAL_TEMPLATES.find((t) => t.id === id) ?? VISUAL_TEMPLATES[0];
+}
