@@ -1,4 +1,4 @@
-import { deriveReleaseReadiness, readinessStatusClass, readinessStatusLabel, type OutputTypeReadiness } from '../project/readiness';
+import { deriveReleaseReadiness, effectiveOutputState, outputActionLabel, readinessStatusClass, readinessStatusLabel, type OutputTypeReadiness } from '../project/readiness';
 import { getFunction } from '../render/recipes';
 import { outputTypeAction, outputTypeNoun } from './outputTypeLabels';
 import type { ProjectOutput, ReleaseProject } from '../project/types';
@@ -52,7 +52,7 @@ export function ProjectHome({
 
         <div className="readiness-panel">
           <div>
-            <div className="guide-kicker">Release Readiness v1</div>
+            <div className="guide-kicker">Release readiness</div>
             <h2>Prepare my release</h2>
             <p>Readiness here only reflects Song Studio's current materials and supported Outputs.</p>
           </div>
@@ -125,7 +125,7 @@ function OutputTypeRow({ type, hasAudio, hasCover, isTauri, onCreate, onOpenOutp
   const blockedNoAudio = type.audioRequired && !hasAudio;
   const disabled = !isTauri || blockedNoCover || blockedNoAudio;
   const hint = blockedNoCover ? 'Add cover art first' : blockedNoAudio ? 'Add a song first' : type.audioRequired ? 'Uses your song and cover art' : 'Uses your cover art';
-  const primary = type.outputs.find((output) => output.status === 'error') ?? type.outputs.find((output) => output.status === 'draft') ?? type.outputs[0];
+  const primary = type.outputs.find((output) => effectiveOutputState(output) === 'needs-attention') ?? type.outputs.find((output) => effectiveOutputState(output) === 'draft') ?? type.outputs[0];
   return (
     <div className="output-type-row">
       <div className="output-type-main">
@@ -136,7 +136,7 @@ function OutputTypeRow({ type, hasAudio, hasCover, isTauri, onCreate, onOpenOutp
         <div className="output-card-type">{type.description}</div>
         <div className="output-card-render">{type.outputs.length ? `${type.outputs.length} version${type.outputs.length === 1 ? '' : 's'} · ${type.createdCount} created · ${type.draftCount} draft · ${type.needsAttentionCount} need attention` : hint}</div>
         <div className="output-row-actions">
-          {primary && <button className="ghost small" onClick={() => onOpenOutput(primary.id)}>{primary.status === 'rendered' ? 'Open' : 'Continue'}</button>}
+          {primary && <button className="ghost small" onClick={() => onOpenOutput(primary.id)}>{outputActionLabel(primary)}</button>}
           <button className="ghost small" onClick={onCreate} disabled={disabled}>{type.outputs.length ? 'Create another' : 'Start'}</button>
         </div>
       </div>
