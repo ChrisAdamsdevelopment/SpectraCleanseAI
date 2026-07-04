@@ -16,7 +16,8 @@
     "canvas:motion:test": "tsx src/canvas/motion-metrics.smoke.mts",
     "canvas:lab": "tsx src/canvas/canvas-lab.mts",
     "readiness:test": "tsx src/project/readiness.test.mts",
-    "render-freshness:test": "tsx src/project/renderFreshness.test.mts"
+    "render-freshness:test": "tsx src/project/renderFreshness.test.mts",
+    "canvas-directions:test": "tsx src/render/canvas-directions.test.mts"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.1.1",

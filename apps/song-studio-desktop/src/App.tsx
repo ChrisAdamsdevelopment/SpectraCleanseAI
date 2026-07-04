@@ -26,6 +26,7 @@ import { buildPromoDirectionCandidates, getSelectedSongMoment, promoDirectionRec
 import { buildExportReview } from './export/review';
 import { buildExportResultSummary } from './export/result';
 import { applyFailedRender, applySuccessfulRender, canApplyRenderAttempt, invalidateOutputRender, invalidateOutputsForSharedInput, type RenderAttempt, type SharedRenderInput } from './project/renderFreshness';
+import { applyCanvasDirectionPatch } from './project/canvasDirections';
 import { effectiveOutputState } from './project/readiness';
 import { CanvasTestDrive } from './canvas-ui/CanvasTestDrive';
 
@@ -228,6 +229,14 @@ export default function App() {
   function applyRecipe(functionId: string, recipeId: string) {
     const f = getFunction(functionId); const recipe = getRecipe(recipeId);
     if (!f || !recipe) return;
+    if (functionId === 'make_canvas' && activeOutput.functionId === 'make_canvas') {
+      const next = applyCanvasDirectionPatch(activeOutput, recipe);
+      updateActiveOutput(next, { renderAffecting: false });
+      openComposition(recipeId, project.title, next.loopCore?.motionIntensity);
+      if (status === 'idle') setStatus('ready');
+      clearStaleRenderResult();
+      return;
+    }
     let patch: Partial<ProjectOutput> = {
       functionId, recipeId, selectedPromoDirectionId: null,
       clipDuration: String(recipe.defaultDurationSec),
@@ -507,6 +516,16 @@ export default function App() {
                   onChange={(e) => updateLoopCore({ motionIntensity: Number(e.target.value) })}
                 />
                 <p className="muted small">Canvas export is silent. Spotify plays this looping video while the song plays separately.</p>
+              </div>
+              <h3>Creative direction</h3>
+              <div className="canvas-direction-panel" aria-label="Canvas creative directions">
+                {styleOptions.map((r) => (
+                  <button key={r.id} className={`canvas-direction-card${r.id === project.recipeId ? ' selected' : ''}`} onClick={() => applyRecipe('make_canvas', r.id)}>
+                    <span className="canvas-direction-name">{r.name}</span>
+                    <span className="canvas-direction-desc">{r.description}</span>
+                    <span className="canvas-direction-state">{r.id === project.recipeId ? 'Using this direction' : 'Try this direction'}</span>
+                  </button>
+                ))}
               </div>
               <h3>Song reference</h3>
               <AudioPanel

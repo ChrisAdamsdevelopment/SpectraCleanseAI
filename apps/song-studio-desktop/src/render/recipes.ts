@@ -13,6 +13,7 @@ export const RECIPES: RenderRecipe[] = [
     category: 'release',
     tags: ['release', 'announcement', 'canvas', 'minimal'],
     platformTargets: ['spotify', 'instagram'],
+    functionIds: ['make_canvas'],
     width: 1080,
     height: 1920,
     fps: 30,
@@ -25,6 +26,53 @@ export const RECIPES: RenderRecipe[] = [
     overlayStyle: 'none',
     colorMood: 'neutral',
     intensity: 0.3,
+  },
+
+  {
+    id: 'cinematic_canvas',
+    name: 'Midnight Frame',
+    description: 'A darker cinematic Canvas loop: larger cover, deeper background, stronger vignette, and bolder release text.',
+    creator: 'Song Studio',
+    version: 1,
+    category: 'canvas',
+    tags: ['canvas', 'cinematic', 'dark', 'release'],
+    platformTargets: ['spotify'],
+    functionIds: ['make_canvas'],
+    width: 1080,
+    height: 1920,
+    fps: 30,
+    defaultDurationSec: 7,
+    audioRequired: false,
+    visualTemplateId: 'canvas_cinematic',
+    motionStyle: 'zoom',
+    backgroundStyle: 'dark-blurred-cover',
+    titleStyle: 'bold',
+    overlayStyle: 'none',
+    colorMood: 'dark',
+    intensity: 0.62,
+  },
+  {
+    id: 'immersive_canvas',
+    name: 'Full Glow',
+    description: 'A bold immersive Canvas loop: oversized cover presence, saturated blurred color, and minimal low text.',
+    creator: 'Song Studio',
+    version: 1,
+    category: 'canvas',
+    tags: ['canvas', 'bold', 'immersive', 'color'],
+    platformTargets: ['spotify'],
+    functionIds: ['make_canvas'],
+    width: 1080,
+    height: 1920,
+    fps: 30,
+    defaultDurationSec: 7,
+    audioRequired: false,
+    visualTemplateId: 'canvas_immersive',
+    motionStyle: 'zoom',
+    backgroundStyle: 'saturated-blurred-cover',
+    titleStyle: 'minimal',
+    overlayStyle: 'none',
+    colorMood: 'bold',
+    intensity: 0.78,
   },
   {
     id: 'vertical_promo',
@@ -127,7 +175,10 @@ export function getFunction(id: string): CreativeFunction | undefined {
   return CREATIVE_FUNCTIONS.find((f) => f.id === id);
 }
 
-/** Recipes (styles) compatible with a creative function (matched by audio mode). */
+/** Recipes (styles) compatible with a creative function.
+ * Exact functionIds win when present so Canvas-only directions do not leak into
+ * other silent/future output types; legacy recipes without functionIds keep the
+ * previous audio-mode compatibility fallback. */
 export function recipesForFunction(fn: CreativeFunction): RenderRecipe[] {
-  return RECIPES.filter((r) => r.audioRequired === fn.audio);
+  return RECIPES.filter((r) => Array.isArray(r.functionIds) ? r.functionIds.includes(fn.id) : r.audioRequired === fn.audio);
 }
