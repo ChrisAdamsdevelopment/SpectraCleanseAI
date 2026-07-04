@@ -1,7 +1,9 @@
 import { open, save } from '@tauri-apps/plugin-dialog';
 import { writeTextFile, readTextFile } from '@tauri-apps/plugin-fs';
+import { parseTime } from '../lib/time';
 import {
-  emptyOutput, emptyReleaseProject, makeOutputId,
+  defaultLoopCore, emptyOutput, emptyReleaseProject, isLoopOutputType, makeOutputId,
+  type LoopAnchorPoint, type LoopContinuityMode, type LoopCore, type LoopVisualStateMarker,
   type OutputLastRender, type OutputStatus, type ProjectAsset, type ProjectAssetRole, type ProjectOutput,
   type ReleaseProject, type SongAnalysis, type SongMoment,
 } from './types';
@@ -69,22 +71,52 @@ function normalizeLastRender(value: unknown): OutputLastRender | null {
   };
 }
 
+function normalizeAnchorPoint(value: unknown): LoopAnchorPoint | null {
+  if (!isRecord(value) || typeof value.timeSec !== 'number' || typeof value.label !== 'string') return null;
+  return { id: typeof value.id === 'string' && value.id ? value.id : makeOutputId(), timeSec: value.timeSec, label: value.label };
+}
+
+function normalizeVisualStateMarker(value: unknown): LoopVisualStateMarker | null {
+  if (!isRecord(value) || typeof value.timeSec !== 'number' || typeof value.label !== 'string') return null;
+  return { id: typeof value.id === 'string' && value.id ? value.id : makeOutputId(), timeSec: value.timeSec, label: value.label };
+}
+
+// UX-005: loopCore is optional/nullable, so files saved before this change
+// load unaffected — a missing or invalid loopCore just normalizes to a fresh
+// default (loop-type outputs) or null (non-loop outputs). loopDurationSec
+// always falls back to the output's own real clip duration, never a
+// hardcoded number, so it can't silently disagree with what will render.
+function normalizeLoopCore(value: unknown, functionId: string, fallbackDurationSec: number): LoopCore | null {
+  if (isRecord(value)) {
+    const loopDurationSec = typeof value.loopDurationSec === 'number' && value.loopDurationSec > 0 ? value.loopDurationSec : fallbackDurationSec;
+    const anchorPoints = Array.isArray(value.anchorPoints) ? value.anchorPoints.map(normalizeAnchorPoint).filter((a): a is LoopAnchorPoint => Boolean(a)) : [];
+    const continuityMode: LoopContinuityMode = value.continuityMode === 'soft-loop' ? 'soft-loop' : 'hard-loop';
+    const motionIntensity = typeof value.motionIntensity === 'number' ? Math.min(1, Math.max(0, value.motionIntensity)) : 0.5;
+    const visualStateMarkers = Array.isArray(value.visualStateMarkers) ? value.visualStateMarkers.map(normalizeVisualStateMarker).filter((m): m is LoopVisualStateMarker => Boolean(m)) : undefined;
+    return { loopDurationSec, anchorPoints, continuityMode, motionIntensity, visualStateMarkers };
+  }
+  return isLoopOutputType(functionId) ? defaultLoopCore(fallbackDurationSec) : null;
+}
+
 function normalizeOutput(value: unknown): ProjectOutput | null {
   if (!isRecord(value)) return null;
   const now = new Date().toISOString();
+  const functionId = typeof value.functionId === 'string' ? value.functionId : 'make_canvas';
+  const clipDuration = typeof value.clipDuration === 'string' ? value.clipDuration : '6';
   return {
     id: typeof value.id === 'string' && value.id ? value.id : makeOutputId(),
     name: typeof value.name === 'string' && value.name ? value.name : 'Output',
-    functionId: typeof value.functionId === 'string' ? value.functionId : 'make_canvas',
+    functionId,
     recipeId: typeof value.recipeId === 'string' ? value.recipeId : 'clean_canvas',
     clipStart: typeof value.clipStart === 'string' ? value.clipStart : '0:00',
-    clipDuration: typeof value.clipDuration === 'string' ? value.clipDuration : '6',
+    clipDuration,
     selectedMomentId: typeof value.selectedMomentId === 'string' ? value.selectedMomentId : null,
     selectedPromoDirectionId: typeof value.selectedPromoDirectionId === 'string' ? value.selectedPromoDirectionId : null,
     status: normalizeOutputStatus(value.status),
     lastRender: normalizeLastRender(value.lastRender),
     createdAt: typeof value.createdAt === 'string' ? value.createdAt : now,
     updatedAt: typeof value.updatedAt === 'string' ? value.updatedAt : now,
+    loopCore: normalizeLoopCore(value.loopCore, functionId, parseTime(clipDuration) ?? 6),
   };
 }
 
@@ -128,11 +160,14 @@ export function normalizeReleaseProject(value: unknown): ReleaseProject {
   // Legacy single-output shape — migrate into one output.
   const functionId = typeof value.functionId === 'string' ? value.functionId : 'make_canvas';
   const recipeId = typeof value.recipeId === 'string' ? value.recipeId : 'clean_canvas';
+  const clipDuration = typeof value.clipDuration === 'string' ? value.clipDuration : '6';
   const selectedMomentId = typeof value.selectedMomentId === 'string' && songAnalysis?.moments.some((m) => m.id === value.selectedMomentId) ? value.selectedMomentId : null;
+  // Pass the REAL migrated duration into emptyOutput so loopCore.loopDurationSec
+  // (if this is a loop-type output) is derived from it, not a placeholder.
   const migratedOutput: ProjectOutput = {
-    ...emptyOutput(functionId, recipeId, 6, LEGACY_FUNCTION_LABELS[functionId] ?? 'Output'),
+    ...emptyOutput(functionId, recipeId, parseTime(clipDuration) ?? 6, LEGACY_FUNCTION_LABELS[functionId] ?? 'Output'),
     clipStart: typeof value.clipStart === 'string' ? value.clipStart : '0:00',
-    clipDuration: typeof value.clipDuration === 'string' ? value.clipDuration : '6',
+    clipDuration,
     selectedMomentId,
     selectedPromoDirectionId: typeof value.selectedPromoDirectionId === 'string' ? value.selectedPromoDirectionId : null,
   };

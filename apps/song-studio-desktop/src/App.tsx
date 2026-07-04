@@ -17,6 +17,7 @@ import type { SongMoment } from './project/types';
 import { StartScreen } from './ui/StartScreen';
 import { ProjectHome } from './ui/ProjectHome';
 import { outputTypeNoun } from './ui/outputTypeLabels';
+import { resolveContextMode } from './ui/contextMode';
 import { buildPromoDirectionCandidates, getSelectedSongMoment, promoDirectionRecipeLabel, type PromoDirectionCandidate } from './promo/directions';
 import { buildExportReview } from './export/review';
 import { buildExportResultSummary } from './export/result';
@@ -71,6 +72,12 @@ export default function App() {
   const selectedMoment = useMemo(() => getSelectedSongMoment(project), [project]);
   const exportReview = useMemo(() => buildExportReview({ project, plan, composition, selectedMoment }), [project, plan, composition, selectedMoment]);
   const exportResult = useMemo(() => result ? buildExportResultSummary({ result, project, plan, selectedMoment }) : null, [result, project, plan, selectedMoment]);
+  // Context Engine v1 (UX-006): App-level only, not propagated to children.
+  // Today only the canvas-edit bottom summary reacts to this — see below.
+  const contextMode = useMemo(
+    () => resolveContextMode({ view, activeOutputFunctionId: activeOutput.functionId, hasLoopCore: Boolean(activeOutput.loopCore), hasExportResult: Boolean(exportResult) }),
+    [view, activeOutput.functionId, activeOutput.loopCore, exportResult],
+  );
   const coverSrc = IS_TAURI && project.coverPath ? safeConvert(project.coverPath) : null;
   const audioSrc = IS_TAURI && project.audioPath ? safeConvert(project.audioPath) : null;
   const selectedLayer = getLayer(composition, selectedId);
@@ -355,6 +362,11 @@ export default function App() {
       <div className="editor-guide">
         <div className="guide-kicker">{releaseProject.title.trim() || 'Untitled project'} <span className="breadcrumb-sep">›</span> {activeOutput.name}</div>
         <h1>Preview this output</h1>
+        {activeOutput.loopCore && (
+          <div className="loop-header">
+            {plan.durationSec}s loop · repeats over full song <span className="breadcrumb-sep">·</span> {activeOutput.loopCore.continuityMode === 'soft-loop' ? 'Soft loop' : 'Hard loop'}
+          </div>
+        )}
       </div>
 
       {/* Main workspace: eye path is Preview -> Current Output -> Song -> Cover art -> Direction -> Advanced. */}
@@ -498,6 +510,16 @@ export default function App() {
             </>
           )}
         </div>
+        {contextMode.mode === 'canvas-edit' && activeOutput.loopCore && (
+          <div className="loop-motion-summary">
+            <span className="loop-motion-kicker">Loop + Motion summary</span>
+            <div className="loop-motion-rows">
+              <span>Loop length <b>{plan.durationSec}s</b></span>
+              <span>Continuity <b>{activeOutput.loopCore.continuityMode === 'soft-loop' ? 'Soft loop' : 'Hard loop'}</b></span>
+              <span>Motion <b>{Math.round(activeOutput.loopCore.motionIntensity * 100)}%</b></span>
+            </div>
+          </div>
+        )}
         <div className="clip">
           {plan.audio && <Field label="Start at" value={project.clipStart} onChange={(v) => updateManualClip({ clipStart: v })} />}
           <Field label="Length (s)" value={project.clipDuration} onChange={(v) => updateManualClip({ clipDuration: v })} />
