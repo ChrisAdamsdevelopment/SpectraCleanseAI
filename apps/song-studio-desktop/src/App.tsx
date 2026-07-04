@@ -10,7 +10,7 @@ import { emptyReleaseProject, emptyOutput, mergeProjectView, type ProjectOutput,
 import { formatTime, parseTime } from './lib/time';
 import { pickAudioFile, pickCoverImage, pickOutputDir, saveReleaseProjectToFile, loadReleaseProjectFromFile, normalizeReleaseProject } from './project/storage';
 import { Preview } from './ui/Preview';
-import { Inspector, type InspectorMode } from './ui/Inspector';
+import { Inspector } from './ui/Inspector';
 import { AudioPanel } from './ui/AudioPanel';
 import { buildSongAnalysis, pickDefaultMoment } from './audio/songMoments';
 import type { SongMoment } from './project/types';
@@ -44,7 +44,6 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [ffmpeg, setFfmpeg] = useState<FfmpegStatus | null>(null);
   const [view, setView] = useState<'start' | 'home' | 'editor' | 'canvas-test-drive'>('start');
-  const [inspectorMode, setInspectorMode] = useState<InspectorMode>('simple');
   const [audioDurationSec, setAudioDurationSec] = useState<number | null>(null);
   // Workspace-clarity v1: advanced editing (output type / look / layers /
   // sliders) is a closed-by-default drawer, not a permanently-open rail.
@@ -424,6 +423,9 @@ export default function App() {
             </div>
           ) : null}
           <div className="muted small">Click or drag an element in the preview to customize it.</div>
+          <div className="quick-edit">
+            <Inspector layer={selectedLayer} section="quick" onChange={onInspectorChange} />
+          </div>
         </div>
 
         <div className="right">
@@ -455,11 +457,7 @@ export default function App() {
                     <span className={`dot${l.visible ? ' on' : ''}`} />{LAYER_LABELS[l.type] ?? l.type}
                   </button>
                 ))}
-                <div className="mode-toggle">
-                  <button className={inspectorMode === 'simple' ? 'on' : ''} onClick={() => setInspectorMode('simple')}>Quick edits</button>
-                  <button className={inspectorMode === 'advanced' ? 'on' : ''} onClick={() => setInspectorMode('advanced')}>More controls</button>
-                </div>
-                <Inspector layer={selectedLayer} mode={inspectorMode} onChange={onInspectorChange} />
+                <Inspector layer={selectedLayer} section="advanced" onChange={onInspectorChange} />
               </div>
             )}
           </div>
@@ -510,7 +508,7 @@ export default function App() {
           </div>
           <span className={`status ${status}`}>● {statusLabel(status)}</span>
           <button className="primary" onClick={render} disabled={!IS_TAURI || busy || !plan.ok}>{busy ? 'Creating MP4…' : 'Create MP4'}</button>
-          <button className="ghost small" onClick={() => setShowLogs((v) => !v)}>{showLogs ? 'Hide details' : 'Details'}</button>
+          <button className="ghost small" onClick={() => setShowLogs((v) => !v)}>{showLogs ? 'Hide render log' : 'Render log'}</button>
         </div>
         {exportResult && (
           <div className={`export-result ${exportResult.status}`}>

@@ -3,21 +3,25 @@ import { LAYER_LABELS } from '../render/composition';
 import { FONT_FAMILIES } from '../lib/fonts';
 import { COLOR_PRESETS, colorName } from '../lib/colors';
 
-export type InspectorMode = 'simple' | 'advanced';
+export type InspectorSection = 'quick' | 'advanced';
 
-// Simple mode shows only the few controls that visibly matter; Advanced reveals
-// the rest. Position is primarily set by dragging in the preview.
-export function Inspector({ layer, mode, onChange }: { layer: Layer | undefined; mode: InspectorMode; onChange: (patch: Partial<Layer>) => void }) {
+// 'quick' = the few controls that visibly matter for the selected element —
+// rendered inline near the preview, always visible once something is
+// selected (position is primarily set by dragging in the preview itself).
+// 'advanced' = deeper, rarer settings — rendered only inside the
+// collapsed-by-default Advanced controls drawer.
+export function Inspector({ layer, section, onChange }: { layer: Layer | undefined; section: InspectorSection; onChange: (patch: Partial<Layer>) => void }) {
   if (!layer) return <div className="inspector"><p className="muted">Click something in the preview to customize it.</p></div>;
-  const adv = mode === 'advanced';
-  return (
-    <div className="inspector">
-      <div className="insp-head">{LAYER_LABELS[layer.type] ?? layer.type}</div>
-      <Toggle label="Visible" value={layer.visible} onChange={(v) => onChange({ visible: v })} />
-      {simpleControls(layer, onChange)}
-      {adv && advancedControls(layer, onChange)}
-    </div>
-  );
+  if (section === 'quick') {
+    return (
+      <div className="inspector">
+        <div className="insp-head">{LAYER_LABELS[layer.type] ?? layer.type}</div>
+        <Toggle label="Visible" value={layer.visible} onChange={(v) => onChange({ visible: v })} />
+        {simpleControls(layer, onChange)}
+      </div>
+    );
+  }
+  return <div className="inspector">{advancedControls(layer, onChange)}</div>;
 }
 
 function simpleControls(layer: Layer, onChange: (patch: Partial<Layer>) => void) {
@@ -61,7 +65,7 @@ function advancedControls(layer: Layer, onChange: (patch: Partial<Layer>) => voi
   switch (layer.type) {
     case 'background': {
       const l = layer as BackgroundLayer;
-      return (<><div className="adv-sep">Advanced</div>
+      return (<><div className="adv-sep">{LAYER_LABELS[layer.type]}: motion &amp; color</div>
         <Range label="Zoom" min={0} max={0.5} step={0.02} value={l.zoom} onChange={(v) => onChange({ zoom: v })} />
         <Range label="Saturation" min={0.4} max={1.6} step={0.05} value={l.saturation} onChange={(v) => onChange({ saturation: v })} />
         {opacity}
@@ -69,7 +73,7 @@ function advancedControls(layer: Layer, onChange: (patch: Partial<Layer>) => voi
     }
     case 'cover_art': {
       const l = layer as CoverLayer;
-      return (<><div className="adv-sep">Advanced</div>
+      return (<><div className="adv-sep">{LAYER_LABELS[layer.type]}: position &amp; shadow</div>
         <Range label="Position X" min={0} max={1} step={0.01} value={l.x} onChange={(v) => onChange({ x: v })} />
         <Range label="Position Y" min={0} max={1} step={0.01} value={l.y} onChange={(v) => onChange({ y: v })} />
         <Range label="Shadow (preview only)" min={0} max={1} step={0.05} value={l.shadow} onChange={(v) => onChange({ shadow: v })} />
@@ -78,7 +82,7 @@ function advancedControls(layer: Layer, onChange: (patch: Partial<Layer>) => voi
     }
     case 'title_text': {
       const l = layer as TitleLayer;
-      return (<><div className="adv-sep">Advanced</div>
+      return (<><div className="adv-sep">{LAYER_LABELS[layer.type]}: position &amp; style</div>
         <Range label="Position X" min={0} max={1} step={0.01} value={l.x} onChange={(v) => onChange({ x: v })} />
         <Range label="Position Y" min={0} max={1} step={0.01} value={l.y} onChange={(v) => onChange({ y: v })} />
         <Select label="Alignment" value={l.align} options={[['left', 'Left'], ['center', 'Center'], ['right', 'Right']]} onChange={(v) => onChange({ align: v as TitleLayer['align'] })} />
@@ -89,7 +93,7 @@ function advancedControls(layer: Layer, onChange: (patch: Partial<Layer>) => voi
     }
     case 'waveform': {
       const l = layer as WaveformLayer;
-      return (<><div className="adv-sep">Advanced</div>
+      return (<><div className="adv-sep">{LAYER_LABELS[layer.type]}: position</div>
         <Range label="Position Y" min={0.3} max={0.95} step={0.01} value={l.y} onChange={(v) => onChange({ y: v })} />
         {opacity}
         <p className="muted small">Preview waveform is approximate; the MP4 uses the real audio waveform.</p>
