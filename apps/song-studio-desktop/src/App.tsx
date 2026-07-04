@@ -7,7 +7,8 @@ import { tauriRenderEngine, getFfmpegStatus } from './render/engine';
 import type { RenderJob, RenderResult, RenderStatus, FfmpegStatus, Composition, Layer } from './render/types';
 import { buildRenderPlan } from './render/plan';
 import {
-  emptyReleaseProject, emptyOutput, mergeProjectView, defaultLoopCore, isLoopOutputType,
+  emptyReleaseProject, emptyOutput, mergeProjectView, isLoopOutputType,
+  loopCoreForOutput,
   type LoopCore, type ProjectOutput, type ReleaseProject, type SongProject,
 } from './project/types';
 import { formatTime, parseTime } from './lib/time';
@@ -88,10 +89,16 @@ export default function App() {
   const touch = () => new Date().toISOString();
   const updateShared = (patch: Partial<Pick<ReleaseProject, 'title' | 'artist' | 'audioPath' | 'coverPath' | 'outputDir' | 'songAnalysis'>>) =>
     setReleaseProject((rp) => ({ ...rp, ...patch, updatedAt: touch() }));
+  const synchronizeLoopDuration = (output: ProjectOutput): ProjectOutput => {
+    if (!output.loopCore || !isLoopOutputType(output.functionId)) return output;
+    const parsedDuration = parseTime(output.clipDuration);
+    if (parsedDuration === null || parsedDuration <= 0 || output.loopCore.loopDurationSec === parsedDuration) return output;
+    return { ...output, loopCore: { ...output.loopCore, loopDurationSec: parsedDuration } };
+  };
   const updateActiveOutput = (patch: Partial<ProjectOutput>) =>
     setReleaseProject((rp) => ({
       ...rp,
-      outputs: rp.outputs.map((o) => (o.id === rp.activeOutputId ? { ...o, ...patch, updatedAt: touch() } : o)),
+      outputs: rp.outputs.map((o) => (o.id === rp.activeOutputId ? synchronizeLoopDuration({ ...o, ...patch, updatedAt: touch() }) : o)),
       updatedAt: touch(),
     }));
 
@@ -141,18 +148,18 @@ export default function App() {
   // just BECAME loop-typed, or null it out when it's no longer loop-typed —
   // so switching output type via "Change output type"/a promo direction never
   // leaves a stale or missing LoopCore behind.
-  function loopCoreFor(functionId: string, recipeDefaultDurationSec: number, existing: LoopCore | null): LoopCore | null {
+  function loopCoreFor(functionId: string, loopDurationSec: number, existing: LoopCore | null): LoopCore | null {
     if (!isLoopOutputType(functionId)) return null;
-    return existing ?? defaultLoopCore(recipeDefaultDurationSec);
+    return loopCoreForOutput(functionId, loopDurationSec, existing);
   }
 
   // UX-007: the Loop workspace's Continuity/Motion controls. Motion genuinely
   // changes what renders (see recipeToComposition's motionIntensity opt) —
   // it re-derives the background zoom from the SAME template baseline used at
   // creation time and applies it to the live composition immediately, so the
-  // Preview updates as the slider moves. Continuity is saved for a future
-  // soft-loop (crossfade) render path that does not exist yet; selecting it
-  // does not change today's render (communicated in the UI, not hidden).
+  // Preview updates as the Zoom Motion slider moves. Continuity is retained
+  // as data-model intent, but Soft Loop is not exposed as an enabled creative
+  // choice until it changes the render.
   function updateLoopCore(patch: Partial<LoopCore>) {
     if (!activeOutput.loopCore) return;
     const nextLoopCore: LoopCore = { ...activeOutput.loopCore, ...patch };
@@ -179,7 +186,7 @@ export default function App() {
     // is picked yet, auto-select a sensible section so the song is always in use.
     if (f.audio && project.audioPath && project.songAnalysis && !activeOutput.selectedMomentId) {
       const def = pickDefaultMoment(project.songAnalysis);
-      if (def) patch = { ...patch, selectedMomentId: def.id, clipStart: formatTime(def.startSec), clipDuration: String(def.durationSec) };
+      if (def) patch = { ...patch, selectedMomentId: def.id, clipStart: formatTime(def.startSec), clipDuration: String(def.durationSec), loopCore: loopCoreFor(functionId, def.durationSec, activeOutput.loopCore) };
     }
     updateActiveOutput(patch);
     openComposition(recipeId, project.title, patch.loopCore?.motionIntensity);
@@ -232,7 +239,7 @@ export default function App() {
     if (!f || !recipe) return;
     const clipStart = f.audio ? (candidate.clipStart ?? activeOutput.clipStart) : '0:00';
     const clipDuration = f.audio ? (candidate.clipDuration ?? activeOutput.clipDuration) : String(recipe.defaultDurationSec);
-    const loopCore = loopCoreFor(candidate.functionId, recipe.defaultDurationSec, activeOutput.loopCore);
+    const loopCore = loopCoreFor(candidate.functionId, parseTime(clipDuration) ?? recipe.defaultDurationSec, activeOutput.loopCore);
     updateActiveOutput({
       functionId: candidate.functionId, recipeId: candidate.recipeId, clipStart, clipDuration,
       selectedMomentId: candidate.momentId ?? activeOutput.selectedMomentId,
@@ -400,7 +407,7 @@ export default function App() {
         <h1>Preview this output</h1>
         {activeOutput.loopCore && (
           <div className="loop-header">
-            {plan.durationSec}s loop · repeats over full song <span className="breadcrumb-sep">·</span> {activeOutput.loopCore.continuityMode === 'soft-loop' ? 'Soft loop' : 'Hard loop'}
+            {plan.durationSec}s silent loop · song reference stays available <span className="breadcrumb-sep">·</span> {activeOutput.loopCore.continuityMode === 'soft-loop' ? 'Soft Loop intent saved, rendering Hard Loop today' : 'Hard Loop'}
           </div>
         )}
       </div>
@@ -422,22 +429,35 @@ export default function App() {
                 <div className="loop-row">
                   <span>Continuity</span>
                   <div className="loop-continuity-toggle">
-                    <button className={activeOutput.loopCore.continuityMode === 'hard-loop' ? 'on' : ''} onClick={() => updateLoopCore({ continuityMode: 'hard-loop' })}>Hard loop</button>
-                    <button className={activeOutput.loopCore.continuityMode === 'soft-loop' ? 'on' : ''} onClick={() => updateLoopCore({ continuityMode: 'soft-loop' })}>Soft loop</button>
+                    <button className={activeOutput.loopCore.continuityMode !== 'soft-loop' ? 'on' : ''} onClick={() => updateLoopCore({ continuityMode: 'hard-loop' })}>Hard Loop</button>
+                    <button disabled title="Coming later: Soft Loop will be enabled when it changes the exported render.">Soft Loop · later</button>
                   </div>
                 </div>
                 {activeOutput.loopCore.continuityMode === 'soft-loop' && (
-                  <p className="muted small">Soft loop (crossfade) is saved for later — rendering is the same as Hard loop today.</p>
+                  <p className="muted small">This project had Soft Loop saved earlier. It is preserved as future intent, but today's render uses the same hard cut as Hard Loop.</p>
                 )}
                 <div className="loop-row">
-                  <span>Motion <b>{Math.round(activeOutput.loopCore.motionIntensity * 100)}%</b></span>
+                  <span>Zoom motion <b>{Math.round(activeOutput.loopCore.motionIntensity * 100)}%</b></span>
                 </div>
                 <input
                   type="range" min={0} max={1} step={0.05} value={activeOutput.loopCore.motionIntensity}
                   onChange={(e) => updateLoopCore({ motionIntensity: Number(e.target.value) })}
                 />
-                <p className="muted small">This loop repeats continuously — Spotify plays it behind your full song, not just once.</p>
+                <p className="muted small">Canvas export is silent. Spotify plays this looping video while the song plays separately.</p>
               </div>
+              <h3>Song reference</h3>
+              <AudioPanel
+                audioSrc={audioSrc}
+                audioName={basename(project.audioPath)}
+                required={false}
+                analysis={project.songAnalysis}
+                selectedMomentId={project.selectedMomentId}
+                onMetadata={onAudioMetadata}
+                onSelectMoment={selectMoment}
+                onUseCurrentTime={(s) => updateManualClip({ clipStart: formatTime(s) })}
+                compact
+                referenceOnly
+              />
             </>
           ) : (
             <>
@@ -498,7 +518,7 @@ export default function App() {
                 <span className="loop-span-marker" style={{ left: '50%' }}><b>Mid</b>{formatTime(plan.durationSec / 2)}</span>
                 <span className="loop-span-marker end" style={{ left: '100%' }}><b>End</b>{formatTime(plan.durationSec)}</span>
               </div>
-              <p className="muted small">This {plan.durationSec}s loop repeats continuously — Spotify plays it behind your full song, not just once.</p>
+              <p className="muted small">This {plan.durationSec}s visual loop repeats continuously. The exported Canvas MP4 is silent; use Song Reference to judge it against the real music.</p>
             </div>
           ) : plan.audio ? (
             selectedMoment ? (

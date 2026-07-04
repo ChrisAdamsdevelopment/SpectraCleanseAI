@@ -105,14 +105,12 @@ export interface ProjectOutput {
 
 // ─────────────────────────────────────────────────────────────────────────
 // Loop Core (UX-005 foundation). Spotify Canvas is a loop-design problem, not
-// a timeline-editing problem: an N-second visual sequence that repeats over
-// the whole song. This is the minimal structural backbone future systems
-// (beat sync, motion mapping, multi-image sequencing) will build on — it is
-// NOT wired into rendering, scoring, or any UI editing surface yet. Today
-// only a lightweight, read-only "Loop Preview Header" (static text) reads
-// continuityMode from it; loopDurationSec for display always comes from the
-// live render plan, never from a copy stored here, so the header can never
-// drift out of sync with what will actually render.
+// a timeline-editing problem: an N-second visual sequence judged against the
+// song but exported as a silent looping MP4. This is the minimal structural
+// backbone future systems (beat sync, motion mapping, multi-image sequencing)
+// will build on. clipDuration is the persisted source of truth for the loop's
+// render duration; app updates and project normalization keep loopDurationSec
+// synchronized as LoopCore metadata so future loop systems have the same value.
 // ─────────────────────────────────────────────────────────────────────────
 
 /** 'hard-loop' cuts directly back to the start frame; 'soft-loop' implies a
@@ -137,7 +135,7 @@ export interface LoopVisualStateMarker {
 }
 
 export interface LoopCore {
-  loopDurationSec: number;                    // seconds; see note above re: display
+  loopDurationSec: number;                    // seconds; synchronized to ProjectOutput.clipDuration
   anchorPoints: LoopAnchorPoint[];             // future beat-sync hook
   continuityMode: LoopContinuityMode;
   motionIntensity: number;                     // 0..1 scalar; future motion-mapping hook
@@ -160,6 +158,13 @@ export function defaultLoopCore(loopDurationSec: number): LoopCore {
 /** Spotify Canvas is currently the only loop-based output type. */
 export function isLoopOutputType(functionId: string): boolean {
   return functionId === 'make_canvas';
+}
+
+/** Authoritative duration rule: ProjectOutput.clipDuration owns the render
+ * duration; LoopCore mirrors that value as loop metadata for Canvas systems. */
+export function loopCoreForOutput(functionId: string, loopDurationSec: number, existing: LoopCore | null): LoopCore | null {
+  if (!isLoopOutputType(functionId)) return null;
+  return existing ? { ...existing, loopDurationSec } : defaultLoopCore(loopDurationSec);
 }
 
 // Reserved for Phase 2 (artist photos, extra images, references, logo). The
