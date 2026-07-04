@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { CREATIVE_FUNCTIONS, getFunction, getRecipe, recipesForFunction } from './render/recipes';
 import { getTemplate } from './render/templates';
@@ -25,6 +25,8 @@ import { resolveContextMode } from './ui/contextMode';
 import { buildPromoDirectionCandidates, getSelectedSongMoment, promoDirectionRecipeLabel, type PromoDirectionCandidate } from './promo/directions';
 import { buildExportReview } from './export/review';
 import { buildExportResultSummary } from './export/result';
+import { applyFailedRender, applySuccessfulRender, canApplyRenderAttempt, invalidateOutputRender, invalidateOutputsForSharedInput, type RenderAttempt, type SharedRenderInput } from './project/renderFreshness';
+import { effectiveOutputState } from './project/readiness';
 import { CanvasTestDrive } from './canvas-ui/CanvasTestDrive';
 
 const IS_TAURI = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in (window as object);
@@ -50,11 +52,14 @@ export default function App() {
   const [ffmpeg, setFfmpeg] = useState<FfmpegStatus | null>(null);
   const [view, setView] = useState<'start' | 'home' | 'editor' | 'canvas-test-drive'>('start');
   const [audioDurationSec, setAudioDurationSec] = useState<number | null>(null);
+  const releaseProjectRef = useRef<ReleaseProject>(releaseProject);
   // Workspace-clarity v1: advanced editing (output type / look / layers /
   // sliders) is a closed-by-default drawer, not a permanently-open rail.
   const [advancedOpen, setAdvancedOpen] = useState(false);
   // The technical review grid is collapsed by default; blockers stay visible.
   const [reviewDetailsOpen, setReviewDetailsOpen] = useState(false);
+
+  useEffect(() => { releaseProjectRef.current = releaseProject; }, [releaseProject]);
 
   // The output currently open in the editor. ReleaseProject.outputs starts
   // empty (no output exists until the user picks a type); the synthetic
@@ -87,20 +92,67 @@ export default function App() {
   const selectedLayer = getLayer(composition, selectedId);
 
   const touch = () => new Date().toISOString();
-  const updateShared = (patch: Partial<Pick<ReleaseProject, 'title' | 'artist' | 'audioPath' | 'coverPath' | 'outputDir' | 'songAnalysis'>>) =>
-    setReleaseProject((rp) => ({ ...rp, ...patch, updatedAt: touch() }));
+  function clearStaleRenderResult() {
+    setResult(null);
+    setCopiedOutputPath(false);
+    if (status === 'success' || status === 'error') setStatus('ready');
+  }
+  function sharedRenderInputFor(patch: Partial<Pick<ReleaseProject, 'title' | 'artist' | 'audioPath' | 'coverPath' | 'outputDir' | 'songAnalysis'>>): SharedRenderInput | null {
+    if ('coverPath' in patch) return 'coverPath';
+    if ('audioPath' in patch) return 'audioPath';
+    if ('title' in patch) return 'title';
+    if ('artist' in patch) return 'artist';
+    if ('outputDir' in patch) return 'outputDir';
+    if ('songAnalysis' in patch) return 'songAnalysis';
+    return null;
+  }
+  const updateShared = (patch: Partial<Pick<ReleaseProject, 'title' | 'artist' | 'audioPath' | 'coverPath' | 'outputDir' | 'songAnalysis'>>) => {
+    const sharedInput = sharedRenderInputFor(patch);
+    setReleaseProject((rp) => {
+      const nextProject = {
+        ...rp,
+        ...patch,
+        outputs: sharedInput ? invalidateOutputsForSharedInput(rp.outputs, sharedInput) : rp.outputs,
+        updatedAt: touch(),
+      };
+      releaseProjectRef.current = nextProject;
+      return nextProject;
+    });
+    if (sharedInput === 'coverPath' || sharedInput === 'audioPath' || sharedInput === 'title') clearStaleRenderResult();
+  };
   const synchronizeLoopDuration = (output: ProjectOutput): ProjectOutput => {
     if (!output.loopCore || !isLoopOutputType(output.functionId)) return output;
     const parsedDuration = parseTime(output.clipDuration);
     if (parsedDuration === null || parsedDuration <= 0 || output.loopCore.loopDurationSec === parsedDuration) return output;
     return { ...output, loopCore: { ...output.loopCore, loopDurationSec: parsedDuration } };
   };
-  const updateActiveOutput = (patch: Partial<ProjectOutput>) =>
-    setReleaseProject((rp) => ({
-      ...rp,
-      outputs: rp.outputs.map((o) => (o.id === rp.activeOutputId ? synchronizeLoopDuration({ ...o, ...patch, updatedAt: touch() }) : o)),
-      updatedAt: touch(),
-    }));
+  const updateActiveOutput = (patch: Partial<ProjectOutput>, options: { renderAffecting?: boolean } = {}) => {
+    setReleaseProject((rp) => {
+      const nextProject = {
+        ...rp,
+        outputs: rp.outputs.map((o) => {
+          if (o.id !== rp.activeOutputId) return o;
+          const next = synchronizeLoopDuration({ ...o, ...patch, updatedAt: touch() });
+          return options.renderAffecting ? invalidateOutputRender(next) : next;
+        }),
+        updatedAt: touch(),
+      };
+      releaseProjectRef.current = nextProject;
+      return nextProject;
+    });
+    if (options.renderAffecting) clearStaleRenderResult();
+  };
+
+  function applyRenderAttemptToOutput(attempt: RenderAttempt, patch: (output: ProjectOutput) => ProjectOutput): boolean {
+    const currentProject = releaseProjectRef.current;
+    const target = currentProject.outputs.find((output) => output.id === attempt.outputId);
+    if (!target || !canApplyRenderAttempt(target, attempt)) return false;
+    const nextOutputs = currentProject.outputs.map((output) => (output.id === attempt.outputId ? patch(output) : output));
+    const nextProject = { ...currentProject, outputs: nextOutputs, updatedAt: touch() };
+    releaseProjectRef.current = nextProject;
+    setReleaseProject(nextProject);
+    return currentProject.activeOutputId === attempt.outputId;
+  }
 
   const refreshSongAnalysis = (base: SongProject, durationSec: number, selectedMomentId: string | null) => {
     if (!base.audioPath) return null;
@@ -115,7 +167,7 @@ export default function App() {
   const updateManualClip = (patch: Partial<Pick<SongProject, 'clipStart' | 'clipDuration'>>) => {
     const clipStart = patch.clipStart ?? activeOutput.clipStart;
     const clipDuration = patch.clipDuration ?? activeOutput.clipDuration;
-    updateActiveOutput({ clipStart, clipDuration, selectedMomentId: null, selectedPromoDirectionId: null });
+    updateActiveOutput({ clipStart, clipDuration, selectedMomentId: null, selectedPromoDirectionId: null }, { renderAffecting: true });
     if (audioDurationSec !== null) {
       updateShared({ songAnalysis: refreshSongAnalysis({ ...project, clipStart, clipDuration }, audioDurationSec, null) });
     }
@@ -163,7 +215,7 @@ export default function App() {
   function updateLoopCore(patch: Partial<LoopCore>) {
     if (!activeOutput.loopCore) return;
     const nextLoopCore: LoopCore = { ...activeOutput.loopCore, ...patch };
-    updateActiveOutput({ loopCore: nextLoopCore });
+    updateActiveOutput({ loopCore: nextLoopCore }, { renderAffecting: typeof patch.motionIntensity === 'number' });
     const recipe = getRecipe(activeOutput.recipeId);
     if (recipe && typeof patch.motionIntensity === 'number') {
       const template = getTemplate(recipe.visualTemplateId);
@@ -188,7 +240,7 @@ export default function App() {
       const def = pickDefaultMoment(project.songAnalysis);
       if (def) patch = { ...patch, selectedMomentId: def.id, clipStart: formatTime(def.startSec), clipDuration: String(def.durationSec), loopCore: loopCoreFor(functionId, def.durationSec, activeOutput.loopCore) };
     }
-    updateActiveOutput(patch);
+    updateActiveOutput(patch, { renderAffecting: true });
     openComposition(recipeId, project.title, patch.loopCore?.motionIntensity);
     if (status === 'idle') setStatus('ready');
   }
@@ -230,7 +282,7 @@ export default function App() {
     setReleaseProject((rp) => ({ ...rp, activeOutputId: outputId }));
     openComposition(output.recipeId, releaseProject.title, output.loopCore?.motionIntensity);
     setResult(null); setShowLogs(false); setLogs([]);
-    setStatus(output.status === 'rendered' ? 'success' : 'ready');
+    setStatus(effectiveOutputState(output) === 'created' ? 'success' : 'ready');
     setView('editor');
   }
 
@@ -245,7 +297,7 @@ export default function App() {
       selectedMomentId: candidate.momentId ?? activeOutput.selectedMomentId,
       selectedPromoDirectionId: candidate.id,
       loopCore,
-    });
+    }, { renderAffecting: true });
     openComposition(candidate.recipeId, project.title, loopCore?.motionIntensity);
     if (status === 'idle') setStatus('ready');
   }
@@ -271,21 +323,23 @@ export default function App() {
       const def = pickDefaultMoment(analysis);
       if (def) {
         updateShared({ songAnalysis: analysis });
-        updateActiveOutput({ selectedMomentId: def.id, clipStart: formatTime(def.startSec), clipDuration: String(def.durationSec) });
+        updateActiveOutput({ selectedMomentId: def.id, clipStart: formatTime(def.startSec), clipDuration: String(def.durationSec) }, { renderAffecting: true });
         return;
       }
     }
     updateShared({ songAnalysis: analysis });
   }
   function selectMoment(moment: SongMoment) {
-    updateActiveOutput({ selectedPromoDirectionId: null, selectedMomentId: moment.id, clipStart: formatTime(moment.startSec), clipDuration: String(moment.durationSec) });
+    updateActiveOutput({ selectedPromoDirectionId: null, selectedMomentId: moment.id, clipStart: formatTime(moment.startSec), clipDuration: String(moment.durationSec) }, { renderAffecting: true });
   }
   function onInspectorChange(patch: Partial<Layer>) {
     setComposition((c) => updateLayer(c, selectedId, patch));
+    updateActiveOutput({}, { renderAffecting: true });
     if (selectedId === 'title_text' && typeof (patch as { text?: string }).text === 'string') updateShared({ title: (patch as { text: string }).text });
   }
   function onMove(id: string, x: number, y: number) {
     setComposition((c) => updateLayer(c, id, { x, y } as Partial<Layer>));
+    updateActiveOutput({}, { renderAffecting: true });
   }
   async function choose(kind: 'audio' | 'cover' | 'output') {
     try {
@@ -303,6 +357,7 @@ export default function App() {
   }
   async function render() {
     if (!plan.ok || !project.coverPath || !project.outputDir) return;
+    const attempt: RenderAttempt = { outputId: activeOutput.id, renderRevision: activeOutput.renderRevision };
     setBusy(true); setStatus('rendering'); setResult(null); setCopiedOutputPath(false); setLogs([]); setShowLogs(true);
     const outputPath = joinPath(project.outputDir, plan.outputName);
     const job: RenderJob = {
@@ -313,18 +368,26 @@ export default function App() {
     addLog(`[render] ${plan.functionLabel} · ${plan.recipeName} -> ${outputPath}`);
     try {
       const res = await tauriRenderEngine.render(job, addLog);
-      setResult(res); setStatus(res.ok ? 'success' : 'error'); setShowLogs(!res.ok);
       addLog(res.ok ? `[render] success (${res.bytes ?? 0} bytes)` : `[render] failed: ${res.error}`);
-      // Record the result back onto the active output so it survives switching
-      // to a different output and reloading the saved project.
-      updateActiveOutput({
-        status: res.ok ? 'rendered' : 'error',
-        lastRender: res.ok ? { outputPath, bytes: res.bytes, renderedAt: new Date().toISOString() } : activeOutput.lastRender,
-      });
+      const shouldShowResult = applyRenderAttemptToOutput(attempt, (output) => (res.ok
+        ? applySuccessfulRender(output, { outputPath, bytes: res.bytes, renderedAt: new Date().toISOString() })
+        : applyFailedRender(output)));
+      if (shouldShowResult) {
+        setResult(res); setStatus(res.ok ? 'success' : 'error'); setShowLogs(!res.ok);
+      } else {
+        setResult(null); setStatus('ready'); setShowLogs(false);
+        addLog('[render] completed for an older Output state; keeping the current Output draft.');
+      }
     } catch (e) {
       const m = e instanceof Error ? e.message : String(e);
-      setResult({ ok: false, error: m }); setStatus('error'); addLog(`[render] error: ${m}`);
-      updateActiveOutput({ status: 'error' });
+      const res: RenderResult = { ok: false, error: m };
+      addLog(`[render] error: ${m}`);
+      const shouldShowResult = applyRenderAttemptToOutput(attempt, (output) => applyFailedRender(output));
+      if (shouldShowResult) {
+        setResult(res); setStatus('error'); setShowLogs(true);
+      } else {
+        setResult(null); setStatus('ready'); setShowLogs(false);
+      }
     } finally { setBusy(false); }
   }
   function clearExportResult() {

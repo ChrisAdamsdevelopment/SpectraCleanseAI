@@ -114,6 +114,7 @@ function normalizeOutput(value: unknown): ProjectOutput | null {
     selectedPromoDirectionId: typeof value.selectedPromoDirectionId === 'string' ? value.selectedPromoDirectionId : null,
     status: normalizeOutputStatus(value.status),
     lastRender: normalizeLastRender(value.lastRender),
+    renderRevision: typeof value.renderRevision === 'number' && Number.isFinite(value.renderRevision) ? Math.max(0, Math.floor(value.renderRevision)) : 0,
     createdAt: typeof value.createdAt === 'string' ? value.createdAt : now,
     updatedAt: typeof value.updatedAt === 'string' ? value.updatedAt : now,
     loopCore: normalizeLoopCore(value.loopCore, functionId, parseTime(clipDuration) ?? 6),
