@@ -366,3 +366,5 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 .output-variants { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; }
 .output-status.not-started { color: var(--muted); border-color: var(--border); }
 @media (max-width: 720px) { .readiness-panel, .readiness-stats { grid-template-columns: 1fr; } }
+
+.other-outputs { margin-top: 14px; }

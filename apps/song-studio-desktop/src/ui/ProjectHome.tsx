@@ -110,6 +110,19 @@ export function ProjectHome({
               />
             ))}
           </div>
+          {readiness.unmatchedOutputs.length > 0 && (
+            <div className="other-outputs">
+              <div className="home-section-heading">
+                <h3>Other saved Outputs</h3>
+                <p>Saved work from this project that Song Studio still keeps available to open.</p>
+              </div>
+              <div className="output-variants">
+                {readiness.unmatchedOutputs.map((output) => (
+                  <OutputCard key={output.id} output={output} onOpen={() => onOpenOutput(output.id)} />
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -155,20 +168,15 @@ function OutputCard({ output, onOpen }: { output: ProjectOutput; onOpen: () => v
     <button className="output-card" onClick={onOpen}>
       <div className="output-card-top">
         <b>{output.name}</b>
-        <span className={`output-status ${output.status}`}>{statusLabel(output.status)}</span>
+        <span className={`output-status ${readinessStatusClass(effectiveOutputState(output))}`}>{readinessStatusLabel(effectiveOutputState(output))}</span>
       </div>
       <div className="output-card-type">{outputTypeNoun(output.functionId, fn?.label ?? output.functionId)}</div>
-      <div className="output-card-render">{output.lastRender ? renderSummary(output.lastRender) : 'Not created yet'}</div>
+      <div className="output-card-render">{effectiveOutputState(output) === 'created' && output.lastRender ? renderSummary(output.lastRender) : 'Not created yet'}</div>
       <span className="output-card-open">Open</span>
     </button>
   );
 }
 
-function statusLabel(status: ProjectOutput['status']): string {
-  if (status === 'rendered') return 'Created';
-  if (status === 'error') return 'Needs attention';
-  return 'Draft';
-}
 
 function renderSummary(lastRender: NonNullable<ProjectOutput['lastRender']>): string {
   const size = typeof lastRender.bytes === 'number' ? `${Math.max(1, Math.round(lastRender.bytes / 1024))} KB` : '';

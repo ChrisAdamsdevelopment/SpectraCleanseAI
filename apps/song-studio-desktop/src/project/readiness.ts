@@ -37,6 +37,7 @@ export interface ReleaseReadiness {
   supportedOutputTypes: number;
   unstartedOutputTypes: number;
   outputTypes: OutputTypeReadiness[];
+  unmatchedOutputs: ProjectOutput[];
   nextAction: ReleaseNextAction;
 }
 
@@ -45,6 +46,8 @@ export function deriveReleaseReadiness(project: ReleaseProject): ReleaseReadines
   const hasCover = Boolean(project.coverPath);
   const outputs = project.outputs;
   const outputStates = outputs.map((output) => ({ output, state: effectiveOutputState(output) }));
+  const supportedFunctionIds = new Set(CREATIVE_FUNCTIONS.map((fn) => fn.id));
+  const unmatchedOutputs = outputs.filter((output) => !supportedFunctionIds.has(output.functionId));
   const outputTypes = CREATIVE_FUNCTIONS.map((fn): OutputTypeReadiness => {
     const matchingStates = outputStates.filter(({ output }) => output.functionId === fn.id);
     const matching = matchingStates.map(({ output }) => output);
@@ -81,6 +84,7 @@ export function deriveReleaseReadiness(project: ReleaseProject): ReleaseReadines
     supportedOutputTypes: CREATIVE_FUNCTIONS.length,
     unstartedOutputTypes: outputTypes.filter((type) => type.state === 'not-started').length,
     outputTypes,
+    unmatchedOutputs,
     nextAction: !hasSong ? {
       kind: 'add-song', title: 'Add your song', detail: 'Start with the finished track this release project will promote.',
     } : !hasCover ? {

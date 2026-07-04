@@ -78,6 +78,32 @@ assert.equal(mixedType.nextAction.kind, 'fix-output');
 assert.equal(mixedType.nextAction.outputId, mixedError.id);
 assert.equal(outputActionLabel(mixedError), 'Fix Output');
 
+
+const legacyCreated = rendered(emptyOutput('legacy_saved_output', 'legacy_recipe', 12, 'Legacy created Output'));
+const legacyCreatedReadiness = deriveReleaseReadiness(project({ audioPath: '/music/song.wav', coverPath: '/art/cover.png', outputs: [legacyCreated] }));
+assert.equal(legacyCreatedReadiness.supportedOutputTypes, CREATIVE_FUNCTIONS.length);
+assert.equal(legacyCreatedReadiness.unstartedOutputTypes, legacyCreatedReadiness.supportedOutputTypes);
+assert.equal(legacyCreatedReadiness.outputTypes.every((type) => type.outputs.length === 0), true);
+assert.equal(legacyCreatedReadiness.unmatchedOutputs.length, 1);
+assert.equal(legacyCreatedReadiness.unmatchedOutputs[0].id, legacyCreated.id);
+assert.equal(legacyCreatedReadiness.totalOutputs, 1);
+assert.equal(legacyCreatedReadiness.createdOutputs, 1);
+assert.equal(outputActionLabel(legacyCreatedReadiness.unmatchedOutputs[0]), 'Open');
+
+const legacyError = { ...emptyOutput('legacy_saved_output', 'legacy_recipe', 12, 'Legacy error Output'), status: 'error' as const };
+const legacyErrorReadiness = deriveReleaseReadiness(project({ audioPath: '/music/song.wav', coverPath: '/art/cover.png', outputs: [legacyError] }));
+assert.equal(legacyErrorReadiness.unmatchedOutputs[0].id, legacyError.id);
+assert.equal(legacyErrorReadiness.needsAttentionOutputs, 1);
+assert.equal(legacyErrorReadiness.nextAction.kind, 'fix-output');
+assert.equal(legacyErrorReadiness.nextAction.outputId, legacyError.id);
+
+const legacyDraft = emptyOutput('legacy_saved_output', 'legacy_recipe', 12, 'Legacy draft Output');
+const legacyDraftReadiness = deriveReleaseReadiness(project({ audioPath: '/music/song.wav', coverPath: '/art/cover.png', outputs: [legacyDraft] }));
+assert.equal(legacyDraftReadiness.unmatchedOutputs[0].id, legacyDraft.id);
+assert.equal(legacyDraftReadiness.draftOutputs, 1);
+assert.equal(legacyDraftReadiness.nextAction.kind, 'continue-output');
+assert.equal(legacyDraftReadiness.nextAction.outputId, legacyDraft.id);
+
 const allCreated = deriveReleaseReadiness(project({ audioPath: '/music/song.wav', coverPath: '/art/cover.png', outputs: [createdCanvas, rendered(errorOutput), visualizer] }));
 assert.equal(allCreated.unstartedOutputTypes, 0);
 assert.equal(allCreated.nextAction.kind, 'review-or-variant');
