@@ -10,6 +10,7 @@ import { invalidateOutputRender } from './renderFreshness';
  * context, and loop duration.
  */
 export function applyCanvasDirectionPatch(output: ProjectOutput, recipe: RenderRecipe): ProjectOutput {
+  if (output.recipeId === recipe.id) return output;
   const durationSec = parseTime(output.clipDuration) ?? recipe.defaultDurationSec;
   const next: ProjectOutput = {
     ...output,

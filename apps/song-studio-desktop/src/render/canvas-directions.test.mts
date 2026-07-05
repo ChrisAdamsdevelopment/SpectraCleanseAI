@@ -6,6 +6,7 @@ import type { BackgroundLayer, CoverLayer, TitleLayer, EffectLayer } from './typ
 import { emptyOutput, type ProjectOutput } from '../project/types';
 import { applyCanvasDirectionPatch } from '../project/canvasDirections';
 import { applySuccessfulRender } from '../project/renderFreshness';
+import { effectiveOutputState } from '../project/readiness';
 import { normalizeReleaseProject } from '../project/storage';
 
 const canvasFunction = getFunction('make_canvas')!;
@@ -42,13 +43,21 @@ const signatures = canvasRecipes.map((recipe) => {
 assert.equal(new Set(signatures).size, canvasRecipes.length, 'Canvas directions must differ by render-backed composition values');
 
 const rendered: ProjectOutput = applySuccessfulRender({
-  ...emptyOutput('make_canvas', 'clean_canvas', 7, 'Canvas'),
+  ...emptyOutput('make_canvas', 'cinematic_canvas', 7, 'Canvas'),
   id: 'canvas-output',
   clipDuration: '9',
   selectedMomentId: 'hook-a',
 }, { outputPath: '/tmp/canvas.mp4', bytes: 12, renderedAt: '2026-07-04T00:00:00.000Z' });
-const switched = applyCanvasDirectionPatch(rendered, getRecipe('cinematic_canvas')!);
+const noOp = applyCanvasDirectionPatch(rendered, getRecipe('cinematic_canvas')!);
+assert.equal(noOp.recipeId, 'cinematic_canvas');
+assert.equal(noOp.status, 'rendered');
+assert.equal(effectiveOutputState(noOp), 'created');
+assert.equal(noOp.lastRender, rendered.lastRender);
+assert.equal(noOp.renderRevision, rendered.renderRevision);
+
+const switched = applyCanvasDirectionPatch(rendered, getRecipe('immersive_canvas')!);
 assert.equal(switched.id, rendered.id);
+assert.equal(switched.recipeId, 'immersive_canvas');
 assert.equal(switched.clipDuration, '9');
 assert.equal(switched.loopCore?.loopDurationSec, 9);
 assert.equal(switched.selectedMomentId, 'hook-a');
@@ -62,8 +71,8 @@ const reopened = normalizeReleaseProject({
   outputs: [switched],
   activeOutputId: switched.id,
 });
-assert.equal(reopened.outputs[0].recipeId, 'cinematic_canvas');
+assert.equal(reopened.outputs[0].recipeId, 'immersive_canvas');
 assert.equal(reopened.outputs[0].clipDuration, '9');
 assert.equal(reopened.outputs[0].loopCore?.loopDurationSec, 9);
 
-console.log('[canvas-directions] PASS — Canvas direction availability, output-type safety, render-backed distinctness, state preservation, render freshness, and persistence verified.');
+console.log('[canvas-directions] PASS — Canvas direction availability, output-type safety, render-backed distinctness, state preservation, no-op safety, render freshness, and persistence verified.');

@@ -229,6 +229,7 @@ export default function App() {
   function applyRecipe(functionId: string, recipeId: string) {
     const f = getFunction(functionId); const recipe = getRecipe(recipeId);
     if (!f || !recipe) return;
+    if (functionId === 'make_canvas' && activeOutput.functionId === 'make_canvas' && activeOutput.recipeId === recipeId) return;
     if (functionId === 'make_canvas' && activeOutput.functionId === 'make_canvas') {
       const next = applyCanvasDirectionPatch(activeOutput, recipe);
       updateActiveOutput(next, { renderAffecting: false });
@@ -520,7 +521,7 @@ export default function App() {
               <h3>Creative direction</h3>
               <div className="canvas-direction-panel" aria-label="Canvas creative directions">
                 {styleOptions.map((r) => (
-                  <button key={r.id} className={`canvas-direction-card${r.id === project.recipeId ? ' selected' : ''}`} onClick={() => applyRecipe('make_canvas', r.id)}>
+                  <button key={r.id} className={`canvas-direction-card${r.id === project.recipeId ? ' selected' : ''}`} aria-pressed={r.id === project.recipeId} onClick={() => applyRecipe('make_canvas', r.id)}>
                     <span className="canvas-direction-name">{r.name}</span>
                     <span className="canvas-direction-desc">{r.description}</span>
                     <span className="canvas-direction-state">{r.id === project.recipeId ? 'Using this direction' : 'Try this direction'}</span>
