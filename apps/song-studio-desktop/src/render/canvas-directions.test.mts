@@ -45,6 +45,7 @@ assert.equal(new Set(signatures).size, canvasRecipes.length, 'Canvas directions 
 const rendered: ProjectOutput = applySuccessfulRender({
   ...emptyOutput('make_canvas', 'cinematic_canvas', 7, 'Canvas'),
   id: 'canvas-output',
+  clipStart: '0:42',
   clipDuration: '9',
   selectedMomentId: 'hook-a',
 }, { outputPath: '/tmp/canvas.mp4', bytes: 12, renderedAt: '2026-07-04T00:00:00.000Z' });
@@ -54,11 +55,14 @@ assert.equal(noOp.status, 'rendered');
 assert.equal(effectiveOutputState(noOp), 'created');
 assert.equal(noOp.lastRender, rendered.lastRender);
 assert.equal(noOp.renderRevision, rendered.renderRevision);
+assert.equal(noOp.selectedMomentId, 'hook-a');
+assert.equal(noOp.clipStart, '0:42');
 
 const switched = applyCanvasDirectionPatch(rendered, getRecipe('immersive_canvas')!);
 assert.equal(switched.id, rendered.id);
 assert.equal(switched.recipeId, 'immersive_canvas');
 assert.equal(switched.clipDuration, '9');
+assert.equal(switched.clipStart, '0:42');
 assert.equal(switched.loopCore?.loopDurationSec, 9);
 assert.equal(switched.selectedMomentId, 'hook-a');
 assert.equal(switched.status, 'draft');
@@ -73,6 +77,8 @@ const reopened = normalizeReleaseProject({
 });
 assert.equal(reopened.outputs[0].recipeId, 'immersive_canvas');
 assert.equal(reopened.outputs[0].clipDuration, '9');
+assert.equal(reopened.outputs[0].clipStart, '0:42');
+assert.equal(reopened.outputs[0].selectedMomentId, 'hook-a');
 assert.equal(reopened.outputs[0].loopCore?.loopDurationSec, 9);
 
 console.log('[canvas-directions] PASS — Canvas direction availability, output-type safety, render-backed distinctness, state preservation, no-op safety, render freshness, and persistence verified.');

@@ -17,7 +17,6 @@ export function applyCanvasDirectionPatch(output: ProjectOutput, recipe: RenderR
     functionId: 'make_canvas',
     recipeId: recipe.id,
     selectedPromoDirectionId: null,
-    clipStart: '0:00',
     loopCore: loopCoreForOutput('make_canvas', durationSec, output.loopCore),
     updatedAt: new Date().toISOString(),
   };
