@@ -50,6 +50,13 @@ Song Studio needs time-based control, but must not expose a professional editing
 
 A traditional editing timeline centers clips, tracks, frames, keyframes, easing curves, and manual transitions. The Song Studio directing timeline centers the real song, meaningful song regions, people, identities, visual ingredients, references, importance, creative intention, what belongs where, what should change, what must remain, and what can be invented.
 
+
+## Simple interface / powerful outcome doctrine
+
+Do not avoid powerful outcomes. Avoid powerful interfaces.
+
+Song Studio may need sophisticated time, music analysis, scene planning, generation, compositing, identity control, and revision systems. The creator should not be forced to operate those systems at professional-editor complexity. This does not mean hiding all control: the creator needs meaningful control over the decisions that matter, expressed through progressive disclosure and causal directing choices.
+
 ## Anti-drift rules
 
 - Owner examples are not specifications unless explicitly stated. Ask what general capability an example reveals.

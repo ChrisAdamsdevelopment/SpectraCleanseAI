@@ -40,7 +40,27 @@ No story type is exempt from parent capability, parent epic/system, North Star c
 - BLOCKED: cannot proceed.
 - SUPERSEDED: replaced by a newer decision or story.
 
-PR merged is not Owner Accepted. User-facing work should not be called Owner Accepted without owner testing. Historical work may be superseded without rewriting history.
+PR merged is not Owner Accepted. User-facing work should not be called Owner Accepted without owner testing. Historical work may be superseded without rewriting history. EXECUTED is not VERIFIED; PR OPEN is not VERIFIED.
+
+## Owner approval gate
+
+Owner approval is required before coding, unless the owner has already explicitly approved the exact story outcome, for at least:
+
+- new user-facing features
+- new creator-facing controls
+- new screens, panels, or workspaces
+- major UX flow changes
+- hiding or deleting visible behavior
+- changes to what the creator is supposed to do
+- provider, API, cloud, or paid integrations
+- generation-credit or billing behavior
+- major dependency additions
+- major architecture changes
+- primary product-direction changes
+- destructive cleanup of relevant existing work
+- merging user-facing or major architecture work
+
+Agents may use reasonable discretion for implementation details inside approved acceptance criteria, minor wording improvements inside approved scope, small tests, formatting, and non-directional bug fixes. All changes must still be reported. This gate exists to stop agents from self-authorizing product direction, not to require owner approval for every trivial line of code.
 
 ## Required story fields
 
@@ -107,6 +127,29 @@ Review agents should not create competing implementation branches by default.
 10. Merge occurs only after explicit owner authorization.
 
 If no real repo change, branch, commit, or reviewable output can be produced, return `BLOCKED:` as the first line.
+
+## Proof rules
+
+A chat summary is not proof that repo work happened. Proof means appropriate evidence such as:
+
+- branch/ref
+- commit SHA
+- real PR
+- changed-file list
+- actual diff inspection
+- checks
+- screenshots or manual UI test notes
+- owner test result
+- committed docs/code
+
+Clarifications:
+
+- EXECUTED means an agent returned work and evidence; it does not mean the work has been independently verified.
+- PR OPEN means a real PR exists; it is not VERIFIED.
+- VERIFIED requires ChatGPT or another reviewer to inspect actual repo evidence, not only the agent's summary.
+- MERGED is not OWNER ACCEPTED.
+- User-facing acceptance requires owner test/approval unless explicitly accepted another way.
+- Capability maturity must be supported by evidence from landed repo work and/or owner acceptance as defined by the maturity level.
 
 ## Definition of Done
 

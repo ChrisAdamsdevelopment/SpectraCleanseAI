@@ -18,7 +18,8 @@
 - LoopCore contains future-facing loop concepts. Some motion intensity affects current zoom, but anchor points and visual-state markers are not a real directed-video or loop-intelligence engine.
 - Current Composition/RenderJob is fundamentally a deterministic layer stack with one primary `imagePath`, optional audio, text, waveform, and template-derived visuals.
 - ProjectAsset roles are persisted but do not yet drive creative generation, scene assignment, identity conditioning, or rendering.
-- Current Canvas creative directions are useful proof that a few strong creative choices are better than many technical controls, but they are not proof of modern generated video.
+- On `main`, Canvas/promo direction behavior is limited to landed selector/workflow foundations and deterministic recipe/template output paths. It should not be read as a landed three-direction creative system.
+- Open PR #88 appears to add Canvas creative-direction behavior and tests; if verified, it remains useful evidence of the “few strong directions before technical controls” interaction model. Because PR #88 is open/unmerged, it does not increase landed capability maturity and is not proof of real modern video generation.
 
 ## Not built
 
@@ -34,7 +35,7 @@
 
 ## PR #88 status
 
-PR #88 was accessible through GitHub pull refs at audit time. Its head ref changed runtime app files, package metadata, tests, and `docs/ai-scrum/ux-009-canvas-creative-directions.md`. It appears to be Canvas creative-directions work. This SCRUM-002 branch was started from `origin/main`, did not branch from PR #88, and does not modify PR #88.
+PR #88 was accessible through GitHub pull refs at audit time. Its head ref changed runtime app files, package metadata, tests, and `docs/ai-scrum/ux-009-canvas-creative-directions.md`; the diff appears to add Canvas creative-direction behavior. PR #88 is open/unmerged, was not used as the base for SCRUM-002, and is not modified here. Do not count PR #88 as landed maturity evidence until it merges.
 
 ## Historical docs that could mislead agents
 
@@ -47,7 +48,7 @@ PR #88 was accessible through GitHub pull refs at audit time. Its head ref chang
 ### SCRUM-002 — Rebuild Song Studio product hierarchy, source of truth, and multi-agent work system
 
 - Work-item type: Process Story.
-- Status: EXECUTED after this documentation pass; not owner accepted until reviewed.
+- Status: PR OPEN in PR #89; not VERIFIED and not OWNER ACCEPTED. ChatGPT reviewed the actual diff and requested this correction pass.
 - Parent North Star: NS-001.
 - Parent capability: process support across CAP-01 through CAP-09.
 - Completion target: Owner-Accepted Process System.

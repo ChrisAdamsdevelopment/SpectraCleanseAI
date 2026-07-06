@@ -23,7 +23,7 @@ Historical story docs are evidence, not current product authority. Newer owner-a
 ## Current work
 
 - `SCRUM-002` — Rebuild Song Studio product hierarchy, source of truth, and multi-agent work system.
-- Status in this repo after the documentation pass: `EXECUTED` until reviewed; owner acceptance is still required.
+- Status in PR #89: `PR OPEN`; not `VERIFIED` and not `OWNER ACCEPTED` until review/acceptance occur.
 - Completion target: Owner-Accepted Process System.
 
 ## Canonical docs
