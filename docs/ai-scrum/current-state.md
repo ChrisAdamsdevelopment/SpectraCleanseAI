@@ -48,7 +48,7 @@ PR #88 was accessible through GitHub pull refs at audit time. Its head ref chang
 ### SCRUM-002 — Rebuild Song Studio product hierarchy, source of truth, and multi-agent work system
 
 - Work-item type: Process Story.
-- Status: PR OPEN in PR #89; not VERIFIED and not OWNER ACCEPTED. ChatGPT reviewed the actual diff and requested this correction pass.
+- Status: PR OPEN in PR #89; Correction Pass 1 is landed, final source-of-truth alignment is under review, and the work is not VERIFIED or OWNER ACCEPTED.
 - Parent North Star: NS-001.
 - Parent capability: process support across CAP-01 through CAP-09.
 - Completion target: Owner-Accepted Process System.

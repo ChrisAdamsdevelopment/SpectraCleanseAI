@@ -122,11 +122,12 @@ Review agents should not create competing implementation branches by default.
 5. Owner brings the summary to ChatGPT.
 6. ChatGPT decides whether the user should click Create PR.
 7. After Create PR, ChatGPT inspects the actual PR.
-8. Corrections update the same PR branch.
-9. ChatGPT decides whether Update PR is ready.
-10. Merge occurs only after explicit owner authorization.
+8. Corrections should update the same PR branch when the current Codex UI/environment supports Update PR or pushing to that branch.
+9. If remote update capability is unavailable, do not pretend the PR was updated and do not create a competing PR by default. Report the local correction commit, branch, patch evidence, and remote-update limitation so the owner can use the platform's supported Update PR / branch update flow.
+10. ChatGPT verifies the actual remote PR head after the remote update occurs.
+11. Merge occurs only after explicit owner authorization.
 
-If no real repo change, branch, commit, or reviewable output can be produced, return `BLOCKED:` as the first line.
+Never claim an existing PR was updated until the remote GitHub head actually changed. If no real repo change, branch, commit, or reviewable output can be produced, return `BLOCKED:` as the first line.
 
 ## Proof rules
 
