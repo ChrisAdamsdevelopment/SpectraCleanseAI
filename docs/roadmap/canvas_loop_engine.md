@@ -1,5 +1,7 @@
 # Canvas Loop Engine Roadmap
 
+> **Current-authority notice (SCRUM-002, 2026-07-06):** This roadmap is preserved as internal Canvas Loop Lab history/research. It is not the current overall Song Studio product roadmap and must not override the directed-release-video North Star in `docs/ai-scrum/product-north-star.md`.
+
 _Last updated: 2026-06-27._
 
 > **Scope note (added by UX-007, see `docs/ai-scrum/ux-007-canvas-loop-composer.md`):**

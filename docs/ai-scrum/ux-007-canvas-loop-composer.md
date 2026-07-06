@@ -1,5 +1,7 @@
 # UX-007 — First Real Creative Workflow: Contextual Workspace + Canvas Loop Composer
 
+> **Historical story notice (SCRUM-002, 2026-07-06):** This file is preserved as evidence of prior work. It is not current product authority; start with `docs/ai-scrum/START_HERE.md` for active doctrine, branch rules, and work hierarchy.
+
 Story ID: UX-007
 Story title: Contextual Workspace + Canvas Loop Composer (discovery + implementation pass)
 Status: EXECUTED — OWNER ACCEPTANCE REQUIRED (user-facing; owner must test the running Tauri app)

@@ -1,5 +1,7 @@
 # Product Definition: Song-Centered Artist Content Studio
 
+> **Current-authority notice (SCRUM-002, 2026-07-06):** This document is preserved as historical pivot context. It is not the current Song Studio product authority. Current doctrine lives in `docs/ai-scrum/START_HERE.md`, `docs/ai-scrum/product-north-star.md`, `docs/ai-scrum/product-outcome-tree.md`, and `docs/ai-scrum/current-state.md`. Where this document conflicts with the directed-release-video doctrine, the SCRUM-002 AI Scrum docs supersede it.
+
 ## Project background
 
 SpectraCleanse AI currently focuses on release-readiness workflows: inspecting uploaded audio/video files, removing problematic provenance or metadata markers, injecting platform-oriented metadata, and helping creators prepare files for distribution. That work remains valuable, but it is not the full creative workflow artists repeatedly need after a song exists.
