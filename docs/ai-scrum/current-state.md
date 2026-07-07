@@ -16,6 +16,7 @@
 
 - `SongAnalysis` is duration-heuristic: `buildSongAnalysis` estimates moments from duration and optional manual selection. It is not real song-structure or musical-intent understanding.
 - LoopCore contains future-facing loop concepts. Some motion intensity affects current zoom, but anchor points and visual-state markers are not a real directed-video or loop-intelligence engine.
+- An internal Canvas Loop Lab exists under `apps/song-studio-desktop/src/canvas/` with real loop-analysis/scoring-oriented machinery, but it is disconnected from the current creator-facing render path, is not the overall product roadmap, and must not be mistaken for the directed-video engine.
 - Current Composition/RenderJob is fundamentally a deterministic layer stack with one primary `imagePath`, optional audio, text, waveform, and template-derived visuals.
 - ProjectAsset roles are persisted but do not yet drive creative generation, scene assignment, identity conditioning, or rendering.
 - On `main`, Canvas/promo direction behavior is limited to landed selector/workflow foundations and deterministic recipe/template output paths. It should not be read as a landed three-direction creative system.
@@ -48,7 +49,7 @@ PR #88 was accessible through GitHub pull refs at audit time. Its head ref chang
 ### SCRUM-002 — Rebuild Song Studio product hierarchy, source of truth, and multi-agent work system
 
 - Work-item type: Process Story.
-- Status: PR OPEN in PR #89; Correction Pass 1 is landed, final source-of-truth alignment is under review, and the work is not VERIFIED or OWNER ACCEPTED.
+- Delivery record: PR #89. Verify the current GitHub lifecycle state from the PR. Merge does not imply OWNER ACCEPTED; owner acceptance of this process system remains explicit.
 - Parent North Star: NS-001.
 - Parent capability: process support across CAP-01 through CAP-09.
 - Completion target: Owner-Accepted Process System.

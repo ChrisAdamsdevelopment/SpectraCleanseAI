@@ -23,7 +23,7 @@ Historical story docs are evidence, not current product authority. Newer owner-a
 ## Current work
 
 - `SCRUM-002` — Rebuild Song Studio product hierarchy, source of truth, and multi-agent work system.
-- Status in PR #89: `PR OPEN`; not `VERIFIED` and not `OWNER ACCEPTED` until review/acceptance occur.
+- Delivery record: PR #89. Verify the current GitHub lifecycle state from the PR. Merge does not imply `OWNER ACCEPTED`; owner acceptance of the process system remains explicit.
 - Completion target: Owner-Accepted Process System.
 
 ## Canonical docs
