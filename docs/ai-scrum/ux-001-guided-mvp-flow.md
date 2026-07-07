@@ -1,5 +1,7 @@
 # UX-001 — Guided MVP first-run flow
 
+> **Historical story notice (SCRUM-002, 2026-07-06):** This file is preserved as evidence of prior work. It is not current product authority; start with `docs/ai-scrum/START_HERE.md` for active doctrine, branch rules, and work hierarchy.
+
 Story ID: UX-001  
 Story title: Guided MVP first-run flow  
 Status: PROPOSED — OWNER REVIEW NEEDED BEFORE IMPLEMENTATION  

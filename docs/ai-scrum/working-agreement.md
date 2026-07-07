@@ -1,306 +1,159 @@
-# AI Scrum Working Agreement
+# AI Scrum Working Agreement — Song Studio Desktop
 
-Story ID: SCRUM-001  
-Story title: Lightweight working agreement and source-of-truth setup  
-Status: OWNER APPROVED / READY TO RECORD IN REPO  
-Completion level: Owner-Accepted Process Rule
+## Purpose
 
-## 1. Product North Star
+This is the durable work-management system for Song Studio Desktop. It aligns ChatGPT, Claude, Codex, future agents, and humans on product authority, hierarchy, proof, review, and acceptance.
 
-The active product is Song Studio Desktop, a desktop-first, local-first, song-first app under `apps/song-studio-desktop/`.
+## Product authority
 
-Song Studio Desktop turns finished songs into short-form promotional content. The product flow is: finished song -> choose or define a song moment -> audition visual direction -> adjust naturally -> export content worth posting.
+Start every major Song Studio task with `docs/ai-scrum/START_HERE.md`. Current product truth lives in the Product North Star, Product Outcome Tree, Current State, Working Agreement, active story, and newest relevant decision records. Historical story docs are evidence, not governing authority.
 
-Default output quality matters more than adding more controls. Song Studio Desktop should not be treated as the old SpectraCleanse web app or as a generic video editor.
+## Work hierarchy
 
-Current priority: UX Recovery / Guided MVP flow.
+- Level 0 — North Star Outcome.
+- Level 1 — Product Capability.
+- Level 2 — Epic / System.
+- Level 3 — Story.
+- Level 4 — Task.
+- Level 5 — Evidence / Acceptance.
 
-Current product status: Song Studio Desktop is testable but confusing, not owner-accepted, and needs UX recovery.
+## Story types
 
-Canvas Test Drive status: Internal testable, not product-ready, and needs owner validation.
+- User Story: creator-visible outcome.
+- Enabler Story: necessary technical capability; must name its first creator-facing consumer.
+- Discovery / Research Story: resolves a real unknown before implementation.
+- Process Story: changes coordination or verification.
 
+No story type is exempt from parent capability, parent epic/system, North Star contribution, acceptance criteria, non-goals, verification path, completion target, and proof.
 
-## 1A. Song Studio Product Doctrine — Release Project
+## Lifecycle states
 
-Durable direction for Song Studio Desktop:
+- PROPOSED: idea exists but is not approved for execution.
+- OWNER APPROVED: owner accepts the intended outcome.
+- READY TO RUN: story is complete enough to hand to an agent.
+- IN PROGRESS: real work has begun.
+- EXECUTED: agent returned real work and evidence.
+- PR OPEN: real PR exists.
+- VERIFIED: ChatGPT or another reviewer inspected actual repo evidence.
+- MERGED: repo change landed.
+- OWNER ACCEPTED: owner tested and accepted user-facing behavior, or accepted a process/document system.
+- BLOCKED: cannot proceed.
+- SUPERSEDED: replaced by a newer decision or story.
 
-- Your song is finished. Song Studio helps create everything you need to promote it.
-- The Release Project is the product: it is the shared container for the song, cover art, future release materials, and every deliverable made from them.
-- One Release Project can produce many Outputs. The Editor is one specialized workspace inside that Release Project, not the product itself.
-- The Canvas Loop Composer is one specialized Output workspace; future lyric, teaser, announcement, social, batch, variant, artist identity, AI Producer, and larger release-pack tracks should also live inside the Release Project when they become real.
-- Make the creator feel like "I am preparing my release," not "I am editing a video" or managing unrelated files.
-- Do not avoid powerful outcomes. Avoid powerful interfaces: keep advanced rendering capability behind simple release-preparation decisions.
-- Release Readiness should truthfully tell the creator what is done, what needs attention, and what comes next based on real project data. It must not claim platform publishing, distribution, analytics, release dates, lyrics, artist branding, batch packs, or AI judgment before those capabilities exist.
+PR merged is not Owner Accepted. User-facing work should not be called Owner Accepted without owner testing. Historical work may be superseded without rewriting history. EXECUTED is not VERIFIED; PR OPEN is not VERIFIED.
 
-## 2. Working Agreement
+## Owner approval gate
 
-This is a lightweight working system, not a second project and not a giant Scrum system. It exists to keep future ChatGPT, Claude, Codex, and GitHub work aligned on proof, scope, PR, and story-gate rules.
+Owner approval is required before coding, unless the owner has already explicitly approved the exact story outcome, for at least:
 
-Source-of-truth model:
+- new user-facing features
+- new creator-facing controls
+- new screens, panels, or workspaces
+- major UX flow changes
+- hiding or deleting visible behavior
+- changes to what the creator is supposed to do
+- provider, API, cloud, or paid integrations
+- generation-credit or billing behavior
+- major dependency additions
+- major architecture changes
+- primary product-direction changes
+- destructive cleanup of relevant existing work
+- merging user-facing or major architecture work
 
-1. Structured plan project = live planning workspace.
-2. Repo docs = durable source of truth for approved direction and rules.
-3. GitHub PRs, commits, branches, changed files, and checks = proof that repo work happened.
-4. GitHub Issues or Projects may be added later, but are not required now.
+Agents may use reasonable discretion for implementation details inside approved acceptance criteria, minor wording improvements inside approved scope, small tests, formatting, and non-directional bug fixes. All changes must still be reported. This gate exists to stop agents from self-authorizing product direction, not to require owner approval for every trivial line of code.
 
-A chat summary is not proof that work happened.
+## Required story fields
 
-Proof means one or more of:
+Every Story must contain ID, title, work-item type, status, parent North Star, parent capability, parent epic/system, North Star contribution, user/system outcome, why now, acceptance criteria, non-goals, test/verification path, completion target, owner approval requirement, repo scope, implementation constraints, proof required, and roll-up impact.
 
-- branch
+Additional required fields:
+
+- User-facing controls: Control Causality — what real behavior changes because the control exists?
+- AI/generation work: Generation Economics — what can happen before expensive generation, and what consumes external credits or paid calls?
+- Enabler Stories: First Creator-Facing Consumer — what real experience consumes this system first?
+
+## No passive abstraction rule
+
+Do not create passive enums, passive fields, future hooks, unused metadata, or read-only summaries and count them as meaningful progress. An Enabler must identify the creator-facing behavior enabled, first consuming slice, and verification that it is actually consumed. Passive foundation work requires explicit owner approval as discovery or migration.
+
+## Example-not-specification rule
+
+Owner examples explain a general problem, possibility, or use case unless the owner explicitly says the example itself is a requirement. Ask what general capability an example reveals. Do not overfit architecture or stories to lightning, explosions, monsoons, multiple artists, Spanish trap, bass impacts, CTAs, or any other example.
+
+## Control and generation rules
+
+- No control without causality: controls must change output plans/results in testable ways.
+- Cheap intelligence before expensive generation: AI should earn generation.
+- Provider, billing, BYOK, credits, legal, and pricing decisions require separate approval.
+- Never regenerate good video only to change deterministic material when targeted deterministic revision is possible.
+
+## Multi-agent review protocol
+
+Roles:
+
+- Owner defines product truth and final acceptance.
+- ChatGPT acts as product manager, story architect, evidence reviewer, PR/merge gate, and reconciler.
+- Codex performs scoped repo work and correction passes.
+- Claude provides independent architecture/product/implementation review when requested.
+
+Major work chain:
+
+1. Owner approves intended outcome.
+2. ChatGPT prepares story/prompt.
+3. Codex creates first repo-backed implementation.
+4. ChatGPT reviews Codex summary before Create PR.
+5. A real PR is created.
+6. ChatGPT inspects actual diff and status.
+7. Claude may independently review the exact PR.
+8. ChatGPT reconciles findings.
+9. Codex applies approved corrections to the same PR.
+10. ChatGPT re-verifies updated diff.
+11. Owner authorizes merge.
+12. User-facing work receives owner acceptance testing after merge unless explicitly tested earlier.
+
+Review agents should not create competing implementation branches by default.
+
+## Codex workflow rule
+
+1. Start from latest remote `main` unless the owner explicitly names another base.
+2. Work on one task branch.
+3. Return real evidence.
+4. Do not merge.
+5. Owner brings the summary to ChatGPT.
+6. ChatGPT decides whether the user should click Create PR.
+7. After Create PR, ChatGPT inspects the actual PR.
+8. Corrections should update the same PR branch when the current Codex UI/environment supports Update PR or pushing to that branch.
+9. If remote update capability is unavailable, do not pretend the PR was updated and do not create a competing PR by default. Report the local correction commit, branch, patch evidence, and remote-update limitation so the owner can use the platform's supported Update PR / branch update flow.
+10. ChatGPT verifies the actual remote PR head after the remote update occurs.
+11. Merge occurs only after explicit owner authorization.
+
+Never claim an existing PR was updated until the remote GitHub head actually changed. If no real repo change, branch, commit, or reviewable output can be produced, return `BLOCKED:` as the first line.
+
+## Proof rules
+
+A chat summary is not proof that repo work happened. Proof means appropriate evidence such as:
+
+- branch/ref
 - commit SHA
-- PR link/number
-- changed file list
-- checks run
+- real PR
+- changed-file list
+- actual diff inspection
+- checks
 - screenshots or manual UI test notes
 - owner test result
-- committed docs or code
+- committed docs/code
 
-No more feature work should move to `READY TO RUN` unless it has:
+Clarifications:
 
-- user story
-- acceptance criteria
-- non-goals
-- test path
-- completion target
-- owner approval when user-facing
+- EXECUTED means an agent returned work and evidence; it does not mean the work has been independently verified.
+- PR OPEN means a real PR exists; it is not VERIFIED.
+- VERIFIED requires ChatGPT or another reviewer to inspect actual repo evidence, not only the agent's summary.
+- MERGED is not OWNER ACCEPTED.
+- User-facing acceptance requires owner test/approval unless explicitly accepted another way.
+- Capability maturity must be supported by evidence from landed repo work and/or owner acceptance as defined by the maturity level.
 
-If there is no clear user outcome, the work stays `PROPOSED`.
+## Definition of Done
 
-Owner approval is required before coding for:
+For repo work, report story ID, status, completion level, starting branch/ref, working branch, commit SHA if available, PR if created, files changed, checks run, failed checks, runtime-code impact, old-root-app impact, unresolved items, and whether owner acceptance remains needed.
 
-- new user-facing feature
-- new screen/panel
-- major UX flow change
-- hiding or deleting visible functionality
-- provider/API/cloud/paid integrations
-- major dependency changes
-- major architecture changes
-- primary product direction changes
-- merging PRs that affect user-facing product behavior
-- anything that changes what the user is supposed to do
-
-Agents may decide without owner approval:
-
-- wording improvements inside approved scope
-- small internal docs updates
-- minor test improvements
-- small bug fixes that do not alter product direction
-- formatting/cleanup that does not change behavior
-- implementation details inside approved acceptance criteria
-
-All changes must still be reported.
-
-Repo boundaries:
-
-- Active app path: `apps/song-studio-desktop/`
-- Active base branch: `feat/song-studio-desktop-foundation`
-- New work should branch from `feat/song-studio-desktop-foundation`.
-- PRs should target `feat/song-studio-desktop-foundation`.
-- Do not target `main` unless explicitly instructed.
-- Old root SpectraCleanse web app: Off-limits unless explicitly requested.
-
-Also off-limits unless explicitly approved:
-
-- production provider/API integrations
-- Gemini/Veo implementation
-- paid calls
-- cloud uploads
-- API keys/secrets
-- generated media committed to repo
-- major dependency additions
-- unrelated app areas outside `apps/song-studio-desktop/`
-- release/package/distribution changes unless scoped
-- destructive cleanup/deleting existing work without approval
-
-## 3. Status Labels
-
-### PROPOSED
-
-An idea, recommendation, plan, story, or draft only. Nothing has been executed.
-
-### READY TO RUN
-
-The prompt, story, or command set is clear enough for another tool/person to execute.
-
-### EXECUTED
-
-Logs or output show that something was actually run. Execution alone does not mean the work is verified.
-
-### VERIFIED
-
-There is proof: PR, commit SHA, file list, checks, screenshots, manual test notes, or owner test result.
-
-### BLOCKED
-
-The task could not be completed.
-
-The first line must start with:
-
-`BLOCKED:`
-
-Then explain why.
-
-## 4. Completion Levels
-
-Use these completion levels:
-
-- Prototype
-- Internal Tool / Internal Testable
-- User-Testable Feature
-- MVP-Usable Feature
-- Owner-Accepted Feature
-
-Do not say only “done.” Every work item should identify its completion level.
-
-Important distinction:
-
-- PR merged = repo work landed.
-- User-testable = owner can test it.
-- Owner-accepted = owner tested and approved it.
-
-## 5. Backlog
-
-First process item:
-
-- SCRUM-001 — Lightweight working agreement and source-of-truth setup
-  - Status: OWNER APPROVED / READY TO RECORD IN REPO
-  - Completion level: Owner-Accepted Process Rule
-
-First product story after SCRUM-001:
-
-- UX-001 — Guided MVP first-run flow
-  - Status: PROPOSED
-
-Do not start UX-001. Do not create implementation tasks for UX-001. Do not redesign the app as part of SCRUM-001.
-
-## 6. Current Sprint / Current Focus
-
-_Updated after UX-007 — see `docs/ai-scrum/ux-007-canvas-loop-composer.md` for full detail; this section intentionally records only current status, not the full history of UX-001 through UX-007, all of which have since shipped._
-
-Current priority: first real creative workflow (Contextual Workspace + Canvas Loop Composer).
-
-Most recently completed: UX-007 — made `ContextMode` drive real behavior across three UI surfaces (left rail, center timeline, silent-output messaging) instead of one read-only card, and made LoopCore's `motionIntensity` genuinely affect the rendered output via the existing zoompan filter (no FFmpeg/rendering-engine change). Status: EXECUTED, owner acceptance required (user-facing).
-
-Explicit decision recorded: multi-image / visual-asset work (E2-style) is **NOT YET** ready — the render engine is single-cover-image only. The exact prerequisite (extend `Composition`/`buildFfmpegArgs` to support N image layers) is the recommended next milestone alongside adding Canvas-specific motion templates (unblocked now).
-
-UX-001 remains historically `PROPOSED` in this document's original text below but has since shipped (UX-001A–E, merged). Treat the sections below as the original process record, not current product state — current state lives in the dated UX-00X story docs in this folder.
-
-## 7. Story Template
-
-Use this lightweight template before moving work to `READY TO RUN`:
-
-- Story ID:
-- Story title:
-- Status:
-- Completion target:
-- User story:
-- Acceptance criteria:
-- Non-goals:
-- Test path:
-- Owner approval required? Yes/No
-- Repo scope:
-- Branch target:
-- PR target:
-- Proof required:
-
-## 8. Definition of Done
-
-A work item is not complete just because a chat says it is complete. Completion requires evidence appropriate to the work type and completion level.
-
-For repo work, report:
-
-- status label
-- story ID
-- branch name
-- commit SHA if available
-- PR link/number if created
-- files changed
-- checks run
-- failed checks with explanation
-- whether runtime code changed
-- whether old root web app was untouched
-- completion level
-- what remains unfinished
-- whether PR is merged; normally it should not be
-
-If no real repo output exists, the first line must be:
-
-`BLOCKED:`
-
-## 9. PR Review Gate
-
-Codex-created PRs should be reviewed before merge. Agents must not merge PRs unless the owner explicitly instructs them to merge.
-
-PRs that affect user-facing product behavior require owner approval before merge.
-
-For Song Studio Desktop work:
-
-- Branch from `feat/song-studio-desktop-foundation`.
-- Target PRs to `feat/song-studio-desktop-foundation`.
-- Do not target `main` unless explicitly instructed.
-- Include changed files and checks run in the completion report.
-- Include screenshots or manual UI test notes when user-facing UI changes are made.
-
-## 10. Agent Handoff Rules
-
-### Owner
-
-Responsible for:
-
-- product direction
-- final acceptance
-- approving user-facing stories
-- deciding whether a feature feels useful
-- approving merges that affect user-facing behavior
-
-### ChatGPT
-
-Responsible for:
-
-- product reasoning
-- lightweight Scrum guidance
-- turning owner feedback into stories
-- writing Codex/Claude prompts
-- reviewing Codex/Claude outputs
-- checking claims against evidence
-- protecting scope
-- recommending merge/revise/reject/block
-- never claiming repo work happened without proof
-
-### Claude
-
-Responsible for:
-
-- larger architecture/refactor reasoning
-- deeper implementation strategy
-- UX/product restructuring proposals
-- complex code changes if connected to repo
-- identifying risks before implementation
-- reporting what is incomplete
-
-Claude must not return only a plan unless the owner asked for only a plan.
-
-### Codex
-
-Responsible for:
-
-- scoped repo edits
-- creating branches inside its environment
-- committing changes
-- running checks
-- preparing PRs through its available platform PR tool or Create PR flow
-- reporting changed files and proof
-- not merging
-
-Important Codex rule:
-
-Raw `git push` may fail from the shell because shell GitHub auth may not exist.
-
-That does not automatically mean Codex cannot create a PR through the platform-level PR tool or Create PR flow.
-
-Codex must use the available Create PR flow when available.
-
-If no PR is created and no real repo proof exists, the status must be:
-
-`BLOCKED`
+For docs/process work, `git diff --check` and `git diff --name-only` are expected. Do not run expensive app builds for docs-only tasks.
