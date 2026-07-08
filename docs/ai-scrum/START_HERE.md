@@ -12,6 +12,10 @@
 
 Historical story docs are evidence, not current product authority. Newer owner-approved decision records may clarify or supersede older direction.
 
+## Mission layer
+
+A durable product mission sits above the single active North Star and explains what NS-001 ultimately contributes toward, without changing NS-001 or authorizing new work. See `docs/ai-scrum/decisions/DEC-002-product-mission-active-wedge-and-future-horizons.md` for the mission, the current wedge, the core loop/memory/decision doctrine, and two named-but-inactive future horizons (NS-002, NS-003).
+
 ## Active product and repo scope
 
 - Active product: **Song Studio Desktop**.
@@ -35,6 +39,7 @@ Historical story docs are evidence, not current product authority. Newer owner-a
 - Work item template: `docs/ai-scrum/templates/work-item.md`
 - Decision record template: `docs/ai-scrum/templates/decision-record.md`
 - First decision record: `docs/ai-scrum/decisions/DEC-001-directed-video-north-star.md`
+- Product mission / active wedge / future horizons: `docs/ai-scrum/decisions/DEC-002-product-mission-active-wedge-and-future-horizons.md`
 
 ## Required agent handoff header
 

@@ -1,5 +1,11 @@
 # Song Studio Product North Star
 
+## Product mission and active North Star
+
+Song Studio's larger product mission — persistent creative context, situational awareness, decision support, and coordinated execution capability for independent artists — sits above this North Star and explains what it ultimately contributes toward. See `docs/ai-scrum/decisions/DEC-002-product-mission-active-wedge-and-future-horizons.md` for the full mission statement, core loop, and doctrine.
+
+**NS-001 — Directed Release Video System, described below, is the only active North Star.** Two future horizons (NS-002 — Release Campaign Intelligence, NS-003 — Artist Continuity & Identity) are named in DEC-002 as inactive; they are not approved roadmaps, capabilities, or stories, and require explicit owner activation before any work against them is authorized.
+
 ## Outward product promise
 
 > Your song is finished. Song Studio helps create everything you need to promote it.
