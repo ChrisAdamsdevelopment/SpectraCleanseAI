@@ -44,6 +44,7 @@ export interface RenderRecipe {
   category: string;         // e.g. "canvas", "promo", "visualizer"
   tags: string[];
   platformTargets: string[]; // e.g. ["spotify"], ["tiktok","reels","shorts"]
+  functionIds?: string[];    // optional exact CreativeFunction scope; prevents look leakage across output types
   width: number;
   height: number;
   fps: number;
