@@ -3,7 +3,7 @@
 - Decision ID: DEC-002
 - Date: 2026-07-07
 - Status: OWNER APPROVED / RECORDED
-- Owner approval: approved through SCRUM-002, VIDEO-001A, VISION-001A investigation, and subsequent ChatGPT review
+- Owner approval: explicitly accepted by the owner after review of SCRUM-002, VIDEO-001A, VISION-001A, and the resulting architecture conclusions
 - Affected capabilities/stories: NS-001, CAP-01 through CAP-09, SCRUM-002, VIDEO-001A, VISION-001A, MISSION-001, proposed VIDEO-002
 
 ## Context
