@@ -124,10 +124,17 @@ export default function App() {
   }
   const updateShared = (patch: Partial<Pick<ReleaseProject, 'title' | 'artist' | 'audioPath' | 'coverPath' | 'outputDir' | 'songAnalysis'>>) => {
     const sharedInput = sharedRenderInputFor(patch);
+    // VIDEO-002: a DirectionCue is anchored to absolute song time from the
+    // current song's moments. If the audio itself changes, that cue no longer
+    // has any valid relationship to the new song, so drop it rather than let it
+    // silently re-resolve the previous song's directed visual at the same
+    // timestamps. (The 'audioPath' shared-input already re-drafts audio outputs.)
+    const clearsDirection = 'audioPath' in patch;
     setReleaseProject((rp) => {
       const nextProject = {
         ...rp,
         ...patch,
+        directionCues: clearsDirection ? [] : rp.directionCues,
         outputs: sharedInput ? invalidateOutputsForSharedInput(rp.outputs, sharedInput) : rp.outputs,
         updatedAt: touch(),
       };
