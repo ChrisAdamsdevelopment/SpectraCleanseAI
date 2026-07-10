@@ -43,6 +43,16 @@ export interface DirectionResolution {
   cueEndSec: number | null;
 }
 
+// VIDEO-002 v1 RUNTIME BOUNDARY. The approved first proof is the audio teaser
+// (hook promo) ONLY. The persistence + windowing above are intentionally
+// general and reusable, but this predicate is the single gate that decides
+// which output type actually consumes a directed visual at render time, so
+// the visualizer and Canvas keep their current behavior until a later story
+// widens the boundary.
+export function isDirectableOutputType(functionId: string): boolean {
+  return functionId === 'make_hook_promo';
+}
+
 /** Resolve the single active direction cue against one output: find the asset,
  * translate the song-relative span into this output's clip-local span, and
  * report exactly why it does or does not appear. v1 consumes at most one cue. */
@@ -64,4 +74,14 @@ export function resolveDirectedVisualForOutput(project: ReleaseProject, output: 
     cueStartSec: cue.startSec,
     cueEndSec: cue.endSec,
   };
+}
+
+/** The actual runtime seam the renderer uses: the windowed directed visual(s)
+ * for an output, but ONLY when this output type is directable in v1 (audio
+ * teaser). Non-directable outputs always get an empty list, so the resolution
+ * logic can stay general while the first proof stays audio-teaser-only. */
+export function directedVisualsForOutput(project: ReleaseProject, output: ProjectOutput): DirectedVisualWindow[] {
+  if (!isDirectableOutputType(output.functionId)) return [];
+  const res = resolveDirectedVisualForOutput(project, output);
+  return res.status === 'ok' && res.window ? [res.window] : [];
 }

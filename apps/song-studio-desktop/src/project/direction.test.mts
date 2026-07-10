@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { overlapWindow, resolveDirectedVisualForOutput } from './direction';
+import { overlapWindow, resolveDirectedVisualForOutput, directedVisualsForOutput, isDirectableOutputType } from './direction';
 import { buildFfmpegArgs } from '../render/ffmpegArgs';
 import { recipeToComposition } from '../render/composition';
 import { getRecipe } from '../render/recipes';
@@ -37,6 +37,24 @@ assert.equal(resolveDirectedVisualForOutput(projectWithCue(2, 5), otherOut).stat
 
 assert.equal(resolveDirectedVisualForOutput(emptyReleaseProject(), audioOut).status, 'no-cue');
 assert.equal(resolveDirectedVisualForOutput(projectWithCue(12, 18, []), audioOut).status, 'no-asset', 'cue asset removed');
+
+// ── VIDEO-002 v1 RUNTIME BOUNDARY: audio teaser (hook promo) ONLY ───────────
+assert.equal(isDirectableOutputType('make_hook_promo'), true, 'audio teaser is directable');
+assert.equal(isDirectableOutputType('make_visualizer'), false, 'visualizer is NOT directable in v1');
+assert.equal(isDirectableOutputType('make_canvas'), false, 'canvas is NOT directable in v1');
+
+const cueProject = projectWithCue(12, 18); // overlaps a [10,20] clip window
+const teaser: ProjectOutput = { ...emptyOutput('make_hook_promo', 'vertical_promo', 10, 'Teaser'), clipStart: '0:10', clipDuration: '10' };
+const visualizer: ProjectOutput = { ...emptyOutput('make_visualizer', 'neon_visualizer', 10, 'Visualizer'), clipStart: '0:10', clipDuration: '10' };
+const canvasOut: ProjectOutput = { ...emptyOutput('make_canvas', 'clean_canvas', 10, 'Canvas'), clipStart: '0:10', clipDuration: '10' };
+
+assert.equal(directedVisualsForOutput(cueProject, teaser).length, 1, 'audio teaser consumes the direction');
+assert.deepEqual(directedVisualsForOutput(cueProject, teaser)[0], { imagePath: '/tmp/artist.png', startLocalSec: 2, endLocalSec: 8 });
+assert.deepEqual(directedVisualsForOutput(cueProject, visualizer), [], 'visualizer does NOT consume the direction in v1');
+assert.deepEqual(directedVisualsForOutput(cueProject, canvasOut), [], 'canvas does NOT consume the direction in v1');
+// The general windowing stays reusable — only the type gate withholds it — so
+// a future story can widen the boundary without re-deriving overlap logic.
+assert.equal(resolveDirectedVisualForOutput(cueProject, visualizer).status, 'ok', 'windowing remains general/reusable across output types');
 
 // ── Persistence / normalization (save-reload round-trip + backward compat) ──
 const oldProjectNoField = normalizeReleaseProject({

@@ -11,7 +11,7 @@ import {
   loopCoreForOutput, makeOutputId,
   type DirectionCue, type LoopCore, type ProjectAsset, type ProjectOutput, type ReleaseProject, type SongProject,
 } from './project/types';
-import { resolveDirectedVisualForOutput } from './project/direction';
+import { resolveDirectedVisualForOutput, directedVisualsForOutput, isDirectableOutputType } from './project/direction';
 import { formatTime, parseTime } from './lib/time';
 import { pickAudioFile, pickCoverImage, pickArtistPhoto, pickOutputDir, saveReleaseProjectToFile, loadReleaseProjectFromFile, normalizeReleaseProject } from './project/storage';
 import { Preview } from './ui/Preview';
@@ -413,15 +413,11 @@ export default function App() {
     setBusy(true); setStatus('rendering'); setResult(null); setCopiedOutputPath(false); setLogs([]); setShowLogs(true);
     const outputPath = joinPath(project.outputDir, plan.outputName);
     // VIDEO-002: window the project-owned, song-relative direction into this
-    // output's clip-local span. Only audio (song-timed) outputs consume it in
-    // v1; a non-overlapping direction resolves to nothing and is not rendered.
-    const directedVisuals: DirectedVisual[] = [];
-    if (plan.audio) {
-      const res = resolveDirectedVisualForOutput(releaseProject, activeOutput);
-      if (res.status === 'ok' && res.window) {
-        directedVisuals.push({ imagePath: res.window.imagePath, startSec: res.window.startLocalSec, endSec: res.window.endLocalSec });
-      }
-    }
+    // output's clip-local span. v1 runtime boundary: ONLY the audio teaser
+    // consumes it (directedVisualsForOutput gates on output type); a
+    // non-overlapping direction resolves to nothing and is not rendered.
+    const directedVisuals: DirectedVisual[] = directedVisualsForOutput(releaseProject, activeOutput)
+      .map((w) => ({ imagePath: w.imagePath, startSec: w.startLocalSec, endSec: w.endLocalSec }));
     const job: RenderJob = {
       recipeId: project.recipeId, functionId: project.functionId, imagePath: project.coverPath,
       audioPath: plan.audio ? project.audioPath : null, title: project.title, artist: project.artist,
@@ -598,7 +594,7 @@ export default function App() {
                 onSelectMoment={selectMoment}
                 onUseCurrentTime={(s) => updateManualClip({ clipStart: formatTime(s) })}
               />
-              {plan.audio && (
+              {isDirectableOutputType(activeOutput.functionId) && (
                 <DirectionPanel
                   moments={project.songAnalysis?.moments ?? []}
                   artistPhotos={artistPhotos}
