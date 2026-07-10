@@ -1,4 +1,4 @@
-import type { Composition, BackgroundLayer, CoverLayer, TitleLayer, WaveformLayer, EffectLayer } from './types';
+import type { Composition, BackgroundLayer, CoverLayer, TitleLayer, WaveformLayer, EffectLayer, DirectedVisual } from './types';
 import { getLayer } from './composition';
 
 // Pure: builds the FFmpeg argument list from a Composition + render inputs.
@@ -26,6 +26,7 @@ export interface RenderInputs {
   outputPath: string;
   durationSec: number;
   audioStartSec?: number;
+  directedVisuals?: DirectedVisual[]; // VIDEO-002; empty/absent = byte-identical baseline args
 }
 export interface BuildArgsOptions {
   fontPath?: string | null;
@@ -48,11 +49,18 @@ export function buildFfmpegArgs(comp: Composition, rt: RenderInputs, opts: Build
   const useWave = useAudio && Boolean(wave?.visible);
   const start = Math.max(0, rt.audioStartSec ?? 0);
 
+  // VIDEO-002: directed visuals are extra looped image inputs appended AFTER the
+  // audio input, so the cover (0) and audio (1) stream indices are unchanged and
+  // the no-direction arg list is byte-identical to before this feature.
+  const directed: DirectedVisual[] = rt.directedVisuals ?? [];
+  const directedBaseIndex = useAudio ? 2 : 1;
+
   const inputs: string[] = ['-loop', '1', '-i', rt.imagePath];
   if (useAudio) {
     if (start > 0) inputs.push('-ss', String(start));
     inputs.push('-i', rt.audioPath as string);
   }
+  for (const d of directed) inputs.push('-loop', '1', '-i', d.imagePath);
 
   const blur = bg?.blur ?? 18;
   const brightness = bg?.brightness ?? -0.12;
@@ -102,6 +110,29 @@ export function buildFfmpegArgs(comp: Composition, rt: RenderInputs, opts: Build
     }
     last = 'base';
   }
+
+  // VIDEO-002: for each directed visual, build a composed state from the asset
+  // using the SAME background+foreground grammar as the cover (blurred fill +
+  // centered subject, same eq/vignette/scale/position — not a raw paste or an
+  // inset sticker), then overlay it FULL-FRAME on top of the base ONLY within
+  // its output-local span via enable='between(t,a,b)'. This runs above the base
+  // cover composite and below waveform/title, so the deterministic title and
+  // waveform layers remain visible throughout. Outside the span the base cover
+  // state shows unchanged. A hard cut in/out is intentional for this first proof.
+  directed.forEach((d, i) => {
+    const di = directedBaseIndex + i;
+    const a = Math.max(0, d.startSec).toFixed(3);
+    const b = Math.max(0, d.endSec).toFixed(3);
+    const fgW = Math.round(W * coverScale);
+    const cx = Math.round((cover?.x ?? 0.5) * W);
+    const cy = Math.round((cover?.y ?? 0.5) * H);
+    chains.push(`[${di}:v]split=2[dsrc${i}a][dsrc${i}b]`);
+    chains.push(`[dsrc${i}a]scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},boxblur=${blur}:2,${eq}${vignette}[dbg${i}]`);
+    chains.push(`[dsrc${i}b]scale=${fgW}:-2[dfg${i}]`);
+    chains.push(`[dbg${i}][dfg${i}]overlay=${cx}-w/2:${cy}-h/2[dbase${i}]`);
+    chains.push(`[${last}][dbase${i}]overlay=0:0:enable='between(t,${a},${b})'[dprimary${i}]`);
+    last = `dprimary${i}`;
+  });
 
   if (useWave) {
     const wy = Math.round((wave!.y ?? 0.82) * H) - 130;

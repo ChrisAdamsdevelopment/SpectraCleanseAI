@@ -168,10 +168,11 @@ export function loopCoreForOutput(functionId: string, loopDurationSec: number, e
   return existing ? { ...existing, loopDurationSec } : defaultLoopCore(loopDurationSec);
 }
 
-// Reserved for Phase 2 (artist photos, extra images, references, logo). The
-// field is persisted and migrated starting now so nothing has to change shape
-// again later, but it is not wired to any UI yet — registering an asset here
-// does not currently affect rendering.
+// Project assets. As of VIDEO-002, `artist-photo` assets are a real consumer:
+// they can be directed into a song region and become the primary visual in the
+// exported audio teaser (see DirectionCue + project/direction.ts). The other
+// roles (cover, extra, reference, logo) remain reserved and are not yet wired
+// to any UI or rendering path.
 export type ProjectAssetRole = 'cover' | 'artist-photo' | 'extra' | 'reference' | 'logo';
 export interface ProjectAsset {
   id: string;
@@ -180,8 +181,25 @@ export interface ProjectAsset {
   label?: string;
 }
 
+// ─────────────────────────────────────────────────────────────────────────
+// Direction cue (VIDEO-002 — first causal visual direction). One creator
+// decision: "use this project asset here in the song." It is PROJECT-OWNED
+// (lives on ReleaseProject, reusable across outputs), SONG-RELATIVE (start/end
+// are absolute song time, not output-local), and OUTPUT-WINDOWED at render
+// time (each output honors only the portion overlapping its clip window — see
+// project/direction.ts). Deliberately the smallest sufficient record: no
+// kind/provider/generation/scene fields — the current proof consumes exactly an
+// asset reference plus a song-relative span, and nothing else.
+// ─────────────────────────────────────────────────────────────────────────
+export interface DirectionCue {
+  id: string;
+  assetId: string;   // references a ReleaseProject.assets[] entry (role 'artist-photo' in v1)
+  startSec: number;  // song-relative
+  endSec: number;    // song-relative (> startSec)
+}
+
 export interface ReleaseProject {
-  schemaVersion: 3;
+  schemaVersion: 4;
   title: string;
   artist: string;
   audioPath: string | null;
@@ -189,6 +207,9 @@ export interface ReleaseProject {
   outputDir: string | null;
   songAnalysis: SongAnalysis | null;
   assets: ProjectAsset[];
+  // VIDEO-002: project-owned, song-relative visual direction. v1 carries at
+  // most one active cue; the array shape keeps windowing/persistence uniform.
+  directionCues: DirectionCue[];
   outputs: ProjectOutput[];
   activeOutputId: string | null;
   updatedAt: string;
@@ -222,7 +243,7 @@ export function emptyOutput(functionId = 'make_canvas', recipeId = 'clean_canvas
 
 export function emptyReleaseProject(): ReleaseProject {
   return {
-    schemaVersion: 3,
+    schemaVersion: 4,
     title: '',
     artist: '',
     audioPath: null,
@@ -230,6 +251,7 @@ export function emptyReleaseProject(): ReleaseProject {
     outputDir: null,
     songAnalysis: null,
     assets: [],
+    directionCues: [],
     outputs: [],
     activeOutputId: null,
     updatedAt: new Date().toISOString(),

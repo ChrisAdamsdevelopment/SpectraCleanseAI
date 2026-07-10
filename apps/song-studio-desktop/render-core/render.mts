@@ -42,6 +42,7 @@ export const nodeRenderEngine: RenderEngine = {
       outputPath: job.outputPath,
       durationSec: job.durationSec ?? recipe.defaultDurationSec,
       audioStartSec: job.audioStartSec,
+      directedVisuals: job.directedVisuals,
     }, { fontPath: resolveFont() });
 
     onLog?.(`[node-render] ${recipe.name} -> ${job.outputPath}`);

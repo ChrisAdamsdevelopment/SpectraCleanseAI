@@ -52,7 +52,7 @@ PR #88 was accessible through GitHub pull refs at audit time. Its head ref chang
 - **NS-001 — Directed Release Video System** — the only ACTIVE North Star.
 - **NS-002 — Release Campaign Intelligence** — FUTURE HORIZON / INACTIVE. Not an approved roadmap or authorized work; see DEC-002 for activation conditions.
 - **NS-003 — Artist Continuity & Identity** — FUTURE HORIZON / INACTIVE. Not an approved roadmap or authorized work; see DEC-002 for activation conditions.
-- **VIDEO-002** — PROPOSED. Accepted general frontier: assign visual direction to song time and causally honor it. Exact visual implementation (timed overlay, artist-photo overlay, full-frame replacement, visual-state transition, or otherwise) is unresolved and not started.
+- **VIDEO-002** — EXECUTED. Implementation evidence exists; merge, verification, and owner acceptance remain separate lifecycle gates. First causal visual-direction slice: a project-owned, song-relative `DirectionCue` assigns one artist-photo asset to a song moment; the audio teaser (hook promo) output — and only that output type in v1 — renders that asset as the primary visual for the overlapping clip span (title/waveform preserved above it). See the registry entry below for evidence.
 - **Release Clock** — PROPOSED FUTURE CONCEPT / NOT AUTHORIZED. No `releaseDate` field exists; NS-002 is not activated by this record.
 
 ## Current open work registry
@@ -79,6 +79,15 @@ PR #88 was accessible through GitHub pull refs at audit time. Its head ref chang
 - Status: INVESTIGATION DELIVERED. This report is evidence, not canonical authority by itself; its recommendations are not all owner-accepted — only the structural conclusions the owner accepted are now recorded through DEC-002.
 - Purpose: assess the larger product mission, future horizons (NS-002, NS-003), and how current landed work (`ReleaseProject`, `readiness.ts`, `renderFreshness.ts`) already forms the core mission machinery.
 - Does not authorize any horizon activation, Artist/Persona/Campaign/Era/Canon types, or the Release Clock; see DEC-002.
+
+### VIDEO-002 — First causal visual direction proof
+
+- Work-item type: User Story (NS-001 / CAP-03 direction cues; consumes CAP-01 assets; extends CAP-07 compositor).
+- Status: EXECUTED — implementation evidence exists; merge, verification, and owner acceptance remain separate lifecycle gates.
+- Implementation evidence: `ReleaseProject.directionCues` (project-owned, song-relative; schema v4, back-compat normalized), an artist-photo-only asset consumer (invariant enforced in normalization and runtime resolution, not just the UI), a pure `project/direction.ts` windowing seam, a gated full-frame directed composite in `render/ffmpegArgs.ts` (title/waveform stay above; byte-identical baseline when no cue), freshness invalidation via the existing `renderRevision` path, and an honest non-animated `DirectionPanel`.
+- v1 runtime boundary: the audio teaser (`make_hook_promo`) is the ONLY output type that surfaces the control and consumes a directed visual (`isDirectableOutputType`); the visualizer and Canvas keep their current behavior. The persistence + windowing are intentionally general/reusable for a later story to widen the boundary.
+- Evidence: `npm run typecheck`/`build` pass; `direction:test` (windowing, persistence/back-compat, FFmpeg causality) passes; `render:smoke` extended to prove from REAL decoded MP4 pixels that the directed asset shows only inside its span, the cover shows before/after, and a no-direction render is unchanged at the same timestamp.
+- Note on scope: this is the first causal slice. `LoopCore.anchorPoints`/`visualStateMarkers` remain reserved-and-unread and are NOT this primitive; the `DirectionCue` is the real song-time visual-direction record and may later supersede those markers. No Scene/Sequence/generation/provider work was done.
 
 ### MISSION-001 — Record the product mission, active wedge, and future horizons
 

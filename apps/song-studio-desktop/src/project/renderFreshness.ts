@@ -1,7 +1,8 @@
 import { getFunction } from '../render/recipes';
+import { isDirectableOutputType } from './direction';
 import type { OutputLastRender, ProjectOutput } from './types';
 
-export type SharedRenderInput = 'audioPath' | 'coverPath' | 'title' | 'artist' | 'outputDir' | 'songAnalysis';
+export type SharedRenderInput = 'audioPath' | 'coverPath' | 'title' | 'artist' | 'outputDir' | 'songAnalysis' | 'directionCues';
 
 export interface RenderAttempt {
   outputId: string;
@@ -41,6 +42,10 @@ export function shouldInvalidateForSharedInput(output: ProjectOutput, input: Sha
   if (input === 'coverPath') return outputUsesCover(output);
   if (input === 'audioPath') return outputUsesAudio(output);
   if (input === 'title') return outputUsesTitle(output);
+  // VIDEO-002 v1 boundary: directed visuals are consumed only by the audio
+  // teaser, so a direction change invalidates exactly that output type. Whether
+  // it actually shows the cue depends on clip-window overlap at render time.
+  if (input === 'directionCues') return isDirectableOutputType(output.functionId);
   return false;
 }
 

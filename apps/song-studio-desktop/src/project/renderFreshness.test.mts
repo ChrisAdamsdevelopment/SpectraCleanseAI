@@ -68,4 +68,13 @@ assert.equal(effectiveOutputState(afterSongAnalysis[0]), 'created');
 assert.equal(effectiveOutputState(afterSongAnalysis[1]), 'created');
 assert.equal(effectiveOutputState(afterSongAnalysis[2]), 'created');
 
-console.log('[render-freshness] PASS — render invalidation, success/failure, non-render changes, shared dependency scope, and legacy safety verified.');
+// VIDEO-002 v1 boundary: a direction change invalidates ONLY the audio teaser
+// (hook promo). Canvas and the visualizer keep their render state.
+const visualizerFresh = rendered(emptyOutput('make_visualizer', 'neon_visualizer', 15, 'Visualizer'));
+const afterDirection = invalidateOutputsForSharedInput([canvas, promo, visualizerFresh, legacy], 'directionCues');
+assert.equal(effectiveOutputState(afterDirection[0]), 'created', 'canvas untouched by direction change');
+assert.equal(effectiveOutputState(afterDirection[1]), 'draft', 'audio teaser invalidated by direction change');
+assert.equal(effectiveOutputState(afterDirection[2]), 'created', 'visualizer untouched by direction change');
+assert.equal(effectiveOutputState(afterDirection[3]), 'created', 'unknown/legacy output untouched');
+
+console.log('[render-freshness] PASS — render invalidation, success/failure, non-render changes, shared dependency scope, VIDEO-002 teaser-only direction boundary, and legacy safety verified.');

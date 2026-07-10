@@ -3,7 +3,7 @@ import { writeTextFile, readTextFile } from '@tauri-apps/plugin-fs';
 import { parseTime } from '../lib/time';
 import {
   defaultLoopCore, emptyOutput, emptyReleaseProject, isLoopOutputType, makeOutputId,
-  type LoopAnchorPoint, type LoopContinuityMode, type LoopCore, type LoopVisualStateMarker,
+  type DirectionCue, type LoopAnchorPoint, type LoopContinuityMode, type LoopCore, type LoopVisualStateMarker,
   type OutputLastRender, type OutputStatus, type ProjectAsset, type ProjectAssetRole, type ProjectOutput,
   type ReleaseProject, type SongAnalysis, type SongMoment,
 } from './types';
@@ -127,6 +127,31 @@ function normalizeAsset(value: unknown): ProjectAsset | null {
   return { id: typeof value.id === 'string' && value.id ? value.id : makeOutputId(), role, path: value.path, label: typeof value.label === 'string' ? value.label : undefined };
 }
 
+// VIDEO-002: a direction cue is dropped unless it has a positive-length
+// song-relative span AND still references an existing artist-photo asset — so
+// removing an asset (or a cue targeting a non-artist-photo role) can never leave
+// a dangling/invalid direction, and old projects (no directionCues) normalize to
+// an empty list. The artist-photo-only invariant is enforced here, not just in
+// the UI. v1 keeps at most one active cue.
+function normalizeDirectionCue(value: unknown, artistPhotoIds: Set<string>): DirectionCue | null {
+  if (!isRecord(value)) return null;
+  if (typeof value.assetId !== 'string' || !artistPhotoIds.has(value.assetId)) return null;
+  if (typeof value.startSec !== 'number' || typeof value.endSec !== 'number') return null;
+  if (!(value.endSec > value.startSec)) return null;
+  return {
+    id: typeof value.id === 'string' && value.id ? value.id : makeOutputId(),
+    assetId: value.assetId,
+    startSec: value.startSec,
+    endSec: value.endSec,
+  };
+}
+
+function normalizeDirectionCues(value: unknown, assets: ProjectAsset[]): DirectionCue[] {
+  if (!Array.isArray(value)) return [];
+  const artistPhotoIds = new Set(assets.filter((a) => a.role === 'artist-photo').map((a) => a.id));
+  return value.map((v) => normalizeDirectionCue(v, artistPhotoIds)).filter((c): c is DirectionCue => Boolean(c)).slice(0, 1);
+}
+
 /**
  * Normalize any saved Song Studio project file into a ReleaseProject.
  *
@@ -155,7 +180,8 @@ export function normalizeReleaseProject(value: unknown): ReleaseProject {
     const outputs = normalized.length > 0 ? normalized : [emptyOutput()];
     const activeOutputId = typeof value.activeOutputId === 'string' && outputs.some((o) => o.id === value.activeOutputId) ? value.activeOutputId : outputs[0].id;
     const assets = Array.isArray(value.assets) ? value.assets.map(normalizeAsset).filter((a): a is ProjectAsset => Boolean(a)) : [];
-    return { ...base, ...shared, songAnalysis, assets, outputs, activeOutputId };
+    const directionCues = normalizeDirectionCues(value.directionCues, assets);
+    return { ...base, ...shared, songAnalysis, assets, directionCues, outputs, activeOutputId };
   }
 
   // Legacy single-output shape — migrate into one output.
@@ -202,6 +228,17 @@ export async function pickCoverImage(): Promise<string | null> {
 
 export async function pickOutputDir(): Promise<string | null> {
   const selected = await open({ multiple: false, directory: true });
+  return typeof selected === 'string' ? selected : null;
+}
+
+// VIDEO-002: pick an artist-photo asset to direct into the song. Same image
+// formats as cover art; the caller registers it as a ProjectAsset.
+export async function pickArtistPhoto(): Promise<string | null> {
+  const selected = await open({
+    multiple: false,
+    directory: false,
+    filters: [{ name: 'Artist photo', extensions: IMAGE_EXTENSIONS }],
+  });
   return typeof selected === 'string' ? selected : null;
 }
 

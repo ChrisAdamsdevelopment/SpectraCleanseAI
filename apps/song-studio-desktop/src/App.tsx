@@ -4,18 +4,20 @@ import { CREATIVE_FUNCTIONS, getFunction, getRecipe, recipesForFunction } from '
 import { getTemplate } from './render/templates';
 import { recipeToComposition, updateLayer, getLayer, LAYER_LABELS, motionIntensityToZoom } from './render/composition';
 import { tauriRenderEngine, getFfmpegStatus } from './render/engine';
-import type { RenderJob, RenderResult, RenderStatus, FfmpegStatus, Composition, Layer } from './render/types';
+import type { RenderJob, RenderResult, RenderStatus, FfmpegStatus, Composition, Layer, DirectedVisual } from './render/types';
 import { buildRenderPlan } from './render/plan';
 import {
   emptyReleaseProject, emptyOutput, mergeProjectView, isLoopOutputType,
-  loopCoreForOutput,
-  type LoopCore, type ProjectOutput, type ReleaseProject, type SongProject,
+  loopCoreForOutput, makeOutputId,
+  type DirectionCue, type LoopCore, type ProjectAsset, type ProjectOutput, type ReleaseProject, type SongProject,
 } from './project/types';
+import { resolveDirectedVisualForOutput, directedVisualsForOutput, isDirectableOutputType } from './project/direction';
 import { formatTime, parseTime } from './lib/time';
-import { pickAudioFile, pickCoverImage, pickOutputDir, saveReleaseProjectToFile, loadReleaseProjectFromFile, normalizeReleaseProject } from './project/storage';
+import { pickAudioFile, pickCoverImage, pickArtistPhoto, pickOutputDir, saveReleaseProjectToFile, loadReleaseProjectFromFile, normalizeReleaseProject } from './project/storage';
 import { Preview } from './ui/Preview';
 import { Inspector } from './ui/Inspector';
 import { AudioPanel } from './ui/AudioPanel';
+import { DirectionPanel } from './ui/DirectionPanel';
 import { buildSongAnalysis, pickDefaultMoment } from './audio/songMoments';
 import type { SongMoment } from './project/types';
 import { StartScreen } from './ui/StartScreen';
@@ -79,6 +81,20 @@ export default function App() {
   const plan = useMemo(() => buildRenderPlan(project), [project]);
   const promoDirections = useMemo(() => buildPromoDirectionCandidates(project), [project]);
   const selectedMoment = useMemo(() => getSelectedSongMoment(project), [project]);
+  // VIDEO-002 — project-owned, song-relative direction (v1: at most one cue).
+  const artistPhotos = useMemo(() => releaseProject.assets.filter((a) => a.role === 'artist-photo'), [releaseProject.assets]);
+  const activeCue = releaseProject.directionCues[0] ?? null;
+  const directedResolution = useMemo(() => resolveDirectedVisualForOutput(releaseProject, activeOutput), [releaseProject, activeOutput]);
+  const directedMoment = useMemo(
+    () => (activeCue && releaseProject.songAnalysis
+      ? releaseProject.songAnalysis.moments.find((m) => m.startSec === activeCue.startSec && m.endSec === activeCue.endSec) ?? null
+      : null),
+    [activeCue, releaseProject.songAnalysis],
+  );
+  const directedAsset = useMemo(
+    () => (activeCue ? releaseProject.assets.find((a) => a.id === activeCue.assetId) ?? null : null),
+    [activeCue, releaseProject.assets],
+  );
   const exportReview = useMemo(() => buildExportReview({ project, plan, composition, selectedMoment }), [project, plan, composition, selectedMoment]);
   const exportResult = useMemo(() => result ? buildExportResultSummary({ result, project, plan, selectedMoment }) : null, [result, project, plan, selectedMoment]);
   // Context Engine v1 (UX-006): App-level only, not propagated to children.
@@ -108,10 +124,17 @@ export default function App() {
   }
   const updateShared = (patch: Partial<Pick<ReleaseProject, 'title' | 'artist' | 'audioPath' | 'coverPath' | 'outputDir' | 'songAnalysis'>>) => {
     const sharedInput = sharedRenderInputFor(patch);
+    // VIDEO-002: a DirectionCue is anchored to absolute song time from the
+    // current song's moments. If the audio itself changes, that cue no longer
+    // has any valid relationship to the new song, so drop it rather than let it
+    // silently re-resolve the previous song's directed visual at the same
+    // timestamps. (The 'audioPath' shared-input already re-drafts audio outputs.)
+    const clearsDirection = 'audioPath' in patch;
     setReleaseProject((rp) => {
       const nextProject = {
         ...rp,
         ...patch,
+        directionCues: clearsDirection ? [] : rp.directionCues,
         outputs: sharedInput ? invalidateOutputsForSharedInput(rp.outputs, sharedInput) : rp.outputs,
         updatedAt: touch(),
       };
@@ -355,15 +378,58 @@ export default function App() {
       if (status === 'idle') setStatus('ready');
     } catch (e) { addLog(`[error] file selection failed: ${e instanceof Error ? e.message : String(e)}`); }
   }
+
+  // ── VIDEO-002: project-owned, song-relative visual direction ──────────────
+  // Register an artist-photo asset (finally makes ProjectAsset a real consumer).
+  async function addArtistPhoto() {
+    try {
+      const p = await pickArtistPhoto();
+      if (!p) return;
+      const asset: ProjectAsset = { id: makeOutputId(), role: 'artist-photo', path: p, label: basename(p) };
+      setReleaseProject((rp) => {
+        const next = { ...rp, assets: [...rp.assets, asset], updatedAt: touch() };
+        releaseProjectRef.current = next;
+        return next;
+      });
+    } catch (e) { addLog(`[direction] add artist photo failed: ${e instanceof Error ? e.message : String(e)}`); }
+  }
+  // Assign one photo to one existing song moment. The cue is stored in absolute
+  // song time; audio outputs are invalidated so a stale render can't survive.
+  function assignDirectionToMoment(momentId: string, assetId: string) {
+    const moment = releaseProject.songAnalysis?.moments.find((m) => m.id === momentId);
+    if (!moment) return;
+    const cue: DirectionCue = { id: makeOutputId(), assetId, startSec: moment.startSec, endSec: moment.endSec };
+    setReleaseProject((rp) => {
+      const next = { ...rp, directionCues: [cue], outputs: invalidateOutputsForSharedInput(rp.outputs, 'directionCues'), updatedAt: touch() };
+      releaseProjectRef.current = next;
+      return next;
+    });
+    clearStaleRenderResult();
+  }
+  function removeDirection() {
+    setReleaseProject((rp) => {
+      const next = { ...rp, directionCues: [], outputs: invalidateOutputsForSharedInput(rp.outputs, 'directionCues'), updatedAt: touch() };
+      releaseProjectRef.current = next;
+      return next;
+    });
+    clearStaleRenderResult();
+  }
   async function render() {
     if (!plan.ok || !project.coverPath || !project.outputDir) return;
     const attempt: RenderAttempt = { outputId: activeOutput.id, renderRevision: activeOutput.renderRevision };
     setBusy(true); setStatus('rendering'); setResult(null); setCopiedOutputPath(false); setLogs([]); setShowLogs(true);
     const outputPath = joinPath(project.outputDir, plan.outputName);
+    // VIDEO-002: window the project-owned, song-relative direction into this
+    // output's clip-local span. v1 runtime boundary: ONLY the audio teaser
+    // consumes it (directedVisualsForOutput gates on output type); a
+    // non-overlapping direction resolves to nothing and is not rendered.
+    const directedVisuals: DirectedVisual[] = directedVisualsForOutput(releaseProject, activeOutput)
+      .map((w) => ({ imagePath: w.imagePath, startSec: w.startLocalSec, endSec: w.endLocalSec }));
     const job: RenderJob = {
       recipeId: project.recipeId, functionId: project.functionId, imagePath: project.coverPath,
       audioPath: plan.audio ? project.audioPath : null, title: project.title, artist: project.artist,
       outputPath, durationSec: plan.durationSec, audioStartSec: plan.audioStartSec, composition,
+      directedVisuals,
     };
     addLog(`[render] ${plan.functionLabel} · ${plan.recipeName} -> ${outputPath}`);
     try {
@@ -535,6 +601,20 @@ export default function App() {
                 onSelectMoment={selectMoment}
                 onUseCurrentTime={(s) => updateManualClip({ clipStart: formatTime(s) })}
               />
+              {isDirectableOutputType(activeOutput.functionId) && (
+                <DirectionPanel
+                  moments={project.songAnalysis?.moments ?? []}
+                  artistPhotos={artistPhotos}
+                  assetSrc={(asset) => (IS_TAURI ? safeConvert(asset.path) : null)}
+                  activeCue={activeCue}
+                  directedMoment={directedMoment}
+                  directedAsset={directedAsset}
+                  resolution={directedResolution}
+                  onAddArtistPhoto={addArtistPhoto}
+                  onAssign={assignDirectionToMoment}
+                  onRemove={removeDirection}
+                />
+              )}
             </>
           )}
 

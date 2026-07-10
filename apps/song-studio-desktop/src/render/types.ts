@@ -132,6 +132,16 @@ export interface Composition {
   layers: Layer[];
 }
 
+// VIDEO-002: a directed visual that becomes the PRIMARY visual for an
+// OUTPUT-LOCAL span [startSec, endSec] (seconds from the start of this clip,
+// already windowed from the project's song-relative direction). Rendered above
+// the base cover composite and below title/waveform.
+export interface DirectedVisual {
+  imagePath: string;
+  startSec: number; // output-local (clip-local) seconds
+  endSec: number;   // output-local (clip-local) seconds
+}
+
 export interface RenderJob {
   recipeId: string;
   functionId?: string;
@@ -143,6 +153,7 @@ export interface RenderJob {
   durationSec?: number;     // clip duration; clamped to 1..60
   audioStartSec?: number;   // clip start in the song (audio recipes only)
   composition?: Composition; // edited composition from the UI; falls back to the recipe
+  directedVisuals?: DirectedVisual[]; // VIDEO-002; empty/absent = baseline render
 }
 
 export interface RenderResult {
