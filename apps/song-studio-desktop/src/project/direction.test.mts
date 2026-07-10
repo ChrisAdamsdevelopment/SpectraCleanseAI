@@ -38,6 +38,22 @@ assert.equal(resolveDirectedVisualForOutput(projectWithCue(2, 5), otherOut).stat
 assert.equal(resolveDirectedVisualForOutput(emptyReleaseProject(), audioOut).status, 'no-cue');
 assert.equal(resolveDirectedVisualForOutput(projectWithCue(12, 18, []), audioOut).status, 'no-asset', 'cue asset removed');
 
+// ── v1 asset invariant: artist-photo ONLY (enforced beyond the UI) ──────────
+// An artist-photo cue resolves (proven by okRes above). A cue whose asset is a
+// non-artist-photo role must NOT resolve at runtime...
+const coverAsset: ProjectAsset = { id: 'a1', role: 'cover', path: '/tmp/cover.png', label: 'Cover' };
+assert.equal(resolveDirectedVisualForOutput(projectWithCue(12, 18, [coverAsset]), audioOut).status, 'no-asset', 'runtime refuses a non-artist-photo target');
+for (const role of ['cover', 'extra', 'reference', 'logo'] as const) {
+  const wrong: ProjectAsset = { id: 'a1', role, path: '/tmp/x.png' };
+  assert.deepEqual(directedVisualsForOutput(projectWithCue(2, 5, [wrong]), otherOut), [], `runtime produces no directed visual for role '${role}'`);
+}
+// ...and must be dropped during save-reload normalization (the positive
+// artist-photo round-trip is proven in the persistence section below).
+const droppedNonPhoto = normalizeReleaseProject({
+  ...emptyReleaseProject(), assets: [coverAsset], directionCues: [{ id: 'c1', assetId: 'a1', startSec: 12, endSec: 18 }],
+});
+assert.deepEqual(droppedNonPhoto.directionCues, [], 'normalization drops a cue targeting a non-artist-photo asset');
+
 // ── VIDEO-002 v1 RUNTIME BOUNDARY: audio teaser (hook promo) ONLY ───────────
 assert.equal(isDirectableOutputType('make_hook_promo'), true, 'audio teaser is directable');
 assert.equal(isDirectableOutputType('make_visualizer'), false, 'visualizer is NOT directable in v1');

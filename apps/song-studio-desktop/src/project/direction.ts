@@ -60,7 +60,9 @@ export function resolveDirectedVisualForOutput(project: ReleaseProject, output: 
   const cue: DirectionCue | undefined = project.directionCues[0];
   if (!cue) return { status: 'no-cue', window: null, cueStartSec: null, cueEndSec: null };
 
-  const asset: ProjectAsset | undefined = project.assets.find((a) => a.id === cue.assetId);
+  // v1 asset invariant enforced at runtime (not UI-only): a directed visual may
+  // reference only an artist-photo asset. Any other role resolves to 'no-asset'.
+  const asset: ProjectAsset | undefined = project.assets.find((a) => a.id === cue.assetId && a.role === 'artist-photo');
   if (!asset) return { status: 'no-asset', window: null, cueStartSec: cue.startSec, cueEndSec: cue.endSec };
 
   const clipStartSec = parseTime(output.clipStart) ?? 0;

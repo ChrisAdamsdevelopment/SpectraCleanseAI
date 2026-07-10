@@ -128,12 +128,14 @@ function normalizeAsset(value: unknown): ProjectAsset | null {
 }
 
 // VIDEO-002: a direction cue is dropped unless it has a positive-length
-// song-relative span AND still references a real asset — so removing an asset
-// can never leave a dangling direction, and old projects (no directionCues)
-// normalize to an empty list. v1 keeps at most one active cue.
-function normalizeDirectionCue(value: unknown, assetIds: Set<string>): DirectionCue | null {
+// song-relative span AND still references an existing artist-photo asset — so
+// removing an asset (or a cue targeting a non-artist-photo role) can never leave
+// a dangling/invalid direction, and old projects (no directionCues) normalize to
+// an empty list. The artist-photo-only invariant is enforced here, not just in
+// the UI. v1 keeps at most one active cue.
+function normalizeDirectionCue(value: unknown, artistPhotoIds: Set<string>): DirectionCue | null {
   if (!isRecord(value)) return null;
-  if (typeof value.assetId !== 'string' || !assetIds.has(value.assetId)) return null;
+  if (typeof value.assetId !== 'string' || !artistPhotoIds.has(value.assetId)) return null;
   if (typeof value.startSec !== 'number' || typeof value.endSec !== 'number') return null;
   if (!(value.endSec > value.startSec)) return null;
   return {
@@ -146,8 +148,8 @@ function normalizeDirectionCue(value: unknown, assetIds: Set<string>): Direction
 
 function normalizeDirectionCues(value: unknown, assets: ProjectAsset[]): DirectionCue[] {
   if (!Array.isArray(value)) return [];
-  const assetIds = new Set(assets.map((a) => a.id));
-  return value.map((v) => normalizeDirectionCue(v, assetIds)).filter((c): c is DirectionCue => Boolean(c)).slice(0, 1);
+  const artistPhotoIds = new Set(assets.filter((a) => a.role === 'artist-photo').map((a) => a.id));
+  return value.map((v) => normalizeDirectionCue(v, artistPhotoIds)).filter((c): c is DirectionCue => Boolean(c)).slice(0, 1);
 }
 
 /**

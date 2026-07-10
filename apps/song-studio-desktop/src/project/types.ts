@@ -168,10 +168,11 @@ export function loopCoreForOutput(functionId: string, loopDurationSec: number, e
   return existing ? { ...existing, loopDurationSec } : defaultLoopCore(loopDurationSec);
 }
 
-// Reserved for Phase 2 (artist photos, extra images, references, logo). The
-// field is persisted and migrated starting now so nothing has to change shape
-// again later, but it is not wired to any UI yet — registering an asset here
-// does not currently affect rendering.
+// Project assets. As of VIDEO-002, `artist-photo` assets are a real consumer:
+// they can be directed into a song region and become the primary visual in the
+// exported audio teaser (see DirectionCue + project/direction.ts). The other
+// roles (cover, extra, reference, logo) remain reserved and are not yet wired
+// to any UI or rendering path.
 export type ProjectAssetRole = 'cover' | 'artist-photo' | 'extra' | 'reference' | 'logo';
 export interface ProjectAsset {
   id: string;
