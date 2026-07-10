@@ -368,3 +368,18 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 @media (max-width: 720px) { .readiness-panel, .readiness-stats { grid-template-columns: 1fr; } }
 
 .other-outputs { margin-top: 14px; }
+
+/* VIDEO-002 — directed visual panel */
+.direction-visual { margin-top: 14px; padding: 12px; border: 1px solid var(--border); border-radius: 10px; }
+.direction-visual h3 { margin: 0 0 4px; }
+.direction-assign { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
+.direction-assign-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.direction-assign-moment { font-size: 13px; }
+.direction-active { margin-top: 8px; display: flex; flex-direction: column; gap: 8px; }
+.direction-active-still { display: flex; align-items: center; gap: 10px; }
+.direction-active-still img { width: 64px; height: 64px; object-fit: cover; border-radius: 8px; border: 1px solid var(--border); }
+.direction-still-placeholder { width: 64px; height: 64px; display: grid; place-items: center; border: 1px dashed var(--border); border-radius: 8px; color: var(--muted); }
+.direction-active-text { display: flex; flex-direction: column; gap: 2px; }
+.direction-overlap { font-size: 12px; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--border); }
+.direction-overlap.ok { color: var(--ok, #7CD992); }
+.direction-overlap.warn { color: var(--warn, #E0B341); }

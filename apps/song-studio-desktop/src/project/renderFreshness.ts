@@ -1,7 +1,7 @@
 import { getFunction } from '../render/recipes';
 import type { OutputLastRender, ProjectOutput } from './types';
 
-export type SharedRenderInput = 'audioPath' | 'coverPath' | 'title' | 'artist' | 'outputDir' | 'songAnalysis';
+export type SharedRenderInput = 'audioPath' | 'coverPath' | 'title' | 'artist' | 'outputDir' | 'songAnalysis' | 'directionCues';
 
 export interface RenderAttempt {
   outputId: string;
@@ -41,6 +41,10 @@ export function shouldInvalidateForSharedInput(output: ProjectOutput, input: Sha
   if (input === 'coverPath') return outputUsesCover(output);
   if (input === 'audioPath') return outputUsesAudio(output);
   if (input === 'title') return outputUsesTitle(output);
+  // VIDEO-002: directed visuals are consumed only by song-timed (audio) outputs
+  // in v1, so a direction change invalidates exactly those renders. Whether an
+  // output actually shows the cue depends on clip-window overlap at render time.
+  if (input === 'directionCues') return outputUsesAudio(output);
   return false;
 }
 

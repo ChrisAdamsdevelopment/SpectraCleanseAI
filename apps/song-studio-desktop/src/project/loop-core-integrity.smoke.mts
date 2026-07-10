@@ -9,7 +9,7 @@ import { emptyOutput, loopCoreForOutput, mergeProjectView, type ReleaseProject }
 
 function projectWith(output = emptyOutput('make_canvas', 'clean_canvas', 7, 'Canvas')): ReleaseProject {
   return {
-    schemaVersion: 3,
+    schemaVersion: 4,
     title: 'Integrity',
     artist: 'Tester',
     audioPath: '/tmp/song.m4a',
@@ -17,6 +17,7 @@ function projectWith(output = emptyOutput('make_canvas', 'clean_canvas', 7, 'Can
     outputDir: '/tmp/out',
     songAnalysis: null,
     assets: [],
+    directionCues: [],
     outputs: [output],
     activeOutputId: output.id,
     updatedAt: '2026-01-01T00:00:00.000Z',

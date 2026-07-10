@@ -42,6 +42,7 @@ export const tauriRenderEngine: RenderEngine = {
       outputPath: job.outputPath,
       durationSec: job.durationSec ?? recipe.defaultDurationSec,
       audioStartSec: job.audioStartSec,
+      directedVisuals: job.directedVisuals,
     }, { fontPath });
 
     const start = Date.now();
