@@ -1,6 +1,7 @@
 import { open, save } from '@tauri-apps/plugin-dialog';
 import { writeTextFile, readTextFile } from '@tauri-apps/plugin-fs';
 import { parseTime } from '../lib/time';
+import { normalizeDirectorState } from '../director/normalize';
 import {
   defaultLoopCore, emptyOutput, emptyReleaseProject, isLoopOutputType, makeOutputId,
   type DirectionCue, type LoopAnchorPoint, type LoopContinuityMode, type LoopCore, type LoopVisualStateMarker,
@@ -123,7 +124,10 @@ function normalizeOutput(value: unknown): ProjectOutput | null {
 
 function normalizeAsset(value: unknown): ProjectAsset | null {
   if (!isRecord(value) || typeof value.path !== 'string') return null;
-  const role: ProjectAssetRole = value.role === 'artist-photo' || value.role === 'extra' || value.role === 'reference' || value.role === 'logo' ? value.role : 'cover';
+  const role: ProjectAssetRole =
+    value.role === 'artist-photo' || value.role === 'extra' || value.role === 'reference' ||
+    value.role === 'logo' || value.role === 'footage' || value.role === 'generated-video'
+      ? value.role : 'cover';
   return { id: typeof value.id === 'string' && value.id ? value.id : makeOutputId(), role, path: value.path, label: typeof value.label === 'string' ? value.label : undefined };
 }
 
@@ -181,7 +185,10 @@ export function normalizeReleaseProject(value: unknown): ReleaseProject {
     const activeOutputId = typeof value.activeOutputId === 'string' && outputs.some((o) => o.id === value.activeOutputId) ? value.activeOutputId : outputs[0].id;
     const assets = Array.isArray(value.assets) ? value.assets.map(normalizeAsset).filter((a): a is ProjectAsset => Boolean(a)) : [];
     const directionCues = normalizeDirectionCues(value.directionCues, assets);
-    return { ...base, ...shared, songAnalysis, assets, directionCues, outputs, activeOutputId };
+    // Director Mode block is optional: absent for pre-Director projects (they
+    // behave exactly as before); normalized defensively when present.
+    const director = value.director !== undefined ? normalizeDirectorState(value.director) : undefined;
+    return { ...base, ...shared, songAnalysis, assets, directionCues, ...(director !== undefined ? { director } : {}), outputs, activeOutputId };
   }
 
   // Legacy single-output shape — migrate into one output.
@@ -240,6 +247,29 @@ export async function pickArtistPhoto(): Promise<string | null> {
     filters: [{ name: 'Artist photo', extensions: IMAGE_EXTENSIONS }],
   });
   return typeof selected === 'string' ? selected : null;
+}
+
+// Director Mode: reference images (identity/tattoo/wardrobe/location/etc).
+export async function pickReferenceImage(): Promise<string | null> {
+  const selected = await open({
+    multiple: false, directory: false,
+    filters: [{ name: 'Reference image', extensions: IMAGE_EXTENSIONS }],
+  });
+  return typeof selected === 'string' ? selected : null;
+}
+
+// Director Mode: a generated (or imported) MP4 result for a scene take.
+export async function pickGeneratedVideo(): Promise<string | null> {
+  const selected = await open({
+    multiple: false, directory: false,
+    filters: [{ name: 'Generated video', extensions: CANVAS_VIDEO_EXTENSIONS }],
+  });
+  return typeof selected === 'string' ? selected : null;
+}
+
+// Director Mode: destination folder for a manual generation package export.
+export async function pickPacketExportDir(): Promise<string | null> {
+  return pickOutputDir();
 }
 
 export async function pickCanvasSourceVideo(): Promise<string | null> {
