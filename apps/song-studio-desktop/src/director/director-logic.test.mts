@@ -1,11 +1,14 @@
 import assert from 'node:assert/strict';
 import {
-  emptyDirectorState, makeEntity, makeReference, makeScene, makeLyricEvent,
+  emptyDirectorState, makeEntity, makeReference, makeScene, makeLyricEvent, makeTake,
 } from './model';
 import { preflightScene } from './preflight';
 import { validateToolDefinition, parseToolFromModelText, exportToolPackage, importToolPackage, toolGenerationPrompt } from './toolSchema';
 import { compileScenePacket, checkProviderFit, slug } from './compile';
 import { googleVideoCapabilities } from './providers/googleVideo';
+import { writePacket, resolveReturnAttemptId } from './packetIo';
+import { planWorkprint, buildWorkprintArgs } from './assembly';
+import { bindResultToTake, acceptTake } from './actions';
 
 // ── Conflict preflight (deterministic, no AI) ───────────────────────────────
 {
@@ -159,4 +162,73 @@ import { googleVideoCapabilities } from './providers/googleVideo';
 
 assert.equal(slug('Left Forearm!!'), 'left_forearm');
 
-console.log('[director-logic] PASS — preflight conflicts, safe tool schema, compiler packet, approved-only references, and provider-fit conflicts verified.');
+// ── Packet IO: writePacket materializes files; return binds via sidecar ─────
+{
+  const store = new Map<string, string>();
+  const dirs = new Set<string>();
+  const memFs = {
+    async mkdir(d: string) { dirs.add(d); },
+    async writeText(p: string, c: string) { store.set(p, c); },
+    async copyFile(from: string, to: string) { store.set(to, `copy:${from}`); },
+    join: (...p: string[]) => p.join('/'),
+    async extractAudio(src: string, to: string, s: number, d: number) { store.set(to, `audio:${src}:${s}:${d}`); },
+    async readText(p: string) { return store.get(p) ?? ''; },
+    async exists(p: string) { return store.has(p) || p.startsWith('/tmp/'); },
+    async statBytes(p: string) { return store.has(p) ? 100 : 0; },
+  };
+  const state = emptyDirectorState();
+  const e = makeEntity('Sobelo', 'person'); const r = makeReference(e.id, 'face', '/tmp/face.png', 'face', 'upload'); r.approved = true;
+  e.references.push(r); state.entities.push(e);
+  const scene = makeScene('S', 0, 6);
+  scene.castings.push({ entityId: e.id, relationship: 'exact', mustRemain: [], mayVary: [], referenceIds: [r.id] });
+  state.scenes.push(scene);
+  const packet = compileScenePacket(state, scene, { attemptId: 'att-9', audioPath: '/tmp/song.m4a' });
+  const written = await writePacket(packet, 'pkg', memFs);
+  assert.ok(written.includes('manifest.json') && written.includes('prompt.md'), 'packet text files written');
+  assert.ok(store.get('pkg/references/character_sobelo_face.png')?.startsWith('copy:/tmp/face.png'), 'reference copied by name');
+  assert.ok(store.get('pkg/audio/scene-audio.wav')?.startsWith('audio:/tmp/song.m4a:0:6'), 'scene audio extracted for the exact range');
+  // sidecar return manifest binds the MP4 to the exact attempt (not filename guessing)
+  store.set('inbox/return-manifest.json', JSON.stringify({ attemptId: 'att-9' }));
+  const bind = await resolveReturnAttemptId('inbox/result.mp4', memFs);
+  assert.deepEqual(bind, { attemptId: 'att-9', via: 'manifest' });
+  const guided = await resolveReturnAttemptId('elsewhere/x.mp4', memFs, 'att-guided');
+  assert.equal(guided.via, 'guided');
+}
+
+// ── Assembly planning (pure): coverage, gaps, final-readiness, arg shape ─────
+{
+  let state = emptyDirectorState();
+  const sceneA = makeScene('A', 2, 6); const sceneB = makeScene('B', 12, 16);
+  state.scenes.push(sceneA, sceneB);
+  const snap = (s: typeof sceneA) => ({ promptDigest: 'd', recipe: 'separate-references' as const, referenceFiles: [], sceneStartSec: s.startSec, sceneEndSec: s.endSec, aspect: '9:16' as const, resolution: '720p' });
+  const takeA = makeTake(sceneA, snap(sceneA), 'manual', {}); const takeB = makeTake(sceneB, snap(sceneB), 'manual', {});
+  state.takes.push(takeA, takeB);
+  state = bindResultToTake(state, takeA.id, 'clipA', 'imported');
+  state = acceptTake(state, takeA.id); // only A accepted
+  const assetPath = (id: string) => (id === 'clipA' ? '/tmp/a.mp4' : id === 'clipB' ? '/tmp/b.mp4' : null);
+  const plan1 = planWorkprint(state, 20, assetPath);
+  assert.equal(plan1.scenes.length, 1, 'only accepted-with-clip scenes are assembled');
+  assert.equal(plan1.finalReady, false, 'gaps → not final ready');
+  assert.ok(plan1.gaps.some((g) => g.startSec === 0 && g.endSec === 2), 'leading gap [0,2] reported');
+  assert.ok(plan1.gaps.some((g) => Math.abs(g.startSec - 6) < 0.01), 'gap after scene A reported');
+
+  state = bindResultToTake(state, takeB.id, 'clipB', 'imported');
+  state = acceptTake(state, takeB.id);
+  const plan2 = planWorkprint(state, 20, assetPath);
+  assert.equal(plan2.scenes.length, 2);
+  const args = buildWorkprintArgs(plan2, { songAudioPath: '/tmp/song.m4a', width: 360, height: 640, fps: 24, outputPath: '/tmp/wp.mp4', mode: 'workprint' });
+  assert.ok(args.includes('/tmp/song.m4a') && args.includes('/tmp/a.mp4') && args.includes('/tmp/b.mp4'), 'song + both clips are inputs');
+  assert.ok(args.includes('1:a'), 'song audio (input 1) is mapped');
+  const fc = args[args.indexOf('-filter_complex') + 1];
+  assert.ok(/enable='between\(t,2.000,6.000\)'/.test(fc) && /enable='between\(t,12.000,16.000\)'/.test(fc), 'each clip gated to its song range');
+  assert.ok(/setpts=PTS-STARTPTS\+2.000\/TB/.test(fc), 'clip timestamps shifted to song time');
+
+  // Full-song coverage → finalReady
+  const full = makeScene('Full', 0, 20);
+  let s2 = emptyDirectorState(); s2.scenes.push(full);
+  const tf = makeTake(full, snap(full as typeof sceneA), 'manual', {}); s2.takes.push(tf);
+  s2 = bindResultToTake(s2, tf.id, 'clipA', 'imported'); s2 = acceptTake(s2, tf.id);
+  assert.equal(planWorkprint(s2, 20, assetPath).finalReady, true, 'full coverage → final ready');
+}
+
+console.log('[director-logic] PASS — preflight, safe tools, compiler, approved-only refs, provider-fit, packet IO, and assembly planning verified.');
