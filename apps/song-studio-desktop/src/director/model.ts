@@ -93,7 +93,7 @@ export interface DirectorEntity {
 // bump `version`), without corrupting prior takes, which keep the fingerprint
 // they were generated with.
 
-function fnv1a64(input: string): string {
+export function fnv1a64(input: string): string {
   // 64-bit FNV-1a via two 32-bit lanes (deterministic, dependency-free).
   let h1 = 0x811c9dc5 >>> 0;
   let h2 = 0xcbf29ce4 >>> 0;
