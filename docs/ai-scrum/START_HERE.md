@@ -40,6 +40,7 @@ A durable product mission sits above the single active North Star and explains w
 - Decision record template: `docs/ai-scrum/templates/decision-record.md`
 - First decision record: `docs/ai-scrum/decisions/DEC-001-directed-video-north-star.md`
 - Product mission / active wedge / future horizons: `docs/ai-scrum/decisions/DEC-002-product-mission-active-wedge-and-future-horizons.md`
+- Director Mode / AI production engine doctrine: `docs/ai-scrum/decisions/DEC-003-director-mode-ai-production-engine.md`
 
 ## Required agent handoff header
 
