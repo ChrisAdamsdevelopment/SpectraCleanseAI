@@ -30,6 +30,11 @@ import { buildExportResultSummary } from './export/result';
 import { applyFailedRender, applySuccessfulRender, canApplyRenderAttempt, invalidateOutputRender, invalidateOutputsForSharedInput, type RenderAttempt, type SharedRenderInput } from './project/renderFreshness';
 import { effectiveOutputState } from './project/readiness';
 import { CanvasTestDrive } from './canvas-ui/CanvasTestDrive';
+import { DirectorWorkspace } from './director-ui/DirectorWorkspace';
+import type { DirectorCtx } from './director-ui/context';
+import { emptyDirectorState, type DirectorState } from './director/model';
+import { browserHost } from './director/hostIo';
+import { createTauriDirectorHost, generateToolWithGemini, setGoogleApiKey, googleApiKeyPresent } from './director/tauriHost';
 
 const IS_TAURI = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in (window as object);
 const basename = (p: string | null) => (p ? p.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || p : '');
@@ -52,7 +57,7 @@ export default function App() {
   const [copiedOutputPath, setCopiedOutputPath] = useState(false);
   const [busy, setBusy] = useState(false);
   const [ffmpeg, setFfmpeg] = useState<FfmpegStatus | null>(null);
-  const [view, setView] = useState<'start' | 'home' | 'editor' | 'canvas-test-drive'>('start');
+  const [view, setView] = useState<'start' | 'home' | 'editor' | 'canvas-test-drive' | 'director'>('start');
   const [audioDurationSec, setAudioDurationSec] = useState<number | null>(null);
   const releaseProjectRef = useRef<ReleaseProject>(releaseProject);
   // Workspace-clarity v1: advanced editing (output type / look / layers /
@@ -486,6 +491,45 @@ export default function App() {
     } catch (e) { addLog(`load failed: ${e}`); }
   }
 
+  // ── Director Mode (DEC-003) ────────────────────────────────────────────────
+  const directorState: DirectorState = releaseProject.director ?? emptyDirectorState();
+  const updateDirector = (next: DirectorState) => {
+    setReleaseProject((rp) => {
+      const nextProject = { ...rp, director: next, updatedAt: touch() };
+      releaseProjectRef.current = nextProject;
+      return nextProject;
+    });
+  };
+  const addAsset = (role: ProjectAsset['role'], path: string, label: string): string => {
+    const asset: ProjectAsset = { id: makeOutputId(), role, path, label };
+    setReleaseProject((rp) => {
+      const nextProject = { ...rp, assets: [...rp.assets, asset], updatedAt: touch() };
+      releaseProjectRef.current = nextProject;
+      return nextProject;
+    });
+    return asset.id;
+  };
+  const assetPathById = (assetId: string): string | null =>
+    releaseProjectRef.current.assets.find((a) => a.id === assetId)?.path ?? null;
+  const directorHost = IS_TAURI ? createTauriDirectorHost({ outputDir: () => releaseProjectRef.current.outputDir }) : browserHost;
+  const directorCtx: DirectorCtx = {
+    state: directorState,
+    update: updateDirector,
+    host: directorHost,
+    songDurationSec: releaseProject.songAnalysis?.durationSec ?? audioDurationSec,
+    audioPath: releaseProject.audioPath,
+    outputDir: releaseProject.outputDir,
+    width: 1080, height: 1920, fps: 30,
+    addAsset,
+    assetPath: assetPathById,
+    textModelConfigured: IS_TAURI && googleApiKeyPresent(),
+    generateTool: (request, refinement, previousJson) => generateToolWithGemini(request, refinement, previousJson),
+  };
+
+  if (view === 'director') {
+    return <DirectorWorkspace ctx={directorCtx} onExit={() => setView('editor')} />;
+  }
+
   if (view === 'canvas-test-drive') {
     return <CanvasTestDrive isTauri={IS_TAURI} onBack={() => setView('editor')} />;
   }
@@ -523,6 +567,8 @@ export default function App() {
         <Chip ok={!!project.outputDir} label={project.outputDir ? 'Save folder ✓' : 'Save folder'} onClick={() => choose('output')} />
         <div className="spacer" />
         {IS_TAURI && ffmpeg && <span className={`ff ${ffmpeg.found ? 'ok' : 'err'}`}>Create MP4 {ffmpeg.found ? 'ready' : 'needs setup'}</span>}
+        <button className="primary small" title="Direct AI-generated moving scenes across the whole song" onClick={() => setView('director')}>Director Mode</button>
+        <button className="ghost small" title="Set your Google API key for AI generation (session-only, never saved to the project)" onClick={() => { const k = window.prompt('Google API key (Gemini/Veo). Session-only — not saved to the project or committed.'); if (k !== null) setGoogleApiKey(k); }} disabled={!IS_TAURI}>API key</button>
         <button className="ghost small internal-tools-link" title="Owner/dev validation tools — not part of creating a promo MP4" onClick={() => setView('canvas-test-drive')}>Internal tools · dev/test</button>
         <button className="ghost small" onClick={() => setView('home')}>Project Home</button>
         <button className="ghost small" onClick={() => setView('start')}>New project</button>

@@ -17,7 +17,10 @@
     "canvas:lab": "tsx src/canvas/canvas-lab.mts",
     "readiness:test": "tsx src/project/readiness.test.mts",
     "render-freshness:test": "tsx src/project/renderFreshness.test.mts",
-    "direction:test": "tsx src/project/direction.test.mts"
+    "direction:test": "tsx src/project/direction.test.mts",
+    "director:model:test": "tsx src/director/director-model.test.mts",
+    "director:logic:test": "tsx src/director/director-logic.test.mts",
+    "director:assembly:smoke": "tsx render-core/director-assembly.smoke.mts"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.1.1",

@@ -168,12 +168,11 @@ export function loopCoreForOutput(functionId: string, loopDurationSec: number, e
   return existing ? { ...existing, loopDurationSec } : defaultLoopCore(loopDurationSec);
 }
 
-// Project assets. As of VIDEO-002, `artist-photo` assets are a real consumer:
-// they can be directed into a song region and become the primary visual in the
-// exported audio teaser (see DirectionCue + project/direction.ts). The other
-// roles (cover, extra, reference, logo) remain reserved and are not yet wired
-// to any UI or rendering path.
-export type ProjectAssetRole = 'cover' | 'artist-photo' | 'extra' | 'reference' | 'logo';
+// Project assets. `artist-photo` is consumed by VIDEO-002 photo direction;
+// Director Mode (DEC-003) adds `footage` (creator-imported video), and
+// `generated-video` (an AI-generated take result registered as a project
+// asset). The remaining roles (cover, extra, reference, logo) stay reserved.
+export type ProjectAssetRole = 'cover' | 'artist-photo' | 'extra' | 'reference' | 'logo' | 'footage' | 'generated-video';
 export interface ProjectAsset {
   id: string;
   role: ProjectAssetRole;
@@ -199,7 +198,7 @@ export interface DirectionCue {
 }
 
 export interface ReleaseProject {
-  schemaVersion: 4;
+  schemaVersion: 5;
   title: string;
   artist: string;
   audioPath: string | null;
@@ -210,6 +209,10 @@ export interface ReleaseProject {
   // VIDEO-002: project-owned, song-relative visual direction. v1 carries at
   // most one active cue; the array shape keeps windowing/persistence uniform.
   directionCues: DirectionCue[];
+  // Director Mode (DEC-003): entities, references, scenes, takes, lyrics,
+  // tools, and workprint state. Absent for pre-Director projects — they open
+  // and behave exactly as before until the creator enters Director Mode.
+  director?: import('../director/model').DirectorState;
   outputs: ProjectOutput[];
   activeOutputId: string | null;
   updatedAt: string;
@@ -243,7 +246,7 @@ export function emptyOutput(functionId = 'make_canvas', recipeId = 'clean_canvas
 
 export function emptyReleaseProject(): ReleaseProject {
   return {
-    schemaVersion: 4,
+    schemaVersion: 5,
     title: '',
     artist: '',
     audioPath: null,
