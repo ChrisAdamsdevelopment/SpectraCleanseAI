@@ -1,20 +1,28 @@
 import assert from 'node:assert/strict';
 import {
   emptyDirectorState, makeEntity, makeReference, makeScene, makeLyricEvent, sceneLyrics,
-  computeIdentityFingerprint, type DirectorState,
+  makeReferenceRequest, computeIdentityFingerprint,
+  type DirectorState, type DirectorTool,
 } from './model';
 import { normalizeDirectorState } from './normalize';
-import { compileScenePacket, compileRepairPacket } from './compile';
+import { compileScenePacket, compileRepairPacket, compileLipSyncRepairPacket, compileCameraPath } from './compile';
 import { assessProviderReadiness, canSubmit, unresolvedOverrideKeys } from './providerReadiness';
 import { googleVideoCapabilities } from './providers/googleVideo';
 import { omniFlashCapabilities } from './providers/omniFlash';
-import { capabilitiesFor, DEFAULT_PROVIDER_ID, providerDescriptor } from './providers/registry';
+import { capabilitiesFor, DEFAULT_PROVIDER_ID, providerDescriptor, DEFAULT_IMAGE_PROVIDER_ID, imageCapabilitiesFor } from './providers/registry';
 import { createMockAdapter } from './providers/mock';
+import { createMockImageAdapter } from './providers/mockImage';
 import {
   addTakeFromPacket, applyProviderSubmit, applyProviderPoll, applyProviderResult, resumableTakes,
-  addRepairAttempt, acceptTake, applyEntityIdentity, blockingOverlaps,
+  addRepairAttempt, addLipSyncRepair, acceptTake, applyEntityIdentity, blockingOverlaps,
   applyRetime, recomputeWorkprintStale, markWorkprintBuilt, takesForScene,
+  applySceneResolution, splitScene,
 } from './actions';
+import {
+  assessImageReadiness, applyReferenceSubmit, addProposedVariant, approveProposedVariant,
+  rejectProposedVariant, resumableReferenceRequests, compileReferencePackage, setReferenceRequest,
+} from './referenceGen';
+import { nextPollDecision, POLL_MAX_ATTEMPTS, POLL_MAX_ERRORS } from './polling';
 import { planWorkprint, buildWorkprintArgs } from './assembly';
 
 function baseState(): { state: DirectorState; sceneId: string; entityId: string } {
@@ -136,7 +144,7 @@ assert.equal(omniFlashCapabilities.maxDurationSec, null, 'Omni infers duration (
   s = acceptTake(s, 'parent');
   assert.equal(s.scenes[0].acceptedTakeId, 'parent');
 
-  const { state: s2, take: child } = addRepairAttempt(s, 'parent', { preserve: ['the performance', 'the camera'], change: ['the ending'], intervalSec: { start: 65, end: 68 }, note: 'fix the last beat' });
+  const { state: s2, take: child } = addRepairAttempt(s, 'parent', { kind: 'general', preserve: ['the performance', 'the camera'], change: ['the ending'], intervalSec: { start: 65, end: 68 }, note: 'fix the last beat' });
   assert.equal(child.parentTakeId, 'parent', 'child take keeps parent lineage');
   assert.equal(s2.takes.find((t) => t.id === 'parent')!.accepted, true, 'parent take preserved & still accepted');
   assert.equal(s2.scenes[0].status, 'needs-repair');
@@ -280,4 +288,266 @@ assert.equal(omniFlashCapabilities.maxDurationSec, null, 'Omni infers duration (
   assert.deepEqual(rt.takes[0].acceptedOverrides, ['refs:choose'], 'accepted overrides persisted');
 }
 
-console.log('[director-generation] PASS — provider readiness (no silent mutation), job lifecycle + resume, mock adapter, repair execution + lineage, lyric overlap, fingerprint apply, overlap block, retime, staleness, short-clip policy, and persistence verified.');
+// ── §1: AI reference-variant lifecycle (mock image adapter) ──────────────────
+{
+  assert.equal(DEFAULT_IMAGE_PROVIDER_ID, 'gemini-image', 'default image provider');
+  const caps = imageCapabilitiesFor('gemini-image');
+
+  const { state, entityId } = baseState();
+  const entity = state.entities.find((e) => e.id === entityId)!;
+  // build a request and check readiness (too many conditioning refs blocks)
+  const req = { ...makeReferenceRequest(entity, 'profile', 'gemini-image'), conditioningReferenceIds: entity.references.map((r) => r.id) };
+  const readiness = assessImageReadiness(req, caps);
+  assert.ok(readiness.blocking.some((b) => b.id === 'too-many-conditioning'), '4 conditioning refs > cap blocks (never silently dropped)');
+  const okReq = { ...req, conditioningReferenceIds: entity.references.slice(0, 2).map((r) => r.id) };
+  assert.equal(assessImageReadiness(okReq, caps).blocking.length, 0, 'within cap is ready');
+
+  // make a take conditioned on the CURRENT identity, then generate + approve a
+  // new reference and prove the prior take fingerprint is preserved.
+  const scene = state.scenes.find((s) => s.id === state.scenes[0].id)!;
+  const pk = compileScenePacket(state, scene, { attemptId: 'tk-pre' });
+  let s = addTakeFromPacket(state, scene, pk, 'google-omni', null, 'tk-pre').state;
+  const priorFp = s.takes[0].entityFingerprints[entityId];
+  const priorEntityFp = s.entities.find((e) => e.id === entityId)!.activeFingerprint;
+
+  // register + submit the request, drive the mock image adapter, add a proposal
+  s = setReferenceRequest(s, okReq);
+  const img = createMockImageAdapter({ mode: 'pending-then-success', pollsBeforeDone: 2, resultPaths: ['/out/ref_new.png'] });
+  const sub = await img.submit({ prompt: 'p', referenceImagePaths: [], outputCount: 1, aspect: '9:16' });
+  s = applyReferenceSubmit(s, okReq.id, { providerId: 'gemini-image', modelId: 'mock-img-1', jobId: sub.jobId, phase: 'submitted' });
+  assert.equal(s.referenceRequests[0].jobId, sub.jobId, 'image job id persisted (resume-critical)');
+  const reopened = normalizeDirectorState(JSON.parse(JSON.stringify(s)));
+  assert.equal(resumableReferenceRequests(reopened).length, 1, 'pending image request resumable after reopen');
+  assert.equal((await img.poll('j')).phase, 'running');
+  const done = await img.poll('j');
+  assert.equal(done.phase, 'succeeded', 'mock image completes after N polls');
+
+  const added = addProposedVariant(s, okReq.id, '/out/ref_new.png', { origin: 'ai-generated' });
+  s = added.state;
+  const proposal = s.entities.find((e) => e.id === entityId)!.references.find((r) => r.id === added.refId)!;
+  assert.equal(proposal.approved, false, 'generated result enters as an UNAPPROVED proposal');
+  assert.equal(proposal.provenance.generationAttemptId, okReq.id, 'proposal retains generation provenance');
+  assert.equal(s.entities.find((e) => e.id === entityId)!.activeFingerprint, priorEntityFp, 'unapproved proposal does NOT change identity');
+
+  // approve through the canonical apply transaction → new version + fingerprint
+  const beforeVersion = s.entities.find((e) => e.id === entityId)!.version;
+  s = approveProposedVariant(s, entityId, added.refId);
+  const afterEntity = s.entities.find((e) => e.id === entityId)!;
+  assert.equal(afterEntity.version, beforeVersion + 1, 'approval bumps identity version once');
+  assert.notEqual(afterEntity.activeFingerprint, priorEntityFp, 'approval changes the identity fingerprint');
+  assert.equal(s.takes[0].entityFingerprints[entityId], priorFp, 'PRIOR TAKE fingerprint preserved across approval');
+
+  // rejecting a proposal removes it without a version bump
+  const added2 = addProposedVariant(s, okReq.id, '/out/ref_rej.png', { origin: 'imported-generation' });
+  const vBefore = added2.state.entities.find((e) => e.id === entityId)!.version;
+  const sRej = rejectProposedVariant(added2.state, entityId, added2.refId);
+  assert.equal(sRej.entities.find((e) => e.id === entityId)!.references.some((r) => r.id === added2.refId), false, 'rejected proposal removed');
+  assert.equal(sRej.entities.find((e) => e.id === entityId)!.version, vBefore, 'rejecting a proposal does not bump version');
+
+  // manual reference package end-to-end
+  const pkg = compileReferencePackage(s, okReq);
+  const rel = pkg.files.map((f) => f.relPath);
+  assert.ok(rel.includes('prompt.md') && rel.includes('request.json') && rel.some((r) => r.startsWith('conditioning/')), 'manual reference package has prompt + request + conditioning images');
+
+  // persistence round-trip of the request
+  const rt = normalizeDirectorState(JSON.parse(JSON.stringify(s)));
+  assert.equal(rt.referenceRequests.length, 1, 'reference request persists');
+}
+
+// ── §2: rich directing primitives feed compilation + preflight ───────────────
+{
+  const { state, entityId } = baseState();
+  const scene = state.scenes.find((s) => s.id === state.scenes[0].id)!; // [60,68]
+  const lyric = makeLyricEvent('rise', 61, 62); lyric.performerEntityId = entityId; state.lyrics.push(lyric);
+  const tool: DirectorTool = {
+    id: 'tool-rich', name: 'Rich', description: '', version: 1, appliesTo: ['scene'],
+    fields: [
+      { id: 'cam', kind: 'camera-path', label: 'Camera' },
+      { id: 'board', kind: 'image-board', label: 'Board' },
+      { id: 'lyr', kind: 'lyric-blocks', label: 'Lyrics' },
+    ],
+    outputSchema: { camera: 'cam', board: 'board' },
+    conflictRules: [], compileHints: 'rich', usageCount: 0, importedFrom: null, createdAt: 't',
+  };
+  state.tools.push(tool);
+  const face = state.entities[0].references[0];
+  scene.toolOutputs.push({
+    toolId: 'tool-rich', toolVersion: 1, updatedAt: 't',
+    values: {
+      cam: { start: { x: 0.1, y: 0.5 }, end: { x: 0.9, y: 0.5 }, control: [{ x: 0.5, y: 0.2 }], movement: 'dolly', orientation: 'toward subject' },
+      board: { items: [{ id: 'i1', referenceId: face.id, label: 'hero' }, { id: 'i2', referenceId: face.id, label: 'detail' }] },
+      lyr: { selectedLyricIds: [lyric.id], overrides: { [lyric.id]: { mouthVisibility: 'required', emphasis: 0.9 } } },
+    },
+  });
+  // camera-path compiles into machine-facing camera direction
+  assert.ok(compileCameraPath({ start: { x: 0.1, y: 0.5 }, end: { x: 0.9, y: 0.5 }, control: [], movement: 'orbit', orientation: '' }).includes('orbit'), 'camera-path compiles a movement');
+  const pk = compileScenePacket(state, scene, { attemptId: 'rp' });
+  assert.ok(pk.prompt.includes('dolly camera move'), 'camera-path appears in the compiled prompt');
+  assert.ok(pk.prompt.includes('image board') && pk.prompt.includes('hero'), 'image-board ordering appears in the compiled prompt');
+  // lyric-blocks feed the SAME canonical selection: emphasis override applied
+  const picked = sceneLyrics(state, scene).find((l) => l.id === lyric.id)!;
+  assert.equal(picked.emphasis, 0.9, 'lyric-block emphasis override feeds sceneLyrics');
+  assert.equal(picked.mouthVisibility, 'required', 'lyric-block mouth override feeds sceneLyrics');
+  // normalization round-trips the structured shapes
+  const rt = normalizeDirectorState(JSON.parse(JSON.stringify(state)));
+  const rtOut = rt.scenes[0].toolOutputs[0].values;
+  assert.equal((rtOut.board as { items: unknown[] }).items.length, 2, 'image-board items round-trip in order');
+  assert.equal((rtOut.cam as { movement: string }).movement, 'dolly', 'camera-path round-trips');
+}
+
+// ── §3: each conditioning recipe materializes a distinct artifact ────────────
+{
+  const { state } = baseState();
+  const scene = state.scenes.find((s) => s.id === state.scenes[0].id)!;
+  const lyric = makeLyricEvent('go', 61, 62); state.lyrics.push(lyric);
+  // a pose-sequence tool output so pose-sheet + motion-guide have data
+  const tool: DirectorTool = { id: 'pt', name: 'Pose', description: '', version: 1, appliesTo: ['scene'], fields: [{ id: 'p', kind: 'pose-sequence', label: 'Pose' }], outputSchema: { pose: 'p' }, conflictRules: [], compileHints: '', usageCount: 0, importedFrom: null, createdAt: 't' };
+  state.tools.push(tool);
+  const { defaultPose } = await import('./model');
+  scene.toolOutputs.push({ toolId: 'pt', toolVersion: 1, updatedAt: 't', values: { p: { poses: [{ atBeat: 0, holdBeats: 1, transition: 'smooth', joints: defaultPose() }] } } });
+
+  const rel = (recipe: Parameters<typeof compileScenePacket>[2]['recipe']) => compileScenePacket(state, scene, { attemptId: 'a', recipe, audioPath: '/tmp/song.m4a' }).files.map((f) => f.relPath);
+  assert.ok(rel('contact-sheet').includes('conditioning/contact-sheet.svg'), 'contact-sheet emits a real .svg');
+  assert.ok(rel('storyboard').includes('conditioning/storyboard.svg'), 'storyboard emits a real .svg');
+  assert.ok(rel('pose-sequence').includes('conditioning/pose-sheet.svg'), 'pose-sequence emits a pose sheet');
+  assert.ok(rel('audio-timed-lyrics').includes('conditioning/performance-score.svg'), 'audio-timed-lyrics emits a performance score');
+  assert.ok(rel('motion-guide').includes('conditioning/motion-guide.svg'), 'motion-guide emits a guide artifact');
+  assert.ok(rel('first-last-frame').includes('conditioning/first-last-frame.json'), 'first-last-frame emits its distinct frame manifest');
+  // recipes produce materially DIFFERENT file sets
+  assert.notDeepEqual(rel('contact-sheet'), rel('storyboard'), 'different recipes → different packet files');
+  // the contact sheet svg actually contains labeled panels
+  const cs = compileScenePacket(state, scene, { attemptId: 'a', recipe: 'contact-sheet' }).files.find((f) => f.relPath.endsWith('contact-sheet.svg'))!;
+  assert.ok(cs.kind === 'text' && cs.content.includes('<svg') && cs.content.includes('panel 1'), 'contact sheet is a labeled svg');
+}
+
+// ── first/last-frame references are resolved DISTINCTLY (not by accident) ─────
+{
+  const { state } = baseState();
+  const entity = state.entities[0];
+  const ff = makeReference(entity.id, 'first-frame', '/tmp/ff.png', 'first', 'upload'); ff.approved = true;
+  const lf = makeReference(entity.id, 'final-frame', '/tmp/lf.png', 'final', 'upload'); lf.approved = true;
+  entity.references.push(ff, lf);
+  const scene = state.scenes[0];
+  scene.castings[0].referenceIds = [...scene.castings[0].referenceIds, ff.id, lf.id];
+  const pk = compileScenePacket(state, scene, { attemptId: 'a', recipe: 'first-last-frame' });
+  assert.ok(String(pk.manifest.firstFrame).includes('first_frame') || String(pk.manifest.firstFrame).includes('first-frame'), 'manifest records a distinct first frame');
+  assert.ok(pk.manifest.finalFrame, 'manifest records a distinct final frame');
+}
+
+// ── §4: automatic polling decision core ──────────────────────────────────────
+{
+  assert.equal(nextPollDecision('succeeded', 1, 0).action, 'done', 'succeeded → done');
+  assert.equal(nextPollDecision('failed', 1, 0).action, 'stop', 'failed → stop');
+  assert.equal(nextPollDecision('cancelled', 1, 0).action, 'stop', 'cancelled → stop');
+  const d1 = nextPollDecision('running', 1, 0);
+  assert.equal(d1.action, 'poll', 'running → poll');
+  const d2 = nextPollDecision('running', 5, 0);
+  assert.ok(d2.delayMs >= d1.delayMs, 'backoff grows with attempts');
+  assert.ok(d2.delayMs <= 30000, 'backoff capped');
+  assert.equal(nextPollDecision('running', 1, POLL_MAX_ERRORS).action, 'stop', 'too many errors → stop (pause)');
+  assert.equal(nextPollDecision('running', POLL_MAX_ATTEMPTS, 0).action, 'stop', 'poll budget exhausted → stop');
+}
+
+// ── §5: retime 'retime' mode keeps scenes, drops takes + pending jobs ────────
+{
+  const { state, sceneId } = baseState();
+  const scene = state.scenes.find((s) => s.id === sceneId)!;
+  let s = addTakeFromPacket(state, scene, compileScenePacket(state, scene, { attemptId: 't' }), 'google-omni', null, 't').state;
+  s = applyProviderSubmit(s, 't', { providerId: 'google-omni', modelId: 'm', jobId: 'v1_a', phase: 'submitted' });
+  const retimed = applyRetime(s, '/tmp/new.m4a', 'retime');
+  assert.equal(retimed.scenes.length, s.scenes.length, 'retime KEEPS scenes for re-timing');
+  assert.equal(retimed.lyrics.length, s.lyrics.length, 'retime keeps lyrics');
+  assert.equal(retimed.takes.length, 0, 'retime drops all takes (no orphaned pending jobs)');
+  assert.equal(resumableTakes(retimed).length, 0, 'no resumable jobs after retime');
+  assert.equal(retimed.scenes[0].acceptedTakeId, null, 'accepted links cleared');
+  assert.equal(retimed.songAudioPath, '/tmp/new.m4a', 'audio path updated (suspect gate clears)');
+  assert.equal(retimed.entities.length, s.entities.length, 'reusable entities preserved');
+}
+
+// ── §6: lip-sync repair lifecycle ────────────────────────────────────────────
+{
+  const { state, sceneId } = baseState();
+  const scene = state.scenes.find((s) => s.id === sceneId)!;
+  const lyric = makeLyricEvent('sing', 61, 63); lyric.mouthVisibility = 'required'; lyric.performerEntityId = state.entities[0].id;
+  state.lyrics.push(lyric);
+  let s = addTakeFromPacket(state, scene, compileScenePacket(state, scene, { attemptId: 'p' }), 'google-omni', null, 'p').state;
+  s = applyProviderResult(applyProviderSubmit(s, 'p', { providerId: 'google-omni', modelId: 'm', jobId: 'v1_p', phase: 'submitted' }), 'p', 'asset-p', '/out/p.mp4');
+  s = acceptTake(s, 'p');
+
+  const { state: s2, take: child } = addLipSyncRepair(s, 'p', { intervalSec: { start: 61, end: 63 }, performerEntityId: state.entities[0].id, note: 'tighten sync' });
+  assert.equal(child.parentTakeId, 'p', 'lip-sync child keeps parent lineage');
+  assert.equal(child.repair!.kind, 'lip-sync');
+  assert.equal(child.lipSync, 'pending', 'child lip-sync pending');
+  assert.equal(s2.takes.find((t) => t.id === 'p')!.lipSync, 'needs-repair', 'parent flagged needs-repair');
+  assert.equal(s2.takes.find((t) => t.id === 'p')!.accepted, true, 'parent take preserved & still accepted');
+
+  const lipPk = compileLipSyncRepairPacket(s2, scene, s2.takes.find((t) => t.id === 'p')!, { sourceVideoPath: '/out/p.mp4', audioPath: '/tmp/song.m4a', intervalSec: child.repair!.intervalSec });
+  const rel = lipPk.map((f) => f.relPath);
+  assert.ok(rel.includes('source.mp4'), 'lip-sync package includes the source video');
+  assert.ok(rel.includes('lyrics/timed-lyrics.json'), 'lip-sync package includes scene-local timed lyrics');
+  assert.ok(rel.some((r) => r === 'audio/scene-audio.wav'), 'lip-sync package includes the audio segment');
+
+  // import + accept the child WITHOUT deleting the original take
+  const s3 = applyProviderResult(s2, child.id, 'asset-child', '/out/child.mp4');
+  const s4 = acceptTake(s3, child.id);
+  assert.equal(s4.scenes[0].acceptedTakeId, child.id, 'repaired child accepted');
+  assert.ok(s4.takes.some((t) => t.id === 'p'), 'original take still present (not deleted)');
+  assert.equal(s4.takes.find((t) => t.id === 'p')!.accepted, false, 'exactly one accepted take per scene');
+}
+
+// ── §7: actionable preflight resolutions change canonical state ──────────────
+{
+  const { state, sceneId } = baseState();
+  let s = state;
+  const scene = () => s.scenes.find((x) => x.id === sceneId)!;
+
+  // relationship change: exact → consistent
+  s = applySceneResolution(s, sceneId, `relationship:${state.entities[0].id}:consistent`);
+  assert.equal(scene().castings[0].relationship, 'consistent', 'relationship resolution changed the casting');
+
+  // camera distance
+  s = applySceneResolution(s, sceneId, 'camera-distance:close');
+  assert.equal(scene().cameraDistance, 'close', 'camera-distance resolution applied');
+
+  // trim references to the provider cap and re-check readiness clears
+  const pkBefore = compileScenePacket(s, scene(), { attemptId: 'a' });
+  assert.ok(pkBefore.references.length > 3, 'starts with >3 refs');
+  s = applySceneResolution(s, sceneId, 'trim-refs:3');
+  const pkAfter = compileScenePacket(s, scene(), { attemptId: 'a' });
+  assert.ok(pkAfter.references.length <= 3, 'trim-refs reduced the reference count');
+  assert.equal(assessProviderReadiness(pkAfter, googleVideoCapabilities, 'Veo').blocking.some((b) => b.id === 'too-many-references'), false, 'trim resolves the readiness block');
+
+  // vocals off-camera resolution flips required overlapping lyrics
+  const withLyric = { ...s };
+  const l = makeLyricEvent('hey', 61, 62); l.mouthVisibility = 'required'; withLyric.lyrics = [l];
+  const s2 = applySceneResolution(withLyric, sceneId, 'vocals-offcamera');
+  assert.equal(s2.lyrics[0].mouthVisibility, 'off-camera', 'vocals-offcamera flips the required lyric');
+}
+
+// ── §7: scene splitting ──────────────────────────────────────────────────────
+{
+  const { state, sceneId } = baseState();
+  const scene = state.scenes.find((s) => s.id === sceneId)!; // [60,68]
+  const early = makeLyricEvent('a', 61, 62); const late = makeLyricEvent('b', 66, 67);
+  state.lyrics.push(early, late);
+  scene.lyricEventIds = [early.id, late.id];
+  // give it an accepted take to prove it is NOT duplicated
+  let s = addTakeFromPacket(state, scene, compileScenePacket(state, scene, { attemptId: 'tk' }), 'google-omni', null, 'tk').state;
+  s = applyProviderResult(applyProviderSubmit(s, 'tk', { providerId: 'google-omni', modelId: 'm', jobId: 'j', phase: 'submitted' }), 'tk', 'asset', '/out.mp4');
+  s = acceptTake(s, 'tk');
+  const beforeTakes = s.takes.length;
+
+  const { state: s2, parts } = splitScene(s, sceneId, 64);
+  assert.ok(parts, 'split produced two parts');
+  assert.equal(s2.scenes.length, 2, 'one scene became two');
+  const [a, b] = parts!;
+  assert.equal(a.endSec, 64); assert.equal(b.startSec, 64, 'split boundary honored');
+  assert.ok(a.startSec === 60 && b.endSec === 68, 'song-relative bounds preserved');
+  assert.deepEqual(a.lyricEventIds, [early.id], 'early lyric assigned to part 1');
+  assert.deepEqual(b.lyricEventIds, [late.id], 'late lyric assigned to part 2');
+  assert.equal(a.acceptedTakeId, null, 'split parts do not carry the accepted take');
+  assert.ok(a.continuityNotes.includes('split'), 'lineage recorded');
+  assert.ok(s2.takes.length < beforeTakes || s2.takes.every((t) => t.sceneId !== sceneId), 'old scene takes not duplicated onto the parts');
+}
+
+console.log('[director-generation] PASS — provider readiness (no silent mutation), job lifecycle + resume, mock adapter, repair execution + lineage, lyric overlap, fingerprint apply, overlap block, retime, staleness, short-clip policy, persistence, AI reference-variant lifecycle, rich primitives (camera-path/image-board/lyric-blocks), materialized conditioning artifacts, first/last frame, polling core, retime-mode cleanup, lip-sync lifecycle, actionable preflight resolutions, and scene splitting verified.');
