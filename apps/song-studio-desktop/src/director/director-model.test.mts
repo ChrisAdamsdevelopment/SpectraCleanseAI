@@ -60,7 +60,7 @@ assert.deepEqual(ordered.map((s) => s.title), ['Verse', 'Overlap', 'Chorus arriv
 assert.deepEqual(sceneOverlaps([scene, s3, s2]), [[s2.id, s3.id]], 'overlap detected between Verse and Overlap');
 
 // ── 14. Accepted/rejected takes persist; dangling acceptance cleared ────────
-const take = makeTake(scene, { promptDigest: 'd', recipe: 'separate-references', referenceFiles: ['character_sobelo_face_front.png'], sceneStartSec: 60, sceneEndSec: 68, aspect: '9:16', resolution: '720p' }, 'manual', { [bumped.id]: bumped.activeFingerprint });
+const take = makeTake(scene, { promptDigest: 'd', recipe: 'separate-references', referenceFiles: ['character_sobelo_face_front.png'], sceneStartSec: 60, sceneEndSec: 68, aspect: '9:16', resolution: '720p', durationSec: 8 }, 'manual', { [bumped.id]: bumped.activeFingerprint });
 take.accepted = true; take.status = 'imported'; take.assetId = 'asset-1';
 scene.acceptedTakeId = take.id;
 state.takes.push(take);
@@ -94,7 +94,7 @@ brokenLyric.scenes[0].lyricEventIds = ['missing'];
 assert.deepEqual(normalizeDirectorState(brokenLyric).scenes[0].lyricEventIds, []);
 
 // ── 15-analog (model level): replacing an accepted scene take → stale print ──
-state.workprint = { lastBuiltAt: new Date().toISOString(), builtFromTakeIds: [take.id], stale: false };
+state.workprint = { lastBuiltAt: new Date().toISOString(), builtFromTakeIds: [take.id], builtSignature: '', stale: false };
 const rt5 = normalizeDirectorState(JSON.parse(JSON.stringify(state)));
 assert.equal(rt5.workprint.stale, false);
 assert.deepEqual(rt5.workprint.builtFromTakeIds, [take.id]);

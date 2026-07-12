@@ -64,7 +64,7 @@ function buildState(): { state: DirectorState; assets: ProjectAsset[] } {
   state.songAudioPath = SONG;
   const sceneA = makeScene('A', 2, 6); const sceneB = makeScene('B', 12, 16);
   state.scenes.push(sceneA, sceneB);
-  const snap = (s: typeof sceneA) => ({ promptDigest: 'd', recipe: 'separate-references' as const, referenceFiles: [], sceneStartSec: s.startSec, sceneEndSec: s.endSec, aspect: '9:16' as const, resolution: '720p' });
+  const snap = (s: typeof sceneA) => ({ promptDigest: 'd', recipe: 'separate-references' as const, referenceFiles: [], sceneStartSec: s.startSec, sceneEndSec: s.endSec, aspect: '9:16' as const, resolution: '720p', durationSec: s.endSec - s.startSec });
   const takeA = makeTake(sceneA, snap(sceneA), 'manual', {});
   const takeB = makeTake(sceneB, snap(sceneB), 'manual', {});
   state.takes.push(takeA, takeB);
@@ -107,7 +107,7 @@ function main() {
   // Replace scene B's accepted take with a BLUE clip; re-assemble; region A must
   // be unchanged, region B must now be blue-ish.
   let state2 = state;
-  const takeBlue = makeTake(state2.scenes[1], { promptDigest: 'd', recipe: 'separate-references', referenceFiles: [], sceneStartSec: 12, sceneEndSec: 16, aspect: '9:16', resolution: '720p' }, 'manual', {});
+  const takeBlue = makeTake(state2.scenes[1], { promptDigest: 'd', recipe: 'separate-references', referenceFiles: [], sceneStartSec: 12, sceneEndSec: 16, aspect: '9:16', resolution: '720p', durationSec: 4 }, 'manual', {});
   state2 = { ...state2, takes: [...state2.takes, takeBlue] };
   state2 = bindResultToTake(state2, takeBlue.id, 'asset-blue', 'imported');
   state2 = acceptTake(state2, takeBlue.id);
