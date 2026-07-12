@@ -4,8 +4,9 @@
 // workprint goes stale exactly when its included accepted-take set changes.
 
 import {
-  makeTake, refreshEntityIdentity, assemblySignature, orderedScenes, computeIdentityFingerprint,
+  makeTake, makeScene, refreshEntityIdentity, assemblySignature, orderedScenes, computeIdentityFingerprint,
   type DirectorState, type DirectorEntity, type GenerationTake, type RepairDirection, type ScenePlan,
+  type ContinuityRelationship,
 } from './model';
 import type { GenerationPacket } from './compile';
 
@@ -157,6 +158,30 @@ export function addRepairAttempt(state: DirectorState, parentTakeId: string, rep
   return { state: replaceScene({ ...state, takes: [...state.takes, child] }, nextScene), take: child };
 }
 
+/** §6: start the first executable lip-sync repair. Creates a child take whose
+ * repair preserves everything outside the mouth and syncs the mouth to the
+ * scene-local vocal over an optional interval. The parent take is preserved and
+ * marked needs-repair (lip); the child carries lineage + lipSync 'pending'. */
+export function addLipSyncRepair(state: DirectorState, parentTakeId: string, opts: { intervalSec?: { start: number; end: number } | null; performerEntityId?: string | null; note?: string }): { state: DirectorState; take: GenerationTake } {
+  const parent = state.takes.find((t) => t.id === parentTakeId);
+  const scene = parent ? state.scenes.find((s) => s.id === parent.sceneId) : undefined;
+  if (!parent || !scene) return { state, take: parent as GenerationTake };
+  const child = makeTake(scene, parent.requestSnapshot, parent.provider, parent.entityFingerprints, parentTakeId);
+  child.repair = {
+    kind: 'lip-sync',
+    preserve: ['identity', 'wardrobe', 'camera', 'lighting', 'background', 'everything outside the mouth region'],
+    change: ['mouth movement synchronized to the vocal'],
+    intervalSec: opts.intervalSec ?? null,
+    performerEntityId: opts.performerEntityId ?? null,
+    note: opts.note ?? '',
+  };
+  child.lipSync = 'pending';
+  child.notes = `Lip-sync repair of take ${parentTakeId}`;
+  const takes = state.takes.map((t) => (t.id === parentTakeId ? { ...t, lipSync: 'needs-repair' as const } : t));
+  const nextScene: ScenePlan = { ...scene, status: 'needs-repair' };
+  return { state: replaceScene({ ...state, takes: [...takes, child] }, nextScene), take: child };
+}
+
 /** Mark a lip-sync outcome on a take. */
 export function setLipSync(state: DirectorState, takeId: string, lipSync: GenerationTake['lipSync']): DirectorState {
   const take = state.takes.find((t) => t.id === takeId);
@@ -220,15 +245,89 @@ export function removeScene(state: DirectorState, sceneId: string): DirectorStat
   return recomputeWorkprintStale({ ...state, scenes, takes });
 }
 
-/** §H4: explicit re-time after an audio swap. 'clear' detaches all song-relative
- * direction (scenes+takes+lyrics) but keeps registered media; 'keep' asserts the
- * timings still hold. Either way songAudioPath is updated so the suspect gate
- * clears. Never silent. */
-export function applyRetime(state: DirectorState, newAudioPath: string | null, mode: 'clear' | 'keep'): DirectorState {
-  if (mode === 'keep') return recomputeWorkprintStale({ ...state, songAudioPath: newAudioPath });
-  return {
-    ...state, songAudioPath: newAudioPath,
-    scenes: [], takes: [], lyrics: [],
-    workprint: { lastBuiltAt: null, builtFromTakeIds: [], builtSignature: '', stale: false },
+/** §H4 / §5: explicit re-time after an audio swap. Three canonical transitions,
+ * all of which update songAudioPath so the suspect gate clears — never silent,
+ * never leaving orphaned takes or pending provider jobs. The reusable visual
+ * library (entities + references + tools + reference requests) is ALWAYS kept.
+ *   - 'keep':   the timings still line up; keep everything as-is.
+ *   - 'retime': keep the scenes & lyrics to re-time by hand, but detach all
+ *               takes (and their pending jobs) + accepted links, and reset the
+ *               workprint — nothing that was generated against the old song is
+ *               silently reused.
+ *   - 'clear':  remove all song-relative direction (scenes + lyrics + takes) and
+ *               start the timeline over. */
+// ── §7: scene splitting — two valid song-relative scenes at a boundary. ──────
+// Direction is preserved on both halves; lyrics divide by song time (derived
+// overlap + distributed explicit includes/excludes); accepted takes are NOT
+// duplicated (the old scene's takes are dropped — a full-length clip is not a
+// valid clip for either half); lineage is recorded in continuityNotes.
+export function splitScene(state: DirectorState, sceneId: string, atSec: number): { state: DirectorState; parts: [ScenePlan, ScenePlan] | null } {
+  const scene = state.scenes.find((s) => s.id === sceneId);
+  if (!scene) return { state, parts: null };
+  const at = Math.min(scene.endSec - 0.1, Math.max(scene.startSec + 0.1, atSec));
+  const inA = (t: number) => t < at;
+  const mk = (part: 1 | 2): ScenePlan => {
+    const base = makeScene(`${scene.title} (${part})`, part === 1 ? scene.startSec : at, part === 1 ? at : scene.endSec);
+    const belongs = (lid: string) => {
+      const l = state.lyrics.find((x) => x.id === lid); if (!l) return false;
+      const mid = (l.startSec + l.endSec) / 2; return part === 1 ? inA(mid) : !inA(mid);
+    };
+    return {
+      ...scene, id: base.id, title: base.title,
+      startSec: base.startSec, endSec: base.endSec,
+      status: 'draft', acceptedTakeId: null,
+      lyricEventIds: scene.lyricEventIds.filter(belongs),
+      lyricExclude: scene.lyricExclude.filter(belongs),
+      continuityNotes: `${scene.continuityNotes}${scene.continuityNotes ? ' · ' : ''}split of "${scene.title}" [part ${part} of 2]`,
+      createdAt: base.createdAt,
+    };
   };
+  const a = mk(1); const b = mk(2);
+  const scenes = state.scenes.flatMap((s) => (s.id === sceneId ? [a, b] : [s]));
+  const takes = state.takes.filter((t) => t.sceneId !== sceneId); // no duplicated accepted takes
+  return { state: recomputeWorkprintStale({ ...state, scenes, takes }), parts: [a, b] };
+}
+
+// ── §7: apply a preflight/readiness resolution that maps to a canonical change.
+// UI-only resolutions (switch provider, export package, accept-knowingly) are
+// handled by the workspace; this covers the ones that mutate director state.
+export function applySceneResolution(state: DirectorState, sceneId: string, key: string): DirectorState {
+  const scene = state.scenes.find((s) => s.id === sceneId);
+  if (!scene) return state;
+  const patch = (p: Partial<ScenePlan>): DirectorState => replaceScene(state, { ...scene, ...p });
+  if (key.startsWith('relationship:')) {
+    const [, entityId, rel] = key.split(':');
+    return replaceScene(state, { ...scene, castings: scene.castings.map((c) => (c.entityId === entityId ? { ...c, relationship: rel as ContinuityRelationship } : c)) });
+  }
+  if (key.startsWith('camera-distance:')) return patch({ cameraDistance: key.split(':')[1] as ScenePlan['cameraDistance'] });
+  if (key.startsWith('camera-motion:')) return patch({ cameraMotion: key.split(':')[1] as ScenePlan['cameraMotion'] });
+  if (key.startsWith('lighting-style:')) return patch({ lightingStyle: key.split(':')[1] as ScenePlan['lightingStyle'] });
+  if (key.startsWith('aspect:')) return patch({ generationPrefs: { ...scene.generationPrefs, aspect: key.split(':')[1] as '9:16' | '16:9' } });
+  if (key.startsWith('policy:')) return patch({ shortClipPolicy: key.split(':')[1] as ScenePlan['shortClipPolicy'] });
+  if (key.startsWith('shorten-scene:')) { const sec = Number(key.split(':')[1]); return Number.isFinite(sec) ? patch({ endSec: scene.startSec + sec }) : state; }
+  if (key.startsWith('trim-refs:')) {
+    const n = Number(key.split(':')[1]); if (!Number.isFinite(n)) return state;
+    // Keep the first n references across castings in order, drop the rest.
+    let remaining = n; const castings = scene.castings.map((c) => {
+      const keep = c.referenceIds.slice(0, Math.max(0, remaining));
+      remaining -= keep.length; return { ...c, referenceIds: keep };
+    });
+    return replaceScene(state, { ...scene, castings });
+  }
+  if (key === 'vocals-offcamera') {
+    const lyrics = state.lyrics.map((l) => (l.startSec < scene.endSec && l.endSec > scene.startSec && l.mouthVisibility === 'required') ? { ...l, mouthVisibility: 'off-camera' as const } : l);
+    return { ...state, lyrics };
+  }
+  if (key === 'split-scene') return splitScene(state, sceneId, (scene.startSec + scene.endSec) / 2).state;
+  return state;
+}
+
+export function applyRetime(state: DirectorState, newAudioPath: string | null, mode: 'clear' | 'keep' | 'retime'): DirectorState {
+  if (mode === 'keep') return recomputeWorkprintStale({ ...state, songAudioPath: newAudioPath });
+  const freshWorkprint = { lastBuiltAt: null, builtFromTakeIds: [], builtSignature: '', stale: false };
+  if (mode === 'retime') {
+    const scenes = state.scenes.map((s) => ({ ...s, status: 'draft' as const, acceptedTakeId: null }));
+    return { ...state, songAudioPath: newAudioPath, scenes, takes: [], workprint: freshWorkprint };
+  }
+  return { ...state, songAudioPath: newAudioPath, scenes: [], takes: [], lyrics: [], workprint: freshWorkprint };
 }

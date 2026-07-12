@@ -16,11 +16,18 @@ import type { ProviderCapabilities } from './providers/types';
 
 export type ReadinessSeverity = 'ok' | 'warning' | 'blocking';
 
+/** A resolution the UI can EXECUTE (not just describe). `key` is dispatched to
+ * applySceneResolution (canonical state change) or handled by the workspace for
+ * UI-only actions ('export-package', 'provider:<id>', 'override:<key>'). */
+export interface ResolutionAction { key: string; label: string }
+
 export interface ReadinessItem {
   id: string;
   severity: ReadinessSeverity;
   message: string;          // director language
-  resolutions: string[];    // real actions the creator can take
+  resolutions: string[];    // real actions the creator can take (descriptive)
+  /** Executable resolutions (§7) — buttons that change the project or provider. */
+  actions?: ResolutionAction[];
   /** When set, an acceptedOverrides entry with this key clears the block. */
   overrideKey?: string;
 }
@@ -35,6 +42,7 @@ export function assessProviderReadiness(packet: GenerationPacket, caps: Provider
   const items: ReadinessItem[] = [];
 
   // References — NEVER silently "send the first three".
+  const personRefs = packet.references.filter((r) => r.kind === 'face' || r.kind === 'full-body' || r.kind === 'profile');
   if (packet.references.length > caps.referenceImages) {
     items.push({
       id: 'too-many-references', severity: 'blocking',
@@ -45,9 +53,12 @@ export function assessProviderReadiness(packet: GenerationPacket, caps: Provider
         'Switch to a provider that accepts more references',
         'Export the manual package (no reference limit)',
       ],
+      actions: [
+        { key: `trim-refs:${caps.referenceImages}`, label: `Keep the first ${caps.referenceImages} references` },
+        { key: 'export-package', label: 'Export manual package' },
+      ],
     });
   }
-  const personRefs = packet.references.filter((r) => r.kind === 'face' || r.kind === 'full-body' || r.kind === 'profile');
   if (personRefs.length > 0 && !caps.humanLikenessReferences) {
     items.push({
       id: 'human-likeness-unsupported', severity: 'blocking',
@@ -58,6 +69,10 @@ export function assessProviderReadiness(packet: GenerationPacket, caps: Provider
         'Export the manual package for a likeness-capable generator',
         'Change the exact identity requirement to consistent/related for this scene',
         'Continue knowingly (likeness not guaranteed)',
+      ],
+      actions: [
+        { key: `relationship:${personRefs[0].entityId}:consistent`, label: 'Relax identity to consistent for this scene' },
+        { key: 'export-package', label: 'Export manual package' },
       ],
     });
   }
@@ -74,6 +89,11 @@ export function assessProviderReadiness(packet: GenerationPacket, caps: Provider
         'Switch to a provider that supports longer clips',
         'Export the manual package',
       ],
+      actions: [
+        { key: 'split-scene', label: 'Split into shorter shots' },
+        { key: `shorten-scene:${caps.maxDurationSec}`, label: `Shorten this scene to ${caps.maxDurationSec}s` },
+        { key: 'export-package', label: 'Export manual package' },
+      ],
     });
   }
 
@@ -84,6 +104,10 @@ export function assessProviderReadiness(packet: GenerationPacket, caps: Provider
       overrideKey: 'aspect:accept',
       message: `Aspect ${packet.aspect} is not supported by ${providerLabel}.`,
       resolutions: ['Change the scene aspect', 'Switch providers', 'Export the manual package'],
+      actions: [
+        ...(caps.aspects.includes('9:16') || caps.aspects.includes('16:9') ? [{ key: `aspect:${caps.aspects.find((a) => a === '9:16' || a === '16:9') ?? '9:16'}`, label: `Switch aspect to ${caps.aspects.find((a) => a === '9:16' || a === '16:9') ?? '9:16'}` }] : []),
+        { key: 'export-package', label: 'Export manual package' },
+      ],
     });
   }
 
@@ -99,6 +123,7 @@ export function assessProviderReadiness(packet: GenerationPacket, caps: Provider
         'Switch to an audio-conditioned provider if lip timing matters',
         'Export the manual package for an audio-aware generator',
       ],
+      actions: [{ key: 'export-package', label: 'Export manual package' }],
     });
   }
 

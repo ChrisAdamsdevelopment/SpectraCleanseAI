@@ -5,8 +5,8 @@
 
 import type { GenerationPacket } from './compile';
 import type { PacketFileDirective } from './compile';
-import type { ProviderCapabilities } from './providers/types';
-import { PROVIDERS, DEFAULT_PROVIDER_ID, capabilitiesFor } from './providers/registry';
+import type { ProviderCapabilities, ImageProviderCapabilities } from './providers/types';
+import { PROVIDERS, DEFAULT_PROVIDER_ID, capabilitiesFor, IMAGE_PROVIDERS, DEFAULT_IMAGE_PROVIDER_ID, imageCapabilitiesFor } from './providers/registry';
 
 export interface SubmitOutcome {
   ok: boolean;
@@ -43,6 +43,16 @@ export interface DirectorHost {
   submitGeneration(packet: GenerationPacket, opts?: { sourceVideoPath?: string; parentInteractionId?: string }): Promise<SubmitOutcome>;
   /** Poll and, on success, materialize the MP4 locally; returns resultPath. */
   pollGeneration(jobId: string): Promise<{ phase: string; error?: string; resultPath?: string }>;
+  // image provider (reference-variant generation, §1)
+  imageProviders(): ProviderChoice[];
+  selectedImageProviderId(): string;
+  setImageProvider(id: string): void;
+  imageProviderCapabilities(): ImageProviderCapabilities;
+  /** Submit a reference-variant image request; conditioningPaths are approved
+   * reference image paths used as identity guides. */
+  submitReferenceGeneration(prompt: string, conditioningPaths: string[], outputCount: number, aspect: string): Promise<SubmitOutcome>;
+  /** Poll a reference image job; on success returns materialized local paths. */
+  pollReferenceGeneration(jobId: string): Promise<{ phase: string; error?: string; resultPaths?: string[] }>;
   // assembly: run the workprint ffmpeg args, returns bytes written (0 = failed)
   runFfmpeg(args: string[]): Promise<number>;
 }
@@ -67,5 +77,11 @@ export const browserHost: DirectorHost = {
   providerConfigured() { return false; },
   async submitGeneration() { return { ok: false, blockedReason: 'Live generation needs the desktop app and an API key.' }; },
   async pollGeneration() { return { phase: 'failed', error: 'unavailable' }; },
+  imageProviders() { return IMAGE_PROVIDERS.map((p) => ({ id: p.id, label: p.label, role: p.role, bestFor: p.bestFor })); },
+  selectedImageProviderId() { return DEFAULT_IMAGE_PROVIDER_ID; },
+  setImageProvider() { /* no-op in browser */ },
+  imageProviderCapabilities() { return imageCapabilitiesFor(DEFAULT_IMAGE_PROVIDER_ID); },
+  async submitReferenceGeneration() { return { ok: false, blockedReason: 'Live reference generation needs the desktop app and an API key.' }; },
+  async pollReferenceGeneration() { return { phase: 'failed', error: 'unavailable' }; },
   async runFfmpeg() { return 0; },
 };

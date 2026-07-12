@@ -11,10 +11,13 @@
 
 import {
   fnv1a64, RELATIONSHIP_MEANING, sceneLyrics,
+  isPoseSequenceData, isCameraPathData, isImageBoardData, isReferencePickData,
   type DirectorState, type ScenePlan, type GenerationTake, type DirectorEntity,
   type ReferenceVariant, type LyricEvent, type ConditioningRecipe, type PoseSequenceData,
+  type CameraPathData,
 } from './model';
 import type { ProviderCapabilities } from './providers/types';
+import { contactSheetSvg, storyboardSvg, poseSheetSvg, performanceScoreSvg, motionGuideSvg } from './artifacts';
 
 export function slug(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 40) || 'unnamed';
@@ -97,6 +100,22 @@ function lyricsBlock(scene: ScenePlan, state: DirectorState): { lines: string[];
   return { lines, events };
 }
 
+/** Resolve a reference id to a human label across all entities. */
+function refLabel(state: DirectorState, refId: string): string | null {
+  for (const e of state.entities) {
+    const r = e.references.find((rr) => rr.id === refId);
+    if (r) return `${e.name} ${r.kind}`;
+  }
+  return null;
+}
+
+/** Compile a camera-path into machine-facing camera direction. */
+export function compileCameraPath(cp: CameraPathData): string {
+  const pt = (p: { x: number; y: number }) => `(${p.x.toFixed(2)}, ${p.y.toFixed(2)})`;
+  const via = cp.control.length > 0 ? ` via ${cp.control.map(pt).join(' → ')}` : '';
+  return `${cp.movement} camera move from ${pt(cp.start)} to ${pt(cp.end)}${via} in normalized frame space${cp.orientation ? `, facing ${cp.orientation}` : ''}`;
+}
+
 function toolBlock(scene: ScenePlan, state: DirectorState): string[] {
   const lines: string[] = [];
   for (const out of scene.toolOutputs) {
@@ -106,11 +125,21 @@ function toolBlock(scene: ScenePlan, state: DirectorState): string[] {
     for (const [key, fieldId] of Object.entries(tool.outputSchema)) {
       const v = out.values[fieldId];
       if (v === undefined) continue;
-      if (typeof v === 'object' && v !== null && 'poses' in (v as object)) {
-        const ps = v as PoseSequenceData;
-        lines.push(`  ${key}: pose sequence with ${ps.poses.length} key poses — ${ps.poses.map((p) => `beat ${p.atBeat} hold ${p.holdBeats} (${p.transition})`).join('; ')} (see conditioning/pose-sequence.json for exact joint positions)`);
+      if (isPoseSequenceData(v)) {
+        lines.push(`  ${key}: pose sequence with ${v.poses.length} key poses — ${v.poses.map((p) => `beat ${p.atBeat} hold ${p.holdBeats} (${p.transition})`).join('; ')} (see conditioning/pose-sequence.json for exact joint positions)`);
+      } else if (isCameraPathData(v)) {
+        lines.push(`  ${key}: ${compileCameraPath(v)}`);
+      } else if (isImageBoardData(v)) {
+        const items = v.items.map((it, i) => `${i + 1}. ${it.label || 'image'}${it.referenceId ? ` [${refLabel(state, it.referenceId) ?? 'reference'}]` : ''}`);
+        lines.push(`  ${key}: image board — ${items.join('; ')}`);
+      } else if (isReferencePickData(v)) {
+        const names = v.referenceIds.map((id) => refLabel(state, id)).filter(Boolean);
+        lines.push(`  ${key}: reference selection — ${[...names, ...v.assetIds.map(() => 'project asset')].join(', ') || 'none'}`);
       } else {
-        lines.push(`  ${key}: ${typeof v === 'string' ? v : JSON.stringify(v)}`);
+        // lyric-blocks feed the vocal-performance selection (see sceneLyrics),
+        // so they need no separate prompt line here.
+        const isLyricBlocks = typeof v === 'object' && v !== null && 'selectedLyricIds' in (v as object);
+        if (!isLyricBlocks) lines.push(`  ${key}: ${typeof v === 'string' ? v : JSON.stringify(v)}`);
       }
     }
   }
@@ -160,7 +189,7 @@ export function compileScenePacket(
   scene: ScenePlan,
   opts: { attemptId: string; recipe?: ConditioningRecipe; audioPath?: string | null },
 ): GenerationPacket {
-  const recipe: ConditioningRecipe = opts.recipe ?? 'separate-references';
+  const recipe: ConditioningRecipe = opts.recipe ?? scene.recipe ?? 'separate-references';
   const seen = new Set<string>();
   const references: PacketReference[] = [];
   const fingerprints: Record<string, string> = {};
@@ -185,6 +214,11 @@ export function compileScenePacket(
   const lyr = lyricsBlock(scene, state);
   const poseOutputs = scene.toolOutputs.flatMap((o) =>
     Object.values(o.values).filter((v): v is PoseSequenceData => typeof v === 'object' && v !== null && 'poses' in (v as object)));
+  const cameraPaths = scene.toolOutputs.flatMap((o) => Object.values(o.values).filter(isCameraPathData));
+  // First/last-frame references are resolved DISTINCTLY (never treated as
+  // ordinary references by accident): keyed strictly on their kind.
+  const firstFrame = references.find((r) => r.kind === 'first-frame') ?? null;
+  const finalFrame = references.find((r) => r.kind === 'final-frame') ?? null;
 
   const returnContract = {
     attemptId: opts.attemptId,
@@ -211,6 +245,8 @@ export function compileScenePacket(
     preserve, vary,
     lyricsIncluded: lyr.events.length > 0,
     poseSequenceIncluded: poseOutputs.length > 0,
+    firstFrame: firstFrame ? `references/${firstFrame.fileName}` : null,
+    finalFrame: finalFrame ? `references/${finalFrame.fileName}` : null,
   };
 
   const files: PacketFileDirective[] = [
@@ -251,6 +287,33 @@ export function compileScenePacket(
   }
   if (opts.audioPath) {
     files.push({ kind: 'audio-segment', relPath: 'audio/scene-audio.wav', audioPath: opts.audioPath, startSec: scene.startSec, durationSec });
+  }
+
+  // ── Recipe-specific materialized artifacts (§3). Each recipe emits materially
+  // different packet contents; the canonical references above stay separate and
+  // authoritative. SVG is a real, inspectable image format (no rasterizer needed).
+  switch (recipe) {
+    case 'contact-sheet':
+      files.push({ kind: 'text', relPath: 'conditioning/contact-sheet.svg', content: contactSheetSvg(scene.title, references.map((r) => ({ file: `references/${r.fileName}`, entity: r.entityName, kind: r.kind }))) });
+      break;
+    case 'storyboard':
+      files.push({ kind: 'text', relPath: 'conditioning/storyboard.svg', content: storyboardSvg(scene, lyr.events) });
+      break;
+    case 'pose-sequence':
+      if (poseOutputs.length > 0) files.push({ kind: 'text', relPath: 'conditioning/pose-sheet.svg', content: poseSheetSvg(poseOutputs[0]) });
+      break;
+    case 'first-last-frame':
+      files.push({ kind: 'text', relPath: 'conditioning/first-last-frame.json', content: JSON.stringify({ firstFrame: manifest.firstFrame, finalFrame: manifest.finalFrame, note: firstFrame || finalFrame ? 'Distinct first/final frame references included.' : 'No first-frame/final-frame references were selected for this scene.' }, null, 2) });
+      break;
+    case 'audio-timed-lyrics':
+      if (lyr.events.length > 0) files.push({ kind: 'text', relPath: 'conditioning/performance-score.svg', content: performanceScoreSvg(scene, lyr.events) });
+      break;
+    case 'motion-guide':
+      files.push({ kind: 'text', relPath: 'conditioning/motion-guide.svg', content: motionGuideSvg(scene, poseOutputs[0] ?? null, cameraPaths[0] ?? null) });
+      break;
+    case 'separate-references':
+    default:
+      break;
   }
 
   return {
@@ -322,7 +385,7 @@ export function compileRepairPacket(
   state: DirectorState, scene: ScenePlan, parentTake: GenerationTake,
   opts: { attemptId: string; sourceVideoPath: string; audioPath: string | null },
 ): { files: PacketFileDirective[]; prompt: string; references: PacketReference[]; sourceVideoPath: string } {
-  const repair = parentTake.repair ?? { preserve: [], change: [], intervalSec: null, note: '' };
+  const repair = parentTake.repair ?? { kind: 'general' as const, preserve: [], change: [], intervalSec: null, note: '' };
   const seen = new Set<string>();
   const references: PacketReference[] = [];
   for (const c of scene.castings) {

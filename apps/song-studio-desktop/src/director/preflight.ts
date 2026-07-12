@@ -4,6 +4,7 @@
 // layered on later; these rules are the dependable floor.
 
 import { sceneLyrics, type DirectorState, type ScenePlan } from './model';
+import type { ResolutionAction } from './providerReadiness';
 
 export interface SceneConflict {
   id: string;
@@ -11,6 +12,8 @@ export interface SceneConflict {
   title: string;
   explanation: string;   // director language
   choices: string[];     // real options, including "continue knowingly"
+  /** Executable resolutions (§7) — dispatched to applySceneResolution. */
+  actions?: ResolutionAction[];
 }
 
 const SMALL_DETAIL = /\b(tattoo|ring|jewel|necklace|bracelet|earring|scar|logo on|inscription)\b/i;
@@ -43,6 +46,7 @@ export function preflightScene(scene: ScenePlan, state: DirectorState): SceneCon
       title: 'An exact detail may not be visible from this distance',
       explanation: 'You asked for an exact small detail (like a tattoo or ring) to stay true, but the camera is far away — the detail may be too small to judge or preserve.',
       choices: ['Move the camera closer', 'Split this into a wide shot and a close-up shot', 'Let the detail vary in this scene', 'Continue knowingly'],
+      actions: [{ key: 'camera-distance:close', label: 'Move camera to close' }, { key: 'split-scene', label: 'Split into two shots' }],
     });
   }
   if (mouthRequired && backFacing) {
@@ -51,6 +55,7 @@ export function preflightScene(scene: ScenePlan, state: DirectorState): SceneCon
       title: 'Lip sync needs a visible mouth, but the performer faces away',
       explanation: 'These lyrics are marked as needing visible mouth movement, but the scene shows the performer from behind.',
       choices: ['Turn the performer toward camera', 'Mark these lyrics as off-camera vocal', 'Split the scene so the sung line faces camera', 'Continue knowingly'],
+      actions: [{ key: 'vocals-offcamera', label: 'Mark these vocals off-camera' }, { key: 'split-scene', label: 'Split the scene' }],
     });
   }
   if (mouthRequired && scene.cameraDistance === 'extreme-wide') {
@@ -59,6 +64,7 @@ export function preflightScene(scene: ScenePlan, state: DirectorState): SceneCon
       title: 'The mouth will be too small to sync at this distance',
       explanation: 'Precise lip sync cannot be judged in an extreme wide shot.',
       choices: ['Use a closer camera for this line', 'Mark the vocal as off-camera', 'Continue knowingly'],
+      actions: [{ key: 'camera-distance:close', label: 'Use a closer shot' }, { key: 'vocals-offcamera', label: 'Mark vocals off-camera' }],
     });
   }
   if (scene.lightingStyle === 'silhouette' && (hasExactPerson || mouthRequired)) {
@@ -67,6 +73,7 @@ export function preflightScene(scene: ScenePlan, state: DirectorState): SceneCon
       title: 'Silhouette lighting hides the face you asked to keep exact',
       explanation: 'Silhouette lighting conflicts with facial identity or mouth visibility requirements — the face will not be recognizably visible.',
       choices: ['Use stylized lighting that still shows the face', 'Keep the silhouette and let identity read through body shape only', 'Continue knowingly'],
+      actions: [{ key: 'lighting-style:stylized', label: 'Switch to stylized lighting' }],
     });
   }
   if ((hasPoseSequence || CHOREO.test(scene.movement) || CHOREO.test(scene.action)) && extremeClose) {
@@ -75,6 +82,7 @@ export function preflightScene(scene: ScenePlan, state: DirectorState): SceneCon
       title: 'Full-body movement will not fit in an extreme close-up',
       explanation: 'You directed full-body movement, but the camera is framed on a small area.',
       choices: ['Widen the framing', 'Split into a movement shot and a detail shot', 'Continue knowingly'],
+      actions: [{ key: 'camera-distance:medium', label: 'Widen to medium' }, { key: 'split-scene', label: 'Split into two shots' }],
     });
   }
   if (hasPoseSequence && scene.cameraMotion === 'unstable') {
@@ -83,6 +91,7 @@ export function preflightScene(scene: ScenePlan, state: DirectorState): SceneCon
       title: 'A shaky camera makes precise movement hard to evaluate',
       explanation: 'You gave exact pose timing, but an unstable camera will make it hard to see whether the movement was followed.',
       choices: ['Use a locked or smooth camera', 'Loosen the pose precision', 'Continue knowingly'],
+      actions: [{ key: 'camera-motion:locked', label: 'Lock the camera' }, { key: 'camera-motion:smooth', label: 'Use a smooth camera' }],
     });
   }
   if (mouthRequired && lyrics.length > 0 && scene.cameraMotion === 'unstable') {
@@ -91,6 +100,7 @@ export function preflightScene(scene: ScenePlan, state: DirectorState): SceneCon
       title: 'Heavy camera movement can blur the mouth during sung lines',
       explanation: 'Fast, unstable movement makes mouth shapes hard to read and repair.',
       choices: ['Calm the camera during the sung line', 'Mark the vocal off-camera', 'Continue knowingly'],
+      actions: [{ key: 'camera-motion:smooth', label: 'Calm the camera' }, { key: 'vocals-offcamera', label: 'Mark vocals off-camera' }],
     });
   }
   for (const c of exactCastings) {
@@ -101,6 +111,7 @@ export function preflightScene(scene: ScenePlan, state: DirectorState): SceneCon
         title: `"${e?.name ?? 'An element'}" is exact but has no guiding references selected`,
         explanation: 'Exact means "use the same approved identity" — without selected reference images the generator has nothing to hold onto.',
         choices: ['Select approved references for this element', 'Change the relationship to consistent or related', 'Continue knowingly'],
+        actions: [{ key: `relationship:${c.entityId}:consistent`, label: 'Change to consistent' }],
       });
     }
   }

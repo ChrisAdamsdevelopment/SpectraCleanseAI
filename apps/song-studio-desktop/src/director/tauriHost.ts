@@ -13,7 +13,8 @@ import type { PacketFs } from './packetIo';
 import { pickReferenceImage, pickGeneratedVideo, pickPacketExportDir } from '../project/storage';
 import { createGoogleVideoAdapter } from './providers/googleVideo';
 import { createOmniFlashAdapter } from './providers/omniFlash';
-import { PROVIDERS, DEFAULT_PROVIDER_ID, capabilitiesFor } from './providers/registry';
+import { createGeminiImageAdapter } from './providers/geminiImage';
+import { PROVIDERS, DEFAULT_PROVIDER_ID, capabilitiesFor, IMAGE_PROVIDERS, DEFAULT_IMAGE_PROVIDER_ID, imageCapabilitiesFor } from './providers/registry';
 import type { ProviderIo, VideoProviderAdapter } from './providers/types';
 
 let sessionKey: string | null = null;
@@ -76,10 +77,12 @@ const tauriFs: PacketFs = {
 
 export function createTauriDirectorHost(opts: { outputDir: () => string | null }): DirectorHost {
   let providerId = DEFAULT_PROVIDER_ID;
+  let imageProviderId = DEFAULT_IMAGE_PROVIDER_ID;
   const adapterFor = (id: string): VideoProviderAdapter =>
     id === 'google-veo'
       ? createGoogleVideoAdapter({ sessionKey, io: providerIo })
       : createOmniFlashAdapter({ sessionKey, io: providerIo });
+  const imageAdapterFor = () => createGeminiImageAdapter({ sessionKey, io: providerIo });
 
   return {
     canExportPackets: true,
@@ -141,11 +144,48 @@ export function createTauriDirectorHost(opts: { outputDir: () => string | null }
         return { phase: 'failed', error: 'succeeded but no video payload' };
       } catch (e) { return { phase: 'failed', error: e instanceof Error ? e.message : String(e) }; }
     },
+    imageProviders: () => IMAGE_PROVIDERS.filter((p) => p.role !== 'manual').map((p) => ({ id: p.id, label: p.label, role: p.role, bestFor: p.bestFor })),
+    selectedImageProviderId: () => imageProviderId,
+    setImageProvider: (id: string) => { if (IMAGE_PROVIDERS.some((p) => p.id === id)) imageProviderId = id; },
+    imageProviderCapabilities: () => imageCapabilitiesFor(imageProviderId),
+    async submitReferenceGeneration(prompt, conditioningPaths, outputCount, aspect): Promise<SubmitOutcome> {
+      if (!googleApiKeyPresent()) return { ok: false, blockedReason: 'No Google API key set (add one in Director settings, or use the manual reference package).' };
+      const a = imageAdapterFor();
+      const out = await a.submit({ prompt, referenceImagePaths: conditioningPaths, outputCount, aspect });
+      if (out.phase === 'failed') return { ok: false, error: out.error };
+      // Whether it completed inline or is pending, the interaction is stored and
+      // polling materializes the images (avoids orphaning inline writes here).
+      return { ok: true, jobId: out.jobId };
+    },
+    async pollReferenceGeneration(jobId: string) {
+      const a = imageAdapterFor();
+      const s = await a.poll(jobId);
+      if (s.phase !== 'succeeded') return { phase: s.phase, error: s.error };
+      try {
+        const paths = await materializeImages(s.resultInlineBase64, s.resultUris, a, opts.outputDir() ?? '.');
+        return paths.length ? { phase: 'succeeded', resultPaths: paths } : { phase: 'failed', error: 'succeeded but no image payload' };
+      } catch (e) { return { phase: 'failed', error: e instanceof Error ? e.message : String(e) }; }
+    },
     async runFfmpeg(args: string[]) {
       try { const res = await invoke<{ outputPath: string; bytes: number }>('run_ffmpeg', { args }); return res.bytes ?? 0; }
       catch { return 0; }
     },
   };
+}
+
+/** Write inline base64 images / download image URIs to local PNG files. */
+async function materializeImages(inline: string[] | undefined, uris: string[] | undefined, a: { download(uri: string, to: string): Promise<number> }, dir: string): Promise<string[]> {
+  const out: string[] = [];
+  let n = 0;
+  for (const b64 of inline ?? []) {
+    const to = `${dir}/ref_${Date.now().toString(36)}_${n++}.png`;
+    await providerIo.writeBase64ToFile(b64, to); out.push(to);
+  }
+  for (const uri of uris ?? []) {
+    const to = `${dir}/ref_${Date.now().toString(36)}_${n++}.png`;
+    await a.download(uri, to); out.push(to);
+  }
+  return out;
 }
 
 // ── Text-model tool generation (Gemini generateContent) ─────────────────────
