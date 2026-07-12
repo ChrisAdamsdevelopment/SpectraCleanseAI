@@ -19,7 +19,7 @@ export function DirectorWorkspace({ ctx, onExit }: { ctx: DirectorCtx; onExit: (
   const suspect = directorTimingSuspect(ctx.audioPath, ctx.state);
 
   const acceptRetime = () => ctx.update({ ...ctx.state, songAudioPath: ctx.audioPath });
-  const clearTimings = () => ctx.update({ ...ctx.state, scenes: [], lyrics: [], songAudioPath: ctx.audioPath, workprint: { lastBuiltAt: null, builtFromTakeIds: [], stale: false } });
+  const clearTimings = () => ctx.update({ ...ctx.state, scenes: [], lyrics: [], songAudioPath: ctx.audioPath, workprint: { lastBuiltAt: null, builtFromTakeIds: [], builtSignature: '', stale: false } });
 
   return (
     <div className="director-workspace">

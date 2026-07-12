@@ -57,6 +57,10 @@ export interface ReferenceVariant {
   origin: ReferenceOrigin;
   /** A generated proposal never silently becomes canonical identity. */
   approved: boolean;
+  /** Stable content-address of the image bytes (host-computed on register).
+   * The fingerprint prefers this over the file path so identity survives moves
+   * and is not spoofable by renaming. */
+  contentDigest?: string;
   bodyLocation?: string;   // e.g. "left forearm" for tattoo refs
   provenance: {
     generationAttemptId?: string; // which attempt created it (ai/imported/frame)
@@ -113,7 +117,9 @@ export function computeIdentityFingerprint(
 ): string {
   const approvedRefs = entity.references
     .filter((r) => r.approved)
-    .map((r) => ({ id: r.id, kind: r.kind, label: r.label, path: r.path, digest: assetDigests?.[r.path] ?? null }))
+    // Prefer the stable content digest over the path (identity must not depend
+    // primarily on file location). Body location is identity-bearing for tattoos.
+    .map((r) => ({ id: r.id, kind: r.kind, bodyLocation: r.bodyLocation ?? null, digest: r.contentDigest ?? assetDigests?.[r.path] ?? null, path: r.contentDigest ? null : r.path }))
     .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
   const manifest = {
     v: entity.version,
@@ -169,8 +175,15 @@ export interface ScenePlan {
   invented: string;        // what the AI is invited to invent
   howItBegins: string;
   howItEnds: string;
-  /** ids of LyricEvents performed in this scene (mouth-visibility feeds preflight). */
+  /** Explicit lyric includes. By default (§E) a scene's lyrics are DERIVED from
+   * song-time overlap; this list force-includes events (e.g. off-camera lines
+   * whose timing sits just outside), and `lyricExclude` force-removes. See
+   * sceneLyrics() — the single canonical selection the compiler + preflight use. */
   lyricEventIds: string[];
+  lyricExclude: string[];
+  /** What to do when the accepted clip is shorter than the directed scene
+   * (§H6). 'unset' means the creator has not chosen — assembly BLOCKS FINAL. */
+  shortClipPolicy: 'unset' | 'hold-last' | 'loop' | 'shorten-scene' | 'leave-gap';
   generationPrefs: { aspect: '9:16' | '16:9'; resolution: '720p' | '1080p' };
   /** Structured outputs from custom directing tools used in this scene. */
   toolOutputs: ToolOutput[];
@@ -192,6 +205,31 @@ export interface RepairDirection {
   note: string;
 }
 
+/** The minimum persisted provider-job record required to RESUME an unfinished
+ * request after closing and reopening the project. Without this the operation
+ * id is lost and a pending live job can never be polled/downloaded. */
+export interface ProviderJob {
+  providerId: string;               // 'google-omni' | 'google-veo' | 'mock' | 'manual'
+  modelId: string | null;
+  jobId: string | null;             // provider operation / interaction id
+  phase: 'none' | 'submitted' | 'running' | 'succeeded' | 'failed' | 'cancelled';
+  submittedAt: string | null;
+  lastPolledAt: string | null;
+  completedAt: string | null;
+  resultRef: string | null;         // provider-side uri/file id when applicable
+  localResultPath: string | null;   // downloaded/written MP4 path
+  error: string | null;
+  parentJobId: string | null;       // prior interaction id for conversational repair
+}
+
+export function emptyProviderJob(providerId: string, modelId: string | null = null): ProviderJob {
+  return {
+    providerId, modelId, jobId: null, phase: 'none',
+    submittedAt: null, lastPolledAt: null, completedAt: null,
+    resultRef: null, localResultPath: null, error: null, parentJobId: null,
+  };
+}
+
 export interface GenerationTake {
   id: string;
   sceneId: string;
@@ -204,16 +242,21 @@ export interface GenerationTake {
     sceneEndSec: number;
     aspect: string;
     resolution: string;
+    durationSec: number;            // the EXACT duration requested (never clamped silently)
   };
-  provider: string;                 // 'google-video' | 'manual' | future ids
+  provider: string;                 // provider id (also mirrored in providerJob)
   model: string | null;
   submittedAt: string | null;
   status: TakeStatus;
   error: string | null;
   /** Generated ProjectAsset id (role 'generated-video') once a result exists. */
   assetId: string | null;
+  /** Persisted provider-job record for resume-after-reopen. */
+  providerJob: ProviderJob;
   /** Identity fingerprints in force when this take was compiled. */
   entityFingerprints: Record<string, string>;
+  /** Provider limitations the creator explicitly accepted for this attempt. */
+  acceptedOverrides: string[];
   notes: string;
   accepted: boolean | null;         // null = not reviewed yet
   lipSync: 'not-required' | 'pending' | 'passed' | 'needs-repair';
@@ -348,7 +391,19 @@ export interface WorkprintState {
   lastBuiltAt: string | null;
   /** Take ids included in the last build — replacing one marks it stale. */
   builtFromTakeIds: string[];
+  /** Signature of everything that affects the assembled output (accepted takes,
+   * scene timings, short-clip policies, aspect). Any change → stale (§H7). */
+  builtSignature: string;
   stale: boolean;
+}
+
+/** A signature of the current assembled-output inputs. Changing an accepted
+ * take, a scene's timing, its short-clip policy, or its aspect changes it. */
+export function assemblySignature(state: DirectorState): string {
+  const parts = orderedScenes(state.scenes)
+    .filter((s) => s.acceptedTakeId)
+    .map((s) => `${s.acceptedTakeId}:${s.startSec}-${s.endSec}:${s.shortClipPolicy}:${s.generationPrefs.aspect}`);
+  return fnv1a64(parts.join('|'));
 }
 
 export interface DirectorState {
@@ -370,7 +425,7 @@ export function emptyDirectorState(): DirectorState {
   return {
     songAudioPath: null,
     entities: [], scenes: [], takes: [], lyrics: [], tools: [],
-    workprint: { lastBuiltAt: null, builtFromTakeIds: [], stale: false },
+    workprint: { lastBuiltAt: null, builtFromTakeIds: [], builtSignature: "", stale: false },
   };
 }
 
@@ -416,16 +471,30 @@ export function makeScene(title: string, startSec: number, endSec: number): Scen
     camera: '', cameraDistance: 'unspecified', cameraMotion: 'unspecified',
     lighting: '', lightingStyle: 'unspecified', styleGenre: '', emotion: '',
     continuityNotes: '', castings: [], invented: '', howItBegins: '', howItEnds: '',
-    lyricEventIds: [], generationPrefs: { aspect: '9:16', resolution: '720p' },
+    lyricEventIds: [], lyricExclude: [], shortClipPolicy: 'unset',
+    generationPrefs: { aspect: '9:16', resolution: '720p' },
     toolOutputs: [], status: 'draft', acceptedTakeId: null, createdAt: now(),
   };
 }
 
-export function makeTake(scene: ScenePlan, snapshot: GenerationTake['requestSnapshot'], provider: string, fingerprints: Record<string, string>, parentTakeId: string | null = null): GenerationTake {
+/** The CANONICAL lyric selection for a scene (§E): events whose song time
+ * overlaps the scene, plus explicit includes, minus explicit excludes. The
+ * compiler AND preflight consume exactly this — no invisible manual wiring. */
+export function sceneLyrics(state: DirectorState, scene: ScenePlan): LyricEvent[] {
+  const excluded = new Set(scene.lyricExclude);
+  const forced = new Set(scene.lyricEventIds);
+  return state.lyrics
+    .filter((l) => !excluded.has(l.id))
+    .filter((l) => forced.has(l.id) || (l.startSec < scene.endSec && l.endSec > scene.startSec))
+    .sort((a, b) => a.startSec - b.startSec);
+}
+
+export function makeTake(scene: ScenePlan, snapshot: GenerationTake['requestSnapshot'], provider: string, fingerprints: Record<string, string>, parentTakeId: string | null = null, id: string = makeOutputId()): GenerationTake {
   return {
-    id: makeOutputId(), sceneId: scene.id, requestSnapshot: snapshot,
+    id, sceneId: scene.id, requestSnapshot: snapshot,
     provider, model: null, submittedAt: null, status: 'packet-built',
-    error: null, assetId: null, entityFingerprints: fingerprints,
+    error: null, assetId: null, providerJob: emptyProviderJob(provider),
+    entityFingerprints: fingerprints, acceptedOverrides: [],
     notes: '', accepted: null, lipSync: 'not-required', repair: null,
     parentTakeId, createdAt: now(),
   };

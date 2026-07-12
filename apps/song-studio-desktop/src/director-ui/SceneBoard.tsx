@@ -5,14 +5,15 @@ import {
   type ScenePlan, type SceneCasting, type ContinuityRelationship, type GenerationTake,
 } from '../director/model';
 import { preflightScene } from '../director/preflight';
-import { compileScenePacket, checkProviderFit, type GenerationPacket } from '../director/compile';
-import { googleVideoCapabilities } from '../director/providers/googleVideo';
+import { compileScenePacket, type GenerationPacket } from '../director/compile';
+import { assessProviderReadiness, unresolvedOverrideKeys, type ReadinessResult } from '../director/providerReadiness';
 import { ToolFieldRenderer } from './ToolFieldRenderer';
 import {
-  addTakeFromPacket, bindResultToTake, acceptTake, rejectTake, addRepairAttempt,
-  takesForScene, setTakeStatus,
+  addTakeFromPacket, acceptTake, rejectTake, addRepairAttempt,
+  takesForScene, setTakeStatus, applyProviderSubmit, applyProviderPoll, applyProviderResult,
 } from '../director/actions';
 import { formatTime } from '../lib/time';
+import { makeOutputId } from '../project/types';
 
 function fmt(t: number) { return formatTime(Math.max(0, t)); }
 
@@ -59,6 +60,8 @@ function SceneEditor({ ctx, scene, patch, remove }: { ctx: DirectorCtx; scene: S
   const { state, update, host } = ctx;
   const [packet, setPacket] = useState<GenerationPacket | null>(null);
   const [busy, setBusy] = useState('');
+  const [overrides, setOverrides] = useState<string[]>([]);
+  const toggleOverride = (key: string) => setOverrides((o) => (o.includes(key) ? o.filter((k) => k !== key) : [...o, key]));
   const conflicts = useMemo(() => preflightScene(scene, state), [scene, state]);
   const takes = takesForScene(state, scene.id);
   const dur = ctx.songDurationSec ?? 0;
@@ -76,34 +79,72 @@ function SceneEditor({ ctx, scene, patch, remove }: { ctx: DirectorCtx; scene: S
     const attemptId = 'preview-' + scene.id;
     setPacket(compileScenePacket(state, scene, { attemptId, recipe: 'separate-references', audioPath: ctx.audioPath }));
   };
-  const capabilityConflicts = packet ? checkProviderFit(packet, googleVideoCapabilities) : [];
+  const providerId = host.selectedProviderId();
+  const caps = host.providerCapabilities();
+  const readiness = packet ? assessProviderReadiness(packet, caps, host.providers().find((p) => p.id === providerId)?.label ?? providerId) : null;
+  const previewPacket = useMemo(() => compileScenePacket(state, scene, { attemptId: 'chk', recipe: 'separate-references', audioPath: ctx.audioPath }), [state, scene, ctx.audioPath]);
+  const previewReadiness = assessProviderReadiness(previewPacket, caps, providerId);
+  const previewUnresolved = unresolvedOverrideKeys(previewReadiness, overrides);
+  const canGenerate = !conflicts.some((c) => c.severity === 'blocking') && previewUnresolved.length === 0;
 
   const exportPacket = async () => {
+    if (!host.canExportPackets) { setBusy('File export needs the desktop app (npm run tauri dev).'); return; }
     const dir = await host.pickPacketDir(); if (!dir) return;
     setBusy('Exporting package…');
     try {
-      const attemptId = crypto?.randomUUID?.() ? '' : ''; // real id assigned via addTakeFromPacket below
-      const pk = compileScenePacket(state, scene, { attemptId: 'att-' + Date.now().toString(36), recipe: 'separate-references', audioPath: ctx.audioPath });
-      const { state: s2, take } = addTakeFromPacket(state, scene, pk, 'manual');
+      // One compile: the take id IS the packet attemptId, so the persisted take
+      // and the package's return contract share a single identity.
+      const takeId = makeOutputId();
+      const pk = compileScenePacket(state, scene, { attemptId: takeId, recipe: 'separate-references', audioPath: ctx.audioPath });
+      const { state: s2, take } = addTakeFromPacket(state, scene, pk, 'manual', null, takeId);
       const dest = `${dir}/scene-${scene.title.replace(/[^a-z0-9]+/gi, '_')}-${take.id}`;
-      // re-stamp the packet's return contract with the real take id
-      const realPk = compileScenePacket(s2, scene, { attemptId: take.id, recipe: 'separate-references', audioPath: ctx.audioPath });
-      await host.writePacket(realPk, dest);
+      await host.writePacket(pk, dest);
       update(setTakeStatus(s2, take.id, 'exported'));
       setBusy(`Package written to ${dest}. Generate an MP4 externally, then Import result.`);
-      void attemptId;
     } catch (e) { setBusy(`Export failed: ${e instanceof Error ? e.message : String(e)}`); }
   };
 
   const submitLive = async () => {
-    setBusy('Submitting to Google video provider…');
-    const pk = compileScenePacket(state, scene, { attemptId: 'att-' + Date.now().toString(36), recipe: 'separate-references', audioPath: ctx.audioPath });
-    const { state: s2, take } = addTakeFromPacket(state, scene, pk, 'google-video');
+    if (previewUnresolved.length > 0) { setBusy('Resolve the highlighted provider conflicts before generating.'); return; }
+    setBusy(`Submitting to ${host.providers().find((p) => p.id === providerId)?.label ?? providerId}…`);
+    const takeId = makeOutputId();
+    const pk = compileScenePacket(state, scene, { attemptId: takeId, recipe: 'separate-references', audioPath: ctx.audioPath });
+    let s2 = addTakeFromPacket(state, scene, pk, providerId, null, takeId).state;
+    // record the creator's accepted overrides on the attempt (audit of what was
+    // knowingly relaxed) and submit.
+    s2 = { ...s2, takes: s2.takes.map((t) => (t.id === takeId ? { ...t, acceptedOverrides: overrides } : t)) };
     update(s2);
     const outcome = await host.submitGeneration(pk);
-    if (!outcome.ok) { update(setTakeStatus(s2, take.id, 'failed', { error: outcome.blockedReason || outcome.error || 'submit failed' })); setBusy(outcome.blockedReason ? `Live generation blocked: ${outcome.blockedReason} (use Export package instead)` : `Submit failed: ${outcome.error}`); return; }
-    update(setTakeStatus(s2, take.id, 'submitted', { submittedAt: new Date().toISOString(), model: googleVideoCapabilities.notes ? 'veo' : null }));
-    setBusy(`Submitted (job ${outcome.jobId}). Poll from the take below when ready.`);
+    if (!outcome.ok) {
+      update(applyProviderSubmit(s2, takeId, { providerId, modelId: caps.notes ? providerId : null, jobId: null, phase: 'failed', error: outcome.blockedReason || outcome.error || 'submit failed' }));
+      setBusy(outcome.blockedReason ? `Live generation blocked: ${outcome.blockedReason} (use Export package instead)` : `Submit failed: ${outcome.error}`);
+      return;
+    }
+    const s3 = applyProviderSubmit(s2, takeId, { providerId, modelId: providerId, jobId: outcome.jobId ?? null, phase: 'submitted' });
+    update(s3);
+    setBusy(`Submitted (job ${outcome.jobId}). Checking status…`);
+    await pollTake(takeId, s3);
+  };
+
+  // Poll a submitted take to completion (bounded), materialize the MP4, register
+  // it as a generated-video asset, and bind it to the exact take. Also used by
+  // the explicit "Check status" control and to resume after reopen.
+  const pollTake = async (takeId: string, from = state) => {
+    const take = from.takes.find((t) => t.id === takeId);
+    if (!take?.providerJob.jobId) { setBusy('No provider job to check for this take.'); return; }
+    setBusy('Checking generation status…');
+    const res = await host.pollGeneration(take.providerJob.jobId);
+    if (res.phase === 'succeeded' && res.resultPath) {
+      const assetId = ctx.addAsset('generated-video', res.resultPath, `${scene.title} take`);
+      update(applyProviderResult(from, takeId, assetId, res.resultPath));
+      setBusy('Generated video received — review it below.');
+    } else if (res.phase === 'failed') {
+      update(applyProviderPoll(from, takeId, { phase: 'failed', error: res.error }));
+      setBusy(`Generation failed: ${res.error ?? 'unknown error'}`);
+    } else {
+      update(applyProviderPoll(from, takeId, { phase: 'running' }));
+      setBusy('Still generating — check again in a moment.');
+    }
   };
 
   const importResult = async (takeId: string) => {
@@ -113,7 +154,7 @@ function SceneEditor({ ctx, scene, patch, remove }: { ctx: DirectorCtx; scene: S
       ? state.takes.find((t) => t.id === bind.attemptId)?.id ?? takeId
       : takeId;
     const assetId = ctx.addAsset('generated-video', path, `${scene.title} take`);
-    update(bindResultToTake(state, boundTake, assetId, 'imported'));
+    update(applyProviderResult(state, boundTake, assetId, path));
     setBusy(bind.via === 'manifest' ? 'Imported and bound via the package return-manifest.' : 'Imported and bound to this attempt.');
   };
 
@@ -232,17 +273,40 @@ function SceneEditor({ ctx, scene, patch, remove }: { ctx: DirectorCtx; scene: S
         </div>
       )}
 
-      {/* Compile + generate + export */}
+      {/* Provider + generate + export */}
       <div className="dir-generate-bar">
+        <label className="dir-provider-select">Provider
+          <select value={providerId} onChange={(e) => { host.setProvider(e.target.value); update({ ...state }); }}>
+            {host.providers().map((p) => <option key={p.id} value={p.id}>{p.label}{p.role === 'default' ? ' (default)' : ''}</option>)}
+          </select>
+        </label>
         <button className="ghost small" onClick={compile}>Inspect compiled packet</button>
-        <button className="ghost small" onClick={exportPacket} disabled={!ctx.outputDir && !host.toSrc('')}>Export generation package</button>
-        <button className="primary small" onClick={submitLive} disabled={conflicts.some((c) => c.severity === 'blocking')}>
-          {ctx.host.providerConfigured() ? 'Generate with Google video' : 'Generate (needs API key)'}
+        <button className="ghost small" onClick={exportPacket} disabled={!host.canExportPackets} title={host.canExportPackets ? 'Write a complete manual generation package to a folder' : 'File export needs the desktop app (npm run tauri dev)'}>Export generation package</button>
+        <button className="primary small" onClick={submitLive} disabled={!canGenerate} title={canGenerate ? '' : 'Resolve conflicts first'}>
+          {ctx.host.providerConfigured() ? `Generate with ${host.providers().find((p) => p.id === providerId)?.label ?? providerId}` : 'Generate (needs API key)'}
         </button>
       </div>
+      {/* Provider readiness — blocks are actionable, never silently dropped (§C) */}
+      {previewReadiness.items.length > 0 && (
+        <div className="dir-readiness">
+          {previewReadiness.items.map((it) => (
+            <div key={it.id} className={`dir-conflict ${it.severity}`}>
+              <b>{it.message}</b>
+              <div className="dir-conflict-choices">
+                {it.resolutions.map((r) => <span key={r} className="chip small">{r}</span>)}
+                {it.overrideKey && it.severity === 'blocking' && (
+                  <button className={`chip small ${overrides.includes(it.overrideKey) ? 'on' : ''}`} onClick={() => toggleOverride(it.overrideKey!)}>
+                    {overrides.includes(it.overrideKey) ? '✓ Accepted knowingly' : 'Accept & continue knowingly'}
+                  </button>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
       {busy && <div className="dir-busy small">{busy}</div>}
 
-      {packet && <PacketInspector packet={packet} capabilityConflicts={capabilityConflicts} onClose={() => setPacket(null)} host={host} />}
+      {packet && <PacketInspector packet={packet} readiness={readiness} onClose={() => setPacket(null)} host={host} />}
 
       {/* Takes */}
       <h4>Takes for this scene</h4>
@@ -250,8 +314,10 @@ function SceneEditor({ ctx, scene, patch, remove }: { ctx: DirectorCtx; scene: S
         {takes.length === 0 && <div className="muted small">No takes yet. Export a package or generate to create the first attempt.</div>}
         {takes.map((t) => (
           <TakeRow key={t.id} ctx={ctx} scene={scene} take={t} onImport={() => importResult(t.id)}
+            onCheckStatus={t.providerJob.jobId && !t.assetId ? () => pollTake(t.id) : undefined}
             onAccept={() => update(acceptTake(state, t.id))}
             onReject={() => update(rejectTake(state, t.id))}
+            onLipSync={(v) => update(setTakeStatus(state, t.id, t.status, { lipSync: v }))}
             onRepair={(preserve, change, note) => { const { state: s2 } = addRepairAttempt(state, t.id, { preserve, change, intervalSec: null, note }); update(s2); }}
             entityName={(id) => entitiesById[id]?.name ?? id} />
         ))}
@@ -260,9 +326,10 @@ function SceneEditor({ ctx, scene, patch, remove }: { ctx: DirectorCtx; scene: S
   );
 }
 
-function TakeRow({ ctx, take, onImport, onAccept, onReject, onRepair }: {
+function TakeRow({ ctx, take, onImport, onCheckStatus, onAccept, onReject, onLipSync, onRepair }: {
   ctx: DirectorCtx; scene: ScenePlan; take: GenerationTake;
-  onImport: () => void; onAccept: () => void; onReject: () => void;
+  onImport: () => void; onCheckStatus?: () => void; onAccept: () => void; onReject: () => void;
+  onLipSync: (v: GenerationTake['lipSync']) => void;
   onRepair: (preserve: string[], change: string[], note: string) => void; entityName: (id: string) => string;
 }) {
   const [repairing, setRepairing] = useState(false);
@@ -281,11 +348,20 @@ function TakeRow({ ctx, take, onImport, onAccept, onReject, onRepair }: {
           {take.error && <span className="dir-warn small">{take.error}</span>}
         </div>
         <div className="dir-take-actions">
+          {onCheckStatus && <button className="ghost small" onClick={onCheckStatus}>Check status / resume</button>}
           {!take.assetId && <button className="ghost small" onClick={onImport}>Import result MP4</button>}
           {take.assetId && take.accepted !== true && <button className="primary small" onClick={onAccept}>Accept</button>}
           {take.assetId && <button className="ghost small" onClick={onReject}>Reject</button>}
           {take.assetId && <button className="ghost small" onClick={() => setRepairing((v) => !v)}>Add repair direction</button>}
         </div>
+        {take.assetId && (
+          <div className="dir-lipsync-controls">
+            <span className="muted small">Lip sync:</span>
+            {(['not-required', 'pending', 'passed', 'needs-repair'] as const).map((v) => (
+              <button key={v} className={`chip small ${take.lipSync === v ? 'on' : ''}`} onClick={() => onLipSync(v)}>{v}</button>
+            ))}
+          </div>
+        )}
         {repairing && (
           <div className="dir-repair">
             <input placeholder="preserve (comma-sep: the performance, the camera)" value={preserve} onChange={(e) => setPreserve(e.target.value)} />
@@ -299,7 +375,7 @@ function TakeRow({ ctx, take, onImport, onAccept, onReject, onRepair }: {
   );
 }
 
-function PacketInspector({ packet, capabilityConflicts, onClose }: { packet: GenerationPacket; capabilityConflicts: Array<{ id: string; message: string; choices: string[] }>; onClose: () => void; host: DirectorCtx['host'] }) {
+function PacketInspector({ packet, readiness, onClose }: { packet: GenerationPacket; readiness: ReadinessResult | null; onClose: () => void; host: DirectorCtx['host'] }) {
   return (
     <div className="dir-modal" onClick={onClose}>
       <div className="dir-packet" onClick={(e) => e.stopPropagation()}>
@@ -317,10 +393,10 @@ function PacketInspector({ packet, capabilityConflicts, onClose }: { packet: Gen
             <ul className="dir-list">{Object.entries(packet.entityFingerprints).map(([id, fp]) => <li key={id}><code>{fp}</code></li>)}</ul>
             <h4>Must remain</h4><ul className="dir-list">{packet.preserveRules.map((p) => <li key={p}>{p}</li>)}</ul>
             <h4>Packet files</h4><ul className="dir-list">{packet.files.map((f) => <li key={f.relPath}><code>{f.relPath}</code></li>)}</ul>
-            <h4>Provider fit (Google video)</h4>
-            {capabilityConflicts.length === 0 ? <div className="muted small">No capability conflicts.</div>
-              : capabilityConflicts.map((c) => <div key={c.id} className="dir-conflict warning"><b>{c.message}</b><div className="dir-conflict-choices">{c.choices.map((ch) => <span key={ch} className="chip small">{ch}</span>)}</div></div>)}
-            <div className="muted small">Estimated cost: <b>unknown</b> — the Google video API does not report a reliable per-request price; you control spend by how many scenes you generate.</div>
+            <h4>Provider fit {readiness ? `(${readiness.provider})` : ''}</h4>
+            {!readiness || readiness.items.length === 0 ? <div className="muted small">No capability conflicts.</div>
+              : readiness.items.map((c) => <div key={c.id} className={`dir-conflict ${c.severity}`}><b>{c.message}</b><div className="dir-conflict-choices">{c.resolutions.map((ch) => <span key={ch} className="chip small">{ch}</span>)}</div></div>)}
+            <div className="muted small">Estimated cost: <b>unknown</b> — the provider does not report a reliable per-request price; you control spend by how many scenes you generate.</div>
           </div>
         </div>
       </div>

@@ -34,6 +34,7 @@ function normalizeReference(v: unknown, entityId: string): ReferenceVariant | nu
     path: v.path, label: str(v.label, 'reference'),
     origin: oneOf(v.origin, ['upload', 'ai-generated', 'imported-generation', 'approved-frame', 'derived'] as const, 'upload'),
     approved: bool(v.approved),
+    contentDigest: typeof v.contentDigest === 'string' ? v.contentDigest : undefined,
     bodyLocation: typeof v.bodyLocation === 'string' ? v.bodyLocation : undefined,
     provenance: {
       generationAttemptId: typeof prov.generationAttemptId === 'string' ? prov.generationAttemptId : undefined,
@@ -136,6 +137,8 @@ function normalizeScene(v: unknown, entityIds: Set<string>, tools: DirectorTool[
     castings: Array.isArray(v.castings) ? v.castings.map((c) => normalizeCasting(c, entityIds)).filter((c): c is SceneCasting => Boolean(c)) : [],
     invented: str(v.invented), howItBegins: str(v.howItBegins), howItEnds: str(v.howItEnds),
     lyricEventIds: strArr(v.lyricEventIds),
+    lyricExclude: strArr(v.lyricExclude),
+    shortClipPolicy: oneOf(v.shortClipPolicy, ['unset', 'hold-last', 'loop', 'shorten-scene', 'leave-gap'] as const, 'unset'),
     generationPrefs: {
       aspect: oneOf(prefs.aspect, ['9:16', '16:9'] as const, '9:16'),
       resolution: oneOf(prefs.resolution, ['720p', '1080p'] as const, '720p'),
@@ -152,6 +155,9 @@ function normalizeTake(v: unknown, sceneIds: Set<string>): GenerationTake | null
   const snap = isRecord(v.requestSnapshot) ? v.requestSnapshot : {};
   const repair = isRecord(v.repair) ? v.repair : null;
   const interval = repair && isRecord(repair.intervalSec) ? repair.intervalSec : null;
+  const pj = isRecord(v.providerJob) ? v.providerJob : {};
+  const provider = str(v.provider, 'manual');
+  const snapDuration = num(snap.durationSec, Math.max(0, num(snap.sceneEndSec) - num(snap.sceneStartSec)));
   return {
     id: id(v.id), sceneId: v.sceneId,
     requestSnapshot: {
@@ -160,15 +166,30 @@ function normalizeTake(v: unknown, sceneIds: Set<string>): GenerationTake | null
       referenceFiles: strArr(snap.referenceFiles),
       sceneStartSec: num(snap.sceneStartSec), sceneEndSec: num(snap.sceneEndSec),
       aspect: str(snap.aspect, '9:16'), resolution: str(snap.resolution, '720p'),
+      durationSec: snapDuration,
     },
-    provider: str(v.provider, 'manual'), model: typeof v.model === 'string' ? v.model : null,
+    provider, model: typeof v.model === 'string' ? v.model : null,
     submittedAt: typeof v.submittedAt === 'string' ? v.submittedAt : null,
     status: oneOf(v.status, ['packet-built', 'exported', 'submitted', 'polling', 'succeeded', 'failed', 'imported', 'cancelled'] as const, 'packet-built'),
     error: typeof v.error === 'string' ? v.error : null,
     assetId: typeof v.assetId === 'string' ? v.assetId : null,
+    providerJob: {
+      providerId: str(pj.providerId, provider),
+      modelId: typeof pj.modelId === 'string' ? pj.modelId : null,
+      jobId: typeof pj.jobId === 'string' ? pj.jobId : null,
+      phase: oneOf(pj.phase, ['none', 'submitted', 'running', 'succeeded', 'failed', 'cancelled'] as const, 'none'),
+      submittedAt: typeof pj.submittedAt === 'string' ? pj.submittedAt : null,
+      lastPolledAt: typeof pj.lastPolledAt === 'string' ? pj.lastPolledAt : null,
+      completedAt: typeof pj.completedAt === 'string' ? pj.completedAt : null,
+      resultRef: typeof pj.resultRef === 'string' ? pj.resultRef : null,
+      localResultPath: typeof pj.localResultPath === 'string' ? pj.localResultPath : null,
+      error: typeof pj.error === 'string' ? pj.error : null,
+      parentJobId: typeof pj.parentJobId === 'string' ? pj.parentJobId : null,
+    },
     entityFingerprints: isRecord(v.entityFingerprints)
       ? Object.fromEntries(Object.entries(v.entityFingerprints).filter(([, fp]) => typeof fp === 'string')) as Record<string, string>
       : {},
+    acceptedOverrides: strArr(v.acceptedOverrides),
     notes: str(v.notes),
     accepted: typeof v.accepted === 'boolean' ? v.accepted : null,
     lipSync: oneOf(v.lipSync, ['not-required', 'pending', 'passed', 'needs-repair'] as const, 'not-required'),
@@ -268,6 +289,7 @@ export function normalizeDirectorState(value: unknown): DirectorState {
     workprint: {
       lastBuiltAt: typeof wp.lastBuiltAt === 'string' ? wp.lastBuiltAt : null,
       builtFromTakeIds: strArr(wp.builtFromTakeIds).filter((tid) => takeIds.has(tid)),
+      builtSignature: str(wp.builtSignature),
       stale: bool(wp.stale),
     },
   };

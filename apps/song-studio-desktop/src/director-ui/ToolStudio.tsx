@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { DirectorCtx } from './context';
-import { toolGenerationPrompt, validateToolDefinition, parseToolFromModelText, exportToolPackage, importToolPackage, type ToolValidation } from '../director/toolSchema';
+import { toolGenerationPrompt, parseToolFromModelText, exportToolPackage, importToolPackage, type ToolValidation } from '../director/toolSchema';
 import type { DirectorTool } from '../director/model';
 import { ToolFieldRenderer } from './ToolFieldRenderer';
 
@@ -81,7 +81,6 @@ export function ToolStudio({ ctx }: { ctx: DirectorCtx }) {
         ))}
         {state.tools.length === 0 && <div className="muted small">No custom tools yet.</div>}
       </div>
-      {!validateToolDefinition({}).ok && null /* keep import referenced */}
     </div>
   );
 }

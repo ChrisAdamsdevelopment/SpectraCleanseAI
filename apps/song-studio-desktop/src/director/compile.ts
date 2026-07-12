@@ -10,7 +10,7 @@
 // writers (Node/Tauri) materialize the file list.
 
 import {
-  fnv1a64, RELATIONSHIP_MEANING,
+  fnv1a64, RELATIONSHIP_MEANING, sceneLyrics,
   type DirectorState, type ScenePlan, type GenerationTake, type DirectorEntity,
   type ReferenceVariant, type LyricEvent, type ConditioningRecipe, type PoseSequenceData,
 } from './model';
@@ -87,10 +87,8 @@ function castingBlock(scene: ScenePlan, state: DirectorState): { lines: string[]
 }
 
 function lyricsBlock(scene: ScenePlan, state: DirectorState): { lines: string[]; events: LyricEvent[] } {
-  const events = scene.lyricEventIds
-    .map((id) => state.lyrics.find((l) => l.id === id))
-    .filter((l): l is LyricEvent => Boolean(l))
-    .sort((a, b) => a.startSec - b.startSec);
+  // Canonical selection (§E): song-time overlap + explicit include − exclude.
+  const events = sceneLyrics(state, scene);
   const lines = events.map((l) => {
     const local = (t: number) => (t - scene.startSec).toFixed(2);
     const perf = l.performerEntityId ? state.entities.find((e) => e.id === l.performerEntityId)?.name ?? 'performer' : 'off-camera voice';
@@ -298,6 +296,65 @@ export function compileLipSyncRepairPacket(
     files.push({ kind: 'audio-segment', relPath: 'audio/scene-audio.wav', audioPath: opts.audioPath, startSec: scene.startSec, durationSec: scene.endSec - scene.startSec });
   }
   return files;
+}
+
+// ── General targeted repair (§D) ─────────────────────────────────────────────
+// A repair keeps the parent take intact and regenerates ONLY this scene using
+// the source video + preserve/change direction + identity references + lineage.
+// The live path (Omni Flash) sends the source video as an edit input and can
+// carry the parent interaction id as conversational history; the manual path
+// exports the identical contract.
+
+export function buildRepairPrompt(scene: ScenePlan, state: DirectorState, repair: { preserve: string[]; change: string[]; intervalSec?: { start: number; end: number } | null; note: string }): string {
+  const cast = castingBlock(scene, state);
+  const local = (t: number) => Math.max(0, t - scene.startSec).toFixed(2);
+  return [
+    `Edit the attached video. This is a targeted repair of an existing ${(scene.endSec - scene.startSec).toFixed(1)}s music-video scene — do not regenerate from scratch.`,
+    repair.preserve.length > 0 && `PRESERVE EXACTLY (do not change):\n${repair.preserve.map((p) => `- ${p}`).join('\n')}`,
+    repair.change.length > 0 && `CHANGE ONLY:\n${repair.change.map((c) => `- ${c}`).join('\n')}`,
+    repair.intervalSec ? `Apply the change only between ${local(repair.intervalSec.start)}s and ${local(repair.intervalSec.end)}s of the clip.` : '',
+    cast.preserve.length > 0 && `Keep identity true: ${cast.preserve.join('; ')}.`,
+    repair.note && `Note: ${repair.note}`,
+  ].filter(Boolean).join('\n\n');
+}
+
+export function compileRepairPacket(
+  state: DirectorState, scene: ScenePlan, parentTake: GenerationTake,
+  opts: { attemptId: string; sourceVideoPath: string; audioPath: string | null },
+): { files: PacketFileDirective[]; prompt: string; references: PacketReference[]; sourceVideoPath: string } {
+  const repair = parentTake.repair ?? { preserve: [], change: [], intervalSec: null, note: '' };
+  const seen = new Set<string>();
+  const references: PacketReference[] = [];
+  for (const c of scene.castings) {
+    const e = state.entities.find((en) => en.id === c.entityId);
+    if (!e) continue;
+    for (const refId of c.referenceIds) {
+      const r = e.references.find((rr) => rr.id === refId && rr.approved);
+      if (r) references.push({ fileName: refFileName(e, r, seen), sourcePath: r.path, entityId: e.id, entityName: e.name, referenceId: r.id, kind: r.kind });
+    }
+  }
+  const prompt = buildRepairPrompt(scene, state, repair);
+  const lyr = lyricsBlock(scene, state);
+  const contract = {
+    attemptId: opts.attemptId, kind: 'targeted-repair',
+    parentTakeId: parentTake.id, parentJobId: parentTake.providerJob.jobId,
+    sceneId: scene.id, expected: 'one edited MP4 preserving everything except the requested change',
+    howToReturn: `Import the edited MP4 for attempt ${opts.attemptId}, or place it beside a return-manifest.json with {"attemptId":"${opts.attemptId}"}.`,
+  };
+  const files: PacketFileDirective[] = [
+    { kind: 'text', relPath: 'README.md', content: `# Repair packet — ${scene.title}\nEdit source.mp4 per repair-direction.md. Preserve everything not listed as a change.` },
+    { kind: 'copy', relPath: 'source.mp4', sourcePath: opts.sourceVideoPath },
+    { kind: 'text', relPath: 'repair-direction.md', content: prompt },
+    { kind: 'text', relPath: 'original-scene.json', content: JSON.stringify(scene, null, 2) },
+    { kind: 'text', relPath: 'original-request.json', content: JSON.stringify(parentTake.requestSnapshot, null, 2) },
+    { kind: 'text', relPath: 'return-contract.json', content: JSON.stringify(contract, null, 2) },
+    ...references.map((r): PacketFileDirective => ({ kind: 'copy', relPath: `references/${r.fileName}`, sourcePath: r.sourcePath })),
+  ];
+  if (lyr.events.length > 0) {
+    files.push({ kind: 'text', relPath: 'lyrics/timed-lyrics.json', content: JSON.stringify(lyr.events.map((l) => ({ word: l.word, startInSceneSec: +(l.startSec - scene.startSec).toFixed(3), endInSceneSec: +(l.endSec - scene.startSec).toFixed(3), mouthVisibility: l.mouthVisibility })), null, 2) });
+  }
+  if (opts.audioPath) files.push({ kind: 'audio-segment', relPath: 'audio/scene-audio.wav', audioPath: opts.audioPath, startSec: scene.startSec, durationSec: scene.endSec - scene.startSec });
+  return { files, prompt, references, sourceVideoPath: opts.sourceVideoPath };
 }
 
 // ── Provider fit (capability conflicts are surfaced, never silently fixed) ──

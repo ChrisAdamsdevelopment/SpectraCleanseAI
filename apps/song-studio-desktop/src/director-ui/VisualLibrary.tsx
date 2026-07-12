@@ -17,6 +17,7 @@ export function VisualLibrary({ ctx }: { ctx: DirectorCtx }) {
   const [selId, setSelId] = useState<string | null>(state.entities[0]?.id ?? null);
   const [newName, setNewName] = useState('');
   const [newType, setNewType] = useState<EntityType>('person');
+  const [refKind, setRefKind] = useState<ReferenceKind>('face');
   const entity = state.entities.find((e) => e.id === selId) ?? null;
 
   const replaceEntity = (e: DirectorEntity) => update({ ...state, entities: state.entities.map((x) => (x.id === e.id ? e : x)) });
@@ -106,9 +107,9 @@ export function VisualLibrary({ ctx }: { ctx: DirectorCtx }) {
           <div className="dir-refs-head">
             <h4>References</h4>
             <div className="dir-ref-add">
-              <select id="refkind" defaultValue="face">{REFERENCE_KINDS.map((k) => <option key={k} value={k}>{k}</option>)}</select>
-              <button className="ghost small" onClick={() => addReference((document.getElementById('refkind') as HTMLSelectElement).value as ReferenceKind, 'upload')}>Upload reference</button>
-              <button className="ghost small" onClick={() => addReference((document.getElementById('refkind') as HTMLSelectElement).value as ReferenceKind, 'imported-generation')}>Import generated variant</button>
+              <select value={refKind} onChange={(e) => setRefKind(e.target.value as ReferenceKind)}>{REFERENCE_KINDS.map((k) => <option key={k} value={k}>{k}</option>)}</select>
+              <button className="ghost small" onClick={() => addReference(refKind, 'upload')}>Upload reference</button>
+              <button className="ghost small" onClick={() => addReference(refKind, 'imported-generation')}>Import generated variant</button>
             </div>
           </div>
           <p className="muted small">{CAPTURE_GUIDANCE}</p>

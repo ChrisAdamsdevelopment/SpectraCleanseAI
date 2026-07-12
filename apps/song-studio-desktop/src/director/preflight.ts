@@ -3,7 +3,7 @@
 // never silently removes a creator requirement. AI-assisted analysis can be
 // layered on later; these rules are the dependable floor.
 
-import type { DirectorState, ScenePlan, LyricEvent } from './model';
+import { sceneLyrics, type DirectorState, type ScenePlan } from './model';
 
 export interface SceneConflict {
   id: string;
@@ -19,9 +19,7 @@ const CHOREO = /\b(danc|choreograph|footwork|body ?roll|full[- ]body)\b/i;
 
 export function preflightScene(scene: ScenePlan, state: DirectorState): SceneConflict[] {
   const conflicts: SceneConflict[] = [];
-  const lyrics = scene.lyricEventIds
-    .map((id) => state.lyrics.find((l) => l.id === id))
-    .filter((l): l is LyricEvent => Boolean(l));
+  const lyrics = sceneLyrics(state, scene);
   const mouthRequired = lyrics.some((l) => l.mouthVisibility === 'required');
   const exactCastings = scene.castings.filter((c) => c.relationship === 'exact');
   const hasExactPerson = exactCastings.some((c) => {

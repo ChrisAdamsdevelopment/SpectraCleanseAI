@@ -12,6 +12,9 @@ import { writePacket as writePacketPure, resolveReturnAttemptId } from './packet
 import type { PacketFs } from './packetIo';
 import { pickReferenceImage, pickGeneratedVideo, pickPacketExportDir } from '../project/storage';
 import { createGoogleVideoAdapter } from './providers/googleVideo';
+import { createOmniFlashAdapter } from './providers/omniFlash';
+import { PROVIDERS, DEFAULT_PROVIDER_ID, capabilitiesFor } from './providers/registry';
+import type { ProviderIo, VideoProviderAdapter } from './providers/types';
 
 let sessionKey: string | null = null;
 export function setGoogleApiKey(k: string | null) { sessionKey = k && k.trim() ? k.trim() : null; }
@@ -28,18 +31,35 @@ async function toBase64(path: string): Promise<string> {
   return btoa(bin);
 }
 
-// Wire the globals the Google adapter reads for base64 + download.
-function installAdapterGlobals() {
-  (globalThis as { __ssReadFileBase64?: (p: string) => Promise<string> }).__ssReadFileBase64 = toBase64;
-  (globalThis as { __ssDownloadToFile?: (uri: string, headers: Record<string, string>, toPath: string) => Promise<number> }).__ssDownloadToFile =
-    async (uri, headers, toPath) => {
-      const res = await fetch(uri, { headers });
-      if (!res.ok) throw new Error(`download failed: ${res.status}`);
-      const buf = new Uint8Array(await res.arrayBuffer());
-      await writeFile(toPath, buf);
-      return buf.length;
-    };
-}
+// Host-injected provider IO (no global monkey-patching, §A). Adapters call these.
+const providerIo: ProviderIo = {
+  readBase64: (p) => toBase64(p),
+  mimeType: (p) => {
+    const ext = (p.split('.').pop() || '').toLowerCase();
+    return ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' : ext === 'webp' ? 'image/webp' : ext === 'mp4' ? 'video/mp4' : 'image/png';
+  },
+  async fetchJson(url, init) {
+    const res = await fetch(url, init);
+    const text = await res.text();
+    let json: unknown = null;
+    try { json = text ? JSON.parse(text) : null; } catch { /* non-JSON body */ }
+    return { ok: res.ok, status: res.status, text, json };
+  },
+  async downloadToFile(uri, headers, toPath) {
+    const res = await fetch(uri, { headers });
+    if (!res.ok) throw new Error(`download failed: ${res.status}`);
+    const buf = new Uint8Array(await res.arrayBuffer());
+    await writeFile(toPath, buf);
+    return buf.length;
+  },
+  async writeBase64ToFile(base64, toPath) {
+    const bin = atob(base64);
+    const buf = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
+    await writeFile(toPath, buf);
+    return buf.length;
+  },
+};
 
 const tauriFs: PacketFs = {
   async mkdir(dir) { try { await mkdir(dir, { recursive: true }); } catch { /* exists */ } },
@@ -55,10 +75,14 @@ const tauriFs: PacketFs = {
 };
 
 export function createTauriDirectorHost(opts: { outputDir: () => string | null }): DirectorHost {
-  installAdapterGlobals();
-  const adapter = () => createGoogleVideoAdapter({ sessionKey });
+  let providerId = DEFAULT_PROVIDER_ID;
+  const adapterFor = (id: string): VideoProviderAdapter =>
+    id === 'google-veo'
+      ? createGoogleVideoAdapter({ sessionKey, io: providerIo })
+      : createOmniFlashAdapter({ sessionKey, io: providerIo });
 
   return {
+    canExportPackets: true,
     pickReferenceImage: () => pickReferenceImage(),
     pickGeneratedVideo: () => pickGeneratedVideo(),
     pickPacketDir: () => pickPacketExportDir(),
@@ -82,30 +106,40 @@ export function createTauriDirectorHost(opts: { outputDir: () => string | null }
     async resolveReturnAttempt(mp4Path, guided) { return resolveReturnAttemptId(mp4Path, tauriFs, guided); },
     async fileBytes(path) { return tauriFs.statBytes(path); },
 
+    providers: () => PROVIDERS.filter((p) => p.role !== 'manual').map((p) => ({ id: p.id, label: p.label, role: p.role, bestFor: p.bestFor })),
+    selectedProviderId: () => providerId,
+    setProvider: (id: string) => { if (PROVIDERS.some((p) => p.id === id)) providerId = id; },
+    providerCapabilities: () => capabilitiesFor(providerId),
+    setApiKey: (k: string | null) => setGoogleApiKey(k),
     providerConfigured: () => googleApiKeyPresent(),
-    async submitGeneration(packet: GenerationPacket): Promise<SubmitOutcome> {
+    async submitGeneration(packet: GenerationPacket, subOpts?: { sourceVideoPath?: string; parentInteractionId?: string }): Promise<SubmitOutcome> {
       if (!googleApiKeyPresent()) return { ok: false, blockedReason: 'No Google API key set (add one in Director settings, or use Export package).' };
-      const a = adapter();
+      const a = adapterFor(providerId);
       const first = packet.references.find((r) => r.kind === 'first-frame')?.sourcePath;
       const last = packet.references.find((r) => r.kind === 'final-frame')?.sourcePath;
-      const refPaths = packet.references.filter((r) => r.kind !== 'first-frame' && r.kind !== 'final-frame').map((r) => r.sourcePath).slice(0, 3);
+      const refPaths = packet.references.filter((r) => r.kind !== 'first-frame' && r.kind !== 'final-frame').map((r) => r.sourcePath);
+      // NO CLAMP (§C): send the EXACT directed duration. Readiness has already
+      // gated this against the provider's capabilities before submit.
       const out = await a.submit({
         prompt: packet.prompt, negative: packet.negative,
-        aspect: packet.aspect, resolution: packet.resolution,
-        durationSec: Math.min(8, Math.max(4, Math.round(packet.timing.durationSec))),
+        aspect: packet.aspect, resolution: packet.resolution, durationSec: packet.timing.durationSec,
         referenceImagePaths: refPaths, firstFramePath: first, lastFramePath: last,
+        sourceVideoPath: subOpts?.sourceVideoPath, parentInteractionId: subOpts?.parentInteractionId,
       });
       if (out.phase === 'failed') return { ok: false, error: out.error };
       return { ok: true, jobId: out.jobId };
     },
     async pollGeneration(jobId: string) {
-      const a = adapter();
+      const a = adapterFor(providerId);
       const s = await a.poll(jobId);
-      if (s.phase !== 'succeeded' || !s.resultUri) return { phase: s.phase, error: s.error };
+      if (s.phase !== 'succeeded') return { phase: s.phase, error: s.error };
       const dir = opts.outputDir() ?? '.';
       const toPath = `${dir}/generated_${Date.now().toString(36)}.mp4`;
-      try { await a.download(s.resultUri, toPath); return { phase: 'succeeded', resultPath: toPath }; }
-      catch (e) { return { phase: 'failed', error: e instanceof Error ? e.message : String(e) }; }
+      try {
+        if (s.resultInlineBase64) { await providerIo.writeBase64ToFile(s.resultInlineBase64, toPath); return { phase: 'succeeded', resultPath: toPath }; }
+        if (s.resultUri) { await a.download(s.resultUri, toPath); return { phase: 'succeeded', resultPath: toPath }; }
+        return { phase: 'failed', error: 'succeeded but no video payload' };
+      } catch (e) { return { phase: 'failed', error: e instanceof Error ? e.message : String(e) }; }
     },
     async runFfmpeg(args: string[]) {
       try { const res = await invoke<{ outputPath: string; bytes: number }>('run_ffmpeg', { args }); return res.bytes ?? 0; }
