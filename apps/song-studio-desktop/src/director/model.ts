@@ -70,6 +70,48 @@ export interface ReferenceVariant {
   createdAt: string;
 }
 
+// ── AI-generated reference variants (DEC-003 §F / VIDEO-003B §1) ─────────────
+// One GENERAL reference-variant request system (not one feature per kind). A
+// request records exactly what identity it was conditioned on and what may vary;
+// its results arrive as UNAPPROVED proposals and only become canonical through
+// the entity apply transaction (which bumps version + fingerprint). Persisted so
+// a pending image job survives close/reopen, mirroring ProviderJob for video.
+
+export type ReferenceRequestStatus =
+  | 'draft' | 'submitted' | 'running' | 'succeeded' | 'failed' | 'exported' | 'imported';
+
+export interface ReferenceRequest {
+  id: string;
+  entityId: string;
+  entityVersion: number;          // identity version this was conditioned on
+  kind: ReferenceKind;            // requested reference kind (general system)
+  direction: string;              // creator direction ("3/4 left, softer light")
+  conditioningReferenceIds: string[]; // approved refs used as identity guides
+  traitsRemain: string[];         // must remain
+  traitsVary: string[];           // may vary
+  outputCount: number;            // how many variants to request (provider-permitting)
+  providerId: string;             // image provider id (or 'manual')
+  modelId: string | null;
+  readiness: 'ready' | 'warning' | 'blocked';
+  readinessNote: string;
+  status: ReferenceRequestStatus;
+  jobId: string | null;           // provider interaction/operation id (resume)
+  error: string | null;
+  resultRefIds: string[];         // reference variant ids this request produced
+  bodyLocation?: string;          // for tattoo kinds
+  createdAt: string;
+}
+
+export function makeReferenceRequest(entity: DirectorEntity, kind: ReferenceKind, providerId: string): ReferenceRequest {
+  return {
+    id: makeOutputId(), entityId: entity.id, entityVersion: entity.version, kind,
+    direction: '', conditioningReferenceIds: entity.references.filter((r) => r.approved).map((r) => r.id),
+    traitsRemain: [...entity.lockedTraits], traitsVary: [...entity.variableTraits],
+    outputCount: 1, providerId, modelId: null, readiness: 'ready', readinessNote: '',
+    status: 'draft', jobId: null, error: null, resultRefIds: [], createdAt: now(),
+  };
+}
+
 export interface DirectorEntity {
   id: string;
   name: string;
@@ -184,6 +226,11 @@ export interface ScenePlan {
   /** What to do when the accepted clip is shorter than the directed scene
    * (§H6). 'unset' means the creator has not chosen — assembly BLOCKS FINAL. */
   shortClipPolicy: 'unset' | 'hold-last' | 'loop' | 'shorten-scene' | 'leave-gap';
+  /** Which conditioning recipe compiles this scene's packet (§3). Different
+   * recipes materialize materially different artifacts (contact sheet,
+   * storyboard, pose sheet, first/last frame, audio-timed lyrics, motion guide)
+   * while the canonical references always stay separate and authoritative. */
+  recipe: ConditioningRecipe;
   generationPrefs: { aspect: '9:16' | '16:9'; resolution: '720p' | '1080p' };
   /** Structured outputs from custom directing tools used in this scene. */
   toolOutputs: ToolOutput[];
@@ -199,9 +246,11 @@ export type TakeStatus =
   | 'succeeded' | 'failed' | 'imported' | 'cancelled';
 
 export interface RepairDirection {
+  kind: 'general' | 'lip-sync'; // lip-sync repairs compile the dedicated packet
   preserve: string[];      // "the performance", "the camera", "first five seconds"
   change: string[];        // "the ending", "the tattoos", "the hands"
   intervalSec?: { start: number; end: number } | null;
+  performerEntityId?: string | null; // whose mouth to sync (lip-sync)
   note: string;
 }
 
@@ -374,6 +423,56 @@ export function defaultPose(): Record<PoseJointId, { x: number; y: number }> {
   };
 }
 
+// ── Rich directing-primitive output shapes (VIDEO-003B §2) ──────────────────
+// Each rich field stores STABLE structured data (ids, not paths or free text)
+// so it round-trips, feeds compilation + preflight, and never becomes a dead
+// control. Normalization (normalize.ts) validates each shape by field kind.
+
+/** reference-picker: stable reference/asset ids the creator selected. */
+export interface ReferencePickData { referenceIds: string[]; assetIds: string[] }
+
+/** image-board: an ORDERED list of image cards, each labeled by purpose. */
+export interface ImageBoardItem { id: string; referenceId?: string; assetId?: string; label: string }
+export interface ImageBoardData { items: ImageBoardItem[] }
+
+export type CameraMovementType =
+  | 'static' | 'pan' | 'tilt' | 'dolly' | 'truck' | 'crane' | 'orbit' | 'handheld' | 'zoom';
+export const CAMERA_MOVEMENTS: CameraMovementType[] = ['static', 'pan', 'tilt', 'dolly', 'truck', 'crane', 'orbit', 'handheld', 'zoom'];
+
+/** camera-path: normalized (0..1) start/end + optional control points, a
+ * semantic movement type, and optional facing/orientation metadata. */
+export interface CameraPathData {
+  start: { x: number; y: number };
+  end: { x: number; y: number };
+  control: Array<{ x: number; y: number }>;
+  movement: CameraMovementType;
+  orientation: string;
+}
+export function defaultCameraPath(): CameraPathData {
+  return { start: { x: 0.2, y: 0.5 }, end: { x: 0.8, y: 0.5 }, control: [], movement: 'dolly', orientation: '' };
+}
+
+/** lyric-blocks: selected lyric event ids + explicit per-lyric overrides that
+ * feed the SAME canonical selection the compiler + preflight consume. */
+export interface LyricBlockOverride { mouthVisibility?: MouthVisibility; emphasis?: number }
+export interface LyricBlocksData { selectedLyricIds: string[]; overrides: Record<string, LyricBlockOverride> }
+
+export function isPoseSequenceData(v: unknown): v is PoseSequenceData {
+  return typeof v === 'object' && v !== null && 'poses' in (v as object) && Array.isArray((v as PoseSequenceData).poses);
+}
+export function isCameraPathData(v: unknown): v is CameraPathData {
+  return typeof v === 'object' && v !== null && 'start' in (v as object) && 'end' in (v as object) && 'movement' in (v as object);
+}
+export function isImageBoardData(v: unknown): v is ImageBoardData {
+  return typeof v === 'object' && v !== null && Array.isArray((v as ImageBoardData).items);
+}
+export function isLyricBlocksData(v: unknown): v is LyricBlocksData {
+  return typeof v === 'object' && v !== null && Array.isArray((v as LyricBlocksData).selectedLyricIds);
+}
+export function isReferencePickData(v: unknown): v is ReferencePickData {
+  return typeof v === 'object' && v !== null && Array.isArray((v as ReferencePickData).referenceIds) && Array.isArray((v as ReferencePickData).assetIds);
+}
+
 // ── Conditioning recipes ─────────────────────────────────────────────────────
 
 export type ConditioningRecipe =
@@ -418,13 +517,15 @@ export interface DirectorState {
   takes: GenerationTake[];
   lyrics: LyricEvent[];
   tools: DirectorTool[];
+  /** In-flight / historical AI reference-variant requests (§F). */
+  referenceRequests: ReferenceRequest[];
   workprint: WorkprintState;
 }
 
 export function emptyDirectorState(): DirectorState {
   return {
     songAudioPath: null,
-    entities: [], scenes: [], takes: [], lyrics: [], tools: [],
+    entities: [], scenes: [], takes: [], lyrics: [], tools: [], referenceRequests: [],
     workprint: { lastBuiltAt: null, builtFromTakeIds: [], builtSignature: "", stale: false },
   };
 }
@@ -472,6 +573,7 @@ export function makeScene(title: string, startSec: number, endSec: number): Scen
     lighting: '', lightingStyle: 'unspecified', styleGenre: '', emotion: '',
     continuityNotes: '', castings: [], invented: '', howItBegins: '', howItEnds: '',
     lyricEventIds: [], lyricExclude: [], shortClipPolicy: 'unset',
+    recipe: 'separate-references',
     generationPrefs: { aspect: '9:16', resolution: '720p' },
     toolOutputs: [], status: 'draft', acceptedTakeId: null, createdAt: now(),
   };
@@ -483,9 +585,23 @@ export function makeScene(title: string, startSec: number, endSec: number): Scen
 export function sceneLyrics(state: DirectorState, scene: ScenePlan): LyricEvent[] {
   const excluded = new Set(scene.lyricExclude);
   const forced = new Set(scene.lyricEventIds);
+  // A lyric-blocks directing-tool output feeds the SAME canonical selection
+  // (§2): its selected ids force-include, its overrides adjust emphasis/mouth.
+  const overrides: Record<string, LyricBlockOverride> = {};
+  for (const out of scene.toolOutputs) {
+    for (const v of Object.values(out.values)) {
+      if (!isLyricBlocksData(v)) continue;
+      for (const lid of v.selectedLyricIds) forced.add(lid);
+      for (const [lid, ov] of Object.entries(v.overrides)) overrides[lid] = { ...overrides[lid], ...ov };
+    }
+  }
   return state.lyrics
     .filter((l) => !excluded.has(l.id))
     .filter((l) => forced.has(l.id) || (l.startSec < scene.endSec && l.endSec > scene.startSec))
+    .map((l) => {
+      const ov = overrides[l.id];
+      return ov ? { ...l, mouthVisibility: ov.mouthVisibility ?? l.mouthVisibility, emphasis: ov.emphasis ?? l.emphasis } : l;
+    })
     .sort((a, b) => a.startSec - b.startSec);
 }
 

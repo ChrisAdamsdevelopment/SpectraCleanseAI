@@ -6,11 +6,13 @@
 
 import {
   emptyDirectorState, computeIdentityFingerprint, ENTITY_TYPES, REFERENCE_KINDS,
-  TOOL_FIELD_KINDS, CONDITIONING_RECIPES, POSE_JOINTS,
+  TOOL_FIELD_KINDS, CONDITIONING_RECIPES, POSE_JOINTS, CAMERA_MOVEMENTS,
   type DirectorState, type DirectorEntity, type ReferenceVariant, type ScenePlan,
   type GenerationTake, type LyricEvent, type DirectorTool, type ToolField,
   type SceneCasting, type ToolOutput, type EntityType, type ReferenceKind,
   type ConditioningRecipe, type PoseSequenceData, type PoseKey, type PoseJointId,
+  type ReferenceRequest, type CameraPathData, type ImageBoardData, type ReferencePickData,
+  type LyricBlocksData, type CameraMovementType, type MouthVisibility,
 } from './model';
 import { makeOutputId } from '../project/types';
 
@@ -101,6 +103,47 @@ function normalizePoseSequence(v: unknown): PoseSequenceData | null {
   return { poses };
 }
 
+function clamp01(n: unknown): number { return Math.min(1, Math.max(0, num(n, 0))); }
+
+function normalizeCameraPath(v: unknown): CameraPathData | null {
+  if (!isRecord(v) || !isRecord(v.start) || !isRecord(v.end)) return null;
+  const pt = (p: unknown) => (isRecord(p) ? { x: clamp01(p.x), y: clamp01(p.y) } : { x: 0.5, y: 0.5 });
+  return {
+    start: pt(v.start), end: pt(v.end),
+    control: Array.isArray(v.control) ? v.control.map(pt).slice(0, 4) : [],
+    movement: oneOf(v.movement, CAMERA_MOVEMENTS, 'dolly' as CameraMovementType),
+    orientation: str(v.orientation),
+  };
+}
+function normalizeImageBoard(v: unknown): ImageBoardData | null {
+  if (!isRecord(v) || !Array.isArray(v.items)) return null;
+  const items = v.items.filter(isRecord).map((it) => ({
+    id: id(it.id),
+    referenceId: typeof it.referenceId === 'string' ? it.referenceId : undefined,
+    assetId: typeof it.assetId === 'string' ? it.assetId : undefined,
+    label: str(it.label),
+  })).filter((it) => it.referenceId || it.assetId);
+  return { items };
+}
+function normalizeReferencePick(v: unknown): ReferencePickData | null {
+  if (!isRecord(v)) return null;
+  return { referenceIds: strArr(v.referenceIds), assetIds: strArr(v.assetIds) };
+}
+function normalizeLyricBlocks(v: unknown): LyricBlocksData | null {
+  if (!isRecord(v)) return null;
+  const overrides: LyricBlocksData['overrides'] = {};
+  if (isRecord(v.overrides)) {
+    for (const [k, ov] of Object.entries(v.overrides)) {
+      if (!isRecord(ov)) continue;
+      overrides[k] = {
+        mouthVisibility: ['required', 'preferred', 'off-camera', 'none'].includes(ov.mouthVisibility as string) ? ov.mouthVisibility as MouthVisibility : undefined,
+        emphasis: typeof ov.emphasis === 'number' ? clamp01(ov.emphasis) : undefined,
+      };
+    }
+  }
+  return { selectedLyricIds: strArr(v.selectedLyricIds), overrides };
+}
+
 function normalizeToolOutput(v: unknown, tools: DirectorTool[]): ToolOutput | null {
   if (!isRecord(v) || typeof v.toolId !== 'string') return null;
   const tool = tools.find((t) => t.id === v.toolId);
@@ -109,14 +152,40 @@ function normalizeToolOutput(v: unknown, tools: DirectorTool[]): ToolOutput | nu
   const values: Record<string, unknown> = {};
   for (const field of tool.fields) {
     if (!(field.id in rawValues)) continue;
-    if (field.kind === 'pose-sequence') {
-      const ps = normalizePoseSequence(rawValues[field.id]);
-      if (ps) values[field.id] = ps;
-    } else {
-      values[field.id] = rawValues[field.id];
+    const raw = rawValues[field.id];
+    switch (field.kind) {
+      case 'pose-sequence': { const ps = normalizePoseSequence(raw); if (ps) values[field.id] = ps; break; }
+      case 'camera-path': { const cp = normalizeCameraPath(raw); if (cp) values[field.id] = cp; break; }
+      case 'image-board': { const ib = normalizeImageBoard(raw); if (ib) values[field.id] = ib; break; }
+      case 'reference-picker': { const rp = normalizeReferencePick(raw); if (rp) values[field.id] = rp; break; }
+      case 'lyric-blocks': { const lb = normalizeLyricBlocks(raw); if (lb) values[field.id] = lb; break; }
+      default: values[field.id] = raw;
     }
   }
   return { toolId: v.toolId, toolVersion: Math.max(1, Math.floor(num(v.toolVersion, 1))), values, updatedAt: str(v.updatedAt, new Date().toISOString()) };
+}
+
+function normalizeReferenceRequest(v: unknown, entityIds: Set<string>): ReferenceRequest | null {
+  if (!isRecord(v) || typeof v.entityId !== 'string' || !entityIds.has(v.entityId)) return null;
+  return {
+    id: id(v.id), entityId: v.entityId,
+    entityVersion: Math.max(1, Math.floor(num(v.entityVersion, 1))),
+    kind: oneOf(v.kind, REFERENCE_KINDS, 'general' as ReferenceKind),
+    direction: str(v.direction),
+    conditioningReferenceIds: strArr(v.conditioningReferenceIds),
+    traitsRemain: strArr(v.traitsRemain), traitsVary: strArr(v.traitsVary),
+    outputCount: Math.max(1, Math.floor(num(v.outputCount, 1))),
+    providerId: str(v.providerId, 'manual'),
+    modelId: typeof v.modelId === 'string' ? v.modelId : null,
+    readiness: oneOf(v.readiness, ['ready', 'warning', 'blocked'] as const, 'ready'),
+    readinessNote: str(v.readinessNote),
+    status: oneOf(v.status, ['draft', 'submitted', 'running', 'succeeded', 'failed', 'exported', 'imported'] as const, 'draft'),
+    jobId: typeof v.jobId === 'string' ? v.jobId : null,
+    error: typeof v.error === 'string' ? v.error : null,
+    resultRefIds: strArr(v.resultRefIds),
+    bodyLocation: typeof v.bodyLocation === 'string' ? v.bodyLocation : undefined,
+    createdAt: str(v.createdAt, new Date().toISOString()),
+  };
 }
 
 function normalizeScene(v: unknown, entityIds: Set<string>, tools: DirectorTool[]): ScenePlan | null {
@@ -139,6 +208,7 @@ function normalizeScene(v: unknown, entityIds: Set<string>, tools: DirectorTool[
     lyricEventIds: strArr(v.lyricEventIds),
     lyricExclude: strArr(v.lyricExclude),
     shortClipPolicy: oneOf(v.shortClipPolicy, ['unset', 'hold-last', 'loop', 'shorten-scene', 'leave-gap'] as const, 'unset'),
+    recipe: oneOf(v.recipe, CONDITIONING_RECIPES, 'separate-references' as ConditioningRecipe),
     generationPrefs: {
       aspect: oneOf(prefs.aspect, ['9:16', '16:9'] as const, '9:16'),
       resolution: oneOf(prefs.resolution, ['720p', '1080p'] as const, '720p'),
@@ -194,9 +264,11 @@ function normalizeTake(v: unknown, sceneIds: Set<string>): GenerationTake | null
     accepted: typeof v.accepted === 'boolean' ? v.accepted : null,
     lipSync: oneOf(v.lipSync, ['not-required', 'pending', 'passed', 'needs-repair'] as const, 'not-required'),
     repair: repair ? {
+      kind: oneOf(repair.kind, ['general', 'lip-sync'] as const, 'general'),
       preserve: strArr(repair.preserve), change: strArr(repair.change),
       intervalSec: interval && typeof interval.start === 'number' && typeof interval.end === 'number'
         ? { start: interval.start, end: interval.end } : null,
+      performerEntityId: typeof repair.performerEntityId === 'string' ? repair.performerEntityId : null,
       note: str(repair.note),
     } : null,
     parentTakeId: typeof v.parentTakeId === 'string' ? v.parentTakeId : null,
@@ -281,11 +353,14 @@ export function normalizeDirectorState(value: unknown): DirectorState {
   const lyrics = Array.isArray(value.lyrics) ? value.lyrics.map(normalizeLyric).filter((l): l is LyricEvent => Boolean(l)) : [];
   const lyricIds = new Set(lyrics.map((l) => l.id));
   for (const s of scenes) s.lyricEventIds = s.lyricEventIds.filter((lid) => lyricIds.has(lid));
+  const referenceRequests = Array.isArray(value.referenceRequests)
+    ? value.referenceRequests.map((r) => normalizeReferenceRequest(r, entityIds)).filter((r): r is ReferenceRequest => Boolean(r))
+    : [];
 
   const wp = isRecord(value.workprint) ? value.workprint : {};
   return {
     songAudioPath: typeof value.songAudioPath === 'string' ? value.songAudioPath : null,
-    entities, scenes, takes, lyrics, tools,
+    entities, scenes, takes, lyrics, tools, referenceRequests,
     workprint: {
       lastBuiltAt: typeof wp.lastBuiltAt === 'string' ? wp.lastBuiltAt : null,
       builtFromTakeIds: strArr(wp.builtFromTakeIds).filter((tid) => takeIds.has(tid)),

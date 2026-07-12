@@ -1,23 +1,26 @@
 // Gemini Omni Flash adapter (DEC-003 §A) — the DEFAULT Google video provider.
 //
-// VERIFIED against official Google AI for Developers documentation at
-// implementation time (2026-07, ai.google.dev/gemini-api/docs/omni):
-//   Model:    gemini-omni-flash-preview
-//   Create:   POST https://generativelanguage.googleapis.com/v1beta/interactions
-//   Auth:     header  x-goog-api-key: <API key>
-//   Body:     { model, input: string | Array<{type:'text'|'image'|'document', ...}>,
-//               response_format:{ type:'video', aspect_ratio, delivery:'uri'|'base64' },
-//               generation_config?:{ video_config?:{ task } },
-//               previous_interaction_id?: string }   // multi-turn conversational edit
-//   Response: { id, status:'completed'|..., steps:[{type:'model_output',
-//               content:[{type:'video', data?|uri?, mime_type}]}] }
-//   URI poll: GET /v1beta/files/{id}  → { state:'ACTIVE'|'PROCESSING'|'FAILED', uri }
-//   Download: GET /v1beta/files/{id}:download?alt=media
-// Truthful capability facts from the docs: image/subject references supported;
-// source-video editing (input type 'document' uri) supported; multi-turn edit
-// via previous_interaction_id; AUDIO REFERENCE INPUTS UNSUPPORTED; no negative
-// prompts (folded into the prompt); no video extension. Editing uploaded video
-// is region-restricted (EEA/CH/UK) — surfaced by the API, not assumed here.
+// RE-VERIFIED against Google AI for Developers documentation on 2026-07-12
+// (ai.google.dev/gemini-api/docs/interactions + /image-generation). CONFIRMED
+// this pass:
+//   • The Interactions API is real and Google's recommended path for the latest
+//     models:  POST https://generativelanguage.googleapis.com/v1beta/interactions
+//   • Auth header x-goog-api-key; multi-turn via `previous_interaction_id`;
+//     long-running via `background: true`; an Interaction returns a chronological
+//     list of execution `steps` ending in `model_output`; retrieve with
+//     GET /v1beta/interactions/{id} (interactions.get).
+//   • Media results arrive as content items (data | uri, mime_type) inside a
+//     model_output step; large results are fetched via the returned uri.
+// NOT fully pinned this pass (flagged honestly, NOT invented): the EXACT video
+// model id string for interaction-based video. The image model id is confirmed
+// as `gemini-3.1-flash-image`; the video model id here is CONFIGURABLE via
+// opts.model and must be confirmed against the API reference before a live run —
+// the code never hard-codes a provider id into business logic.
+// Truthful capability facts: image/subject references supported; source-video
+// editing supported (video input); AUDIO REFERENCE INPUTS UNSUPPORTED; no
+// negative-prompt field (constraints folded into the prompt); no video
+// extension (use Veo). Editing uploaded video is region-restricted (EEA/CH/UK) —
+// surfaced by the API, never assumed here. No API key is persisted/logged/committed.
 //
 // IO (base64 encode, binary download) is host-injected via ProviderIo — no
 // global monkey-patching. In the browser fallback these are absent and submit
@@ -87,6 +90,7 @@ export function createOmniFlashAdapter(opts: { sessionKey?: string | null; model
           model,
           input,
           response_format: { type: 'video', aspect_ratio: req.aspect, delivery: 'uri' },
+          background: true,   // long-running video: poll the interaction until completed
         };
         const task = req.sourceVideoPath ? 'edit' : req.referenceImagePaths.length > 0 ? 'reference_to_video' : 'text_to_video';
         body.generation_config = { video_config: { task } };

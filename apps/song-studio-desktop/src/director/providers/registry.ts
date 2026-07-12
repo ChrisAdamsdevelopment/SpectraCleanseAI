@@ -3,9 +3,10 @@
 // provider names in logic. Default: Gemini Omni Flash. Secondary: Veo. The
 // manual package is a first-class peer path handled outside this registry.
 
-import type { ProviderCapabilities } from './types';
+import type { ProviderCapabilities, ImageProviderCapabilities } from './types';
 import { omniFlashCapabilities } from './omniFlash';
 import { googleVideoCapabilities } from './googleVideo';
+import { geminiImageCapabilities } from './geminiImage';
 
 export interface ProviderDescriptor {
   id: string;
@@ -39,4 +40,32 @@ export function providerDescriptor(id: string): ProviderDescriptor {
 
 export function capabilitiesFor(id: string): ProviderCapabilities {
   return providerDescriptor(id).capabilities;
+}
+
+// ── Image providers (reference-variant generation, §1) ──────────────────────
+export interface ImageProviderDescriptor {
+  id: string;
+  label: string;
+  role: 'default' | 'manual';
+  capabilities: ImageProviderCapabilities;
+  bestFor: string;
+}
+
+export const MANUAL_IMAGE_CAPS: ImageProviderCapabilities = {
+  referenceImages: 999, humanLikenessReferences: true, maxOutputs: 99, editing: true,
+  aspects: ['9:16', '16:9', '1:1'], async: false, notes: 'Export the request, generate anywhere, import the proposal.',
+};
+
+export const IMAGE_PROVIDERS: ImageProviderDescriptor[] = [
+  { id: 'gemini-image', label: 'Gemini image', role: 'default', capabilities: geminiImageCapabilities, bestFor: 'Default. Identity-guided reference variants (proposals).' },
+  { id: 'manual', label: 'Manual package', role: 'manual', capabilities: MANUAL_IMAGE_CAPS, bestFor: 'Generate references anywhere; import the proposal.' },
+];
+
+export const DEFAULT_IMAGE_PROVIDER_ID = 'gemini-image';
+
+export function imageProviderDescriptor(id: string): ImageProviderDescriptor {
+  return IMAGE_PROVIDERS.find((p) => p.id === id) ?? IMAGE_PROVIDERS[0];
+}
+export function imageCapabilitiesFor(id: string): ImageProviderCapabilities {
+  return imageProviderDescriptor(id).capabilities;
 }

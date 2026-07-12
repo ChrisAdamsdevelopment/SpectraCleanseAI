@@ -79,6 +79,51 @@ export interface VideoProviderAdapter {
   download(resultUri: string, toPath: string): Promise<number>;
 }
 
+// ── Image-generation provider boundary (VIDEO-003B §1) ──────────────────────
+// Reference variants are generated through a provider-NEUTRAL image boundary,
+// exactly like video. Capabilities are truthful; the UI reads them and never
+// silently drops a conditioning reference.
+
+export interface ImageProviderCapabilities {
+  referenceImages: number;          // conditioning images accepted (0 = text only)
+  humanLikenessReferences: boolean;
+  maxOutputs: number;               // variants per request
+  editing: boolean;                 // edit/vary an existing image
+  aspects: string[];
+  async: boolean;
+  notes: string;
+}
+
+export interface ImageSubmitRequest {
+  prompt: string;
+  /** Approved conditioning reference image paths (identity guides). */
+  referenceImagePaths: string[];
+  outputCount: number;
+  aspect: string;
+}
+
+export interface ImageJobState {
+  jobId: string;
+  phase: JobPhase;
+  error?: string;
+  /** Inline base64 images when returned directly (Interactions image output). */
+  resultInlineBase64?: string[];
+  /** Provider-side URIs when large. */
+  resultUris?: string[];
+  raw?: unknown;
+}
+
+export interface ImageProviderAdapter {
+  id: string;
+  label: string;
+  model: string;
+  capabilities: ImageProviderCapabilities;
+  isConfigured(): boolean;
+  submit(req: ImageSubmitRequest): Promise<ImageJobState>;
+  poll(jobId: string): Promise<ImageJobState>;
+  download(resultUri: string, toPath: string): Promise<number>;
+}
+
 export interface TextModelAdapter {
   id: string;
   isConfigured(): boolean;
