@@ -31,7 +31,7 @@ VIDEO-002 proved the causal direction spine (creator decision → persisted song
 
 - The wedge's promise ("Song Studio makes the video") requires moving scenes the creator did not have to shoot; generation is the only scalable source.
 - The VIDEO-002 seam (project-owned song-relative direction, output windowing, freshness, gated compositing) was built to carry richer material; deferring generation further would optimize the wrong axis (DEC-001's warning).
-- Provider-neutral canonical direction plus a manual generation bridge keeps the system honest and testable with or without live credentials.
+- Provider-neutral canonical direction plus a manual generation bridge keep the system honest and testable with or without live credentials.
 
 ## Consequences
 
