@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { DirectorCtx } from './context';
 import { directorTimingSuspect } from '../director/model';
+import { applyRetime } from '../director/actions';
 import { VisualLibrary } from './VisualLibrary';
 import { SceneBoard } from './SceneBoard';
 import { AssemblyPanel } from './AssemblyPanel';
@@ -18,8 +19,10 @@ export function DirectorWorkspace({ ctx, onExit }: { ctx: DirectorCtx; onExit: (
   const [tab, setTab] = useState<Tab>('scenes');
   const suspect = directorTimingSuspect(ctx.audioPath, ctx.state);
 
-  const acceptRetime = () => ctx.update({ ...ctx.state, songAudioPath: ctx.audioPath });
-  const clearTimings = () => ctx.update({ ...ctx.state, scenes: [], lyrics: [], songAudioPath: ctx.audioPath, workprint: { lastBuiltAt: null, builtFromTakeIds: [], builtSignature: '', stale: false } });
+  // Retime banner wired to the canonical applyRetime transition (§5). None of
+  // these leave orphaned takes or pending provider jobs; your visual library is
+  // always preserved.
+  const retime = (mode: 'keep' | 'retime' | 'clear') => ctx.update(applyRetime(ctx.state, ctx.audioPath, mode));
 
   return (
     <div className="director-workspace">
@@ -36,10 +39,11 @@ export function DirectorWorkspace({ ctx, onExit }: { ctx: DirectorCtx; onExit: (
       {suspect && (
         <div className="dir-retime-gate">
           <b>The song changed after these scenes were timed.</b>
-          <span>Scene and lyric times are song-relative. Confirm they still line up, or clear them to re-time — generation and assembly are paused until you choose.</span>
+          <span>Scene and lyric times are song-relative. Choose how to handle them — generation and assembly are paused until you do. Your visual library (characters, references, tools) is kept in every case.</span>
           <div>
-            <button className="ghost small" onClick={acceptRetime}>The timings still fit — keep them</button>
-            <button className="ghost small" onClick={clearTimings}>Clear scenes & lyrics to re-time</button>
+            <button className="ghost small" onClick={() => retime('keep')}>The timings still fit — keep them</button>
+            <button className="ghost small" onClick={() => retime('retime')}>Re-time scenes (keep scenes & lyrics, drop old takes)</button>
+            <button className="ghost small" onClick={() => retime('clear')}>Clear song-relative direction & start over</button>
           </div>
         </div>
       )}

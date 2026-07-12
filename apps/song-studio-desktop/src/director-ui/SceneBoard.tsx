@@ -1,29 +1,52 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import type { DirectorCtx } from './context';
 import {
-  makeScene, orderedScenes, sceneOverlaps, RELATIONSHIP_MEANING,
+  makeScene, orderedScenes, sceneOverlaps, RELATIONSHIP_MEANING, CONDITIONING_RECIPES,
   type ScenePlan, type SceneCasting, type ContinuityRelationship, type GenerationTake,
 } from '../director/model';
 import { preflightScene } from '../director/preflight';
-import { compileScenePacket, type GenerationPacket } from '../director/compile';
+import { compileScenePacket, buildRepairPrompt, compileRepairPacket, compileLipSyncRepairPacket, type GenerationPacket } from '../director/compile';
 import { assessProviderReadiness, unresolvedOverrideKeys, type ReadinessResult } from '../director/providerReadiness';
-import { ToolFieldRenderer } from './ToolFieldRenderer';
+import { ToolFieldRenderer, type ToolFieldEnv } from './ToolFieldRenderer';
 import {
-  addTakeFromPacket, acceptTake, rejectTake, addRepairAttempt,
-  takesForScene, setTakeStatus, applyProviderSubmit, applyProviderPoll, applyProviderResult,
+  addTakeFromPacket, acceptTake, rejectTake, addRepairAttempt, addLipSyncRepair, resumableTakes,
+  takesForScene, setTakeStatus, applyProviderSubmit, applyProviderPoll, applyProviderResult, applySceneResolution,
 } from '../director/actions';
+import { useAutoPoll } from './useAutoPoll';
 import { formatTime } from '../lib/time';
 import { makeOutputId } from '../project/types';
 
 function fmt(t: number) { return formatTime(Math.max(0, t)); }
 
 export function SceneBoard({ ctx }: { ctx: DirectorCtx }) {
-  const { state, update } = ctx;
+  const { state, update, host } = ctx;
   const [selId, setSelId] = useState<string | null>(state.scenes[0]?.id ?? null);
   const scenes = useMemo(() => orderedScenes(state.scenes), [state.scenes]);
   const overlaps = useMemo(() => sceneOverlaps(state.scenes), [state.scenes]);
   const scene = state.scenes.find((s) => s.id === selId) ?? null;
   const dur = ctx.songDurationSec ?? 0;
+
+  // AUTOMATIC bounded polling (§4). Any pending provider job — including ones
+  // resumed after reopening the project — is polled to completion with backoff,
+  // materialized, and bound. The explicit "Check status" control still works.
+  const stateRef = useRef(state); stateRef.current = state;
+  const pendingKeys = useMemo(() => resumableTakes(state).map((t) => t.id), [state.takes]);
+  const pollOnce = async (takeId: string): Promise<string> => {
+    const cur = stateRef.current;
+    const take = cur.takes.find((t) => t.id === takeId);
+    if (!take?.providerJob.jobId || take.assetId) return 'succeeded';
+    const res = await host.pollGeneration(take.providerJob.jobId);
+    if (res.phase === 'succeeded' && res.resultPath) {
+      const sc = cur.scenes.find((s) => s.id === take.sceneId);
+      const assetId = ctx.addAsset('generated-video', res.resultPath, `${sc?.title ?? 'scene'} take`);
+      update(applyProviderResult(cur, takeId, assetId, res.resultPath));
+      return 'succeeded';
+    }
+    if (res.phase === 'failed') { update(applyProviderPoll(cur, takeId, { phase: 'failed', error: res.error })); return 'failed'; }
+    update(applyProviderPoll(cur, takeId, { phase: 'running' }));
+    return 'running';
+  };
+  useAutoPoll({ pendingKeys, pollOnce, projectToken: ctx.audioPath ?? '', enabled: host.providerConfigured() });
 
   const addScene = () => {
     const last = orderedScenes(state.scenes)[state.scenes.length - 1];
@@ -66,6 +89,16 @@ function SceneEditor({ ctx, scene, patch, remove }: { ctx: DirectorCtx; scene: S
   const takes = takesForScene(state, scene.id);
   const dur = ctx.songDurationSec ?? 0;
 
+  // Project env for the rich directing primitives (reference-picker / image-board
+  // / lyric-blocks) — approved references, project assets, and the lyrics that
+  // overlap this scene in song time.
+  const toolEnv: ToolFieldEnv = useMemo(() => ({
+    references: state.entities.flatMap((e) => e.references.filter((r) => r.approved).map((r) => ({ id: r.id, label: r.label, kind: r.kind, path: r.path, entityName: e.name }))),
+    assets: ctx.assets.map((a) => ({ id: a.id, label: a.label, path: a.path })),
+    lyrics: state.lyrics.filter((l) => l.startSec < scene.endSec && l.endSec > scene.startSec).sort((a, b) => a.startSec - b.startSec),
+    toSrc: (p) => ctx.host.toSrc(p),
+  }), [state.entities, state.lyrics, ctx, scene.startSec, scene.endSec]);
+
   const setCasting = (entityId: string, up: Partial<SceneCasting> | null) => {
     const exists = scene.castings.find((c) => c.entityId === entityId);
     let castings: SceneCasting[];
@@ -77,12 +110,12 @@ function SceneEditor({ ctx, scene, patch, remove }: { ctx: DirectorCtx; scene: S
 
   const compile = () => {
     const attemptId = 'preview-' + scene.id;
-    setPacket(compileScenePacket(state, scene, { attemptId, recipe: 'separate-references', audioPath: ctx.audioPath }));
+    setPacket(compileScenePacket(state, scene, { attemptId, recipe: scene.recipe, audioPath: ctx.audioPath }));
   };
   const providerId = host.selectedProviderId();
   const caps = host.providerCapabilities();
   const readiness = packet ? assessProviderReadiness(packet, caps, host.providers().find((p) => p.id === providerId)?.label ?? providerId) : null;
-  const previewPacket = useMemo(() => compileScenePacket(state, scene, { attemptId: 'chk', recipe: 'separate-references', audioPath: ctx.audioPath }), [state, scene, ctx.audioPath]);
+  const previewPacket = useMemo(() => compileScenePacket(state, scene, { attemptId: 'chk', recipe: scene.recipe, audioPath: ctx.audioPath }), [state, scene, ctx.audioPath]);
   const previewReadiness = assessProviderReadiness(previewPacket, caps, providerId);
   const previewUnresolved = unresolvedOverrideKeys(previewReadiness, overrides);
   const canGenerate = !conflicts.some((c) => c.severity === 'blocking') && previewUnresolved.length === 0;
@@ -95,7 +128,7 @@ function SceneEditor({ ctx, scene, patch, remove }: { ctx: DirectorCtx; scene: S
       // One compile: the take id IS the packet attemptId, so the persisted take
       // and the package's return contract share a single identity.
       const takeId = makeOutputId();
-      const pk = compileScenePacket(state, scene, { attemptId: takeId, recipe: 'separate-references', audioPath: ctx.audioPath });
+      const pk = compileScenePacket(state, scene, { attemptId: takeId, recipe: scene.recipe, audioPath: ctx.audioPath });
       const { state: s2, take } = addTakeFromPacket(state, scene, pk, 'manual', null, takeId);
       const dest = `${dir}/scene-${scene.title.replace(/[^a-z0-9]+/gi, '_')}-${take.id}`;
       await host.writePacket(pk, dest);
@@ -108,7 +141,7 @@ function SceneEditor({ ctx, scene, patch, remove }: { ctx: DirectorCtx; scene: S
     if (previewUnresolved.length > 0) { setBusy('Resolve the highlighted provider conflicts before generating.'); return; }
     setBusy(`Submitting to ${host.providers().find((p) => p.id === providerId)?.label ?? providerId}…`);
     const takeId = makeOutputId();
-    const pk = compileScenePacket(state, scene, { attemptId: takeId, recipe: 'separate-references', audioPath: ctx.audioPath });
+    const pk = compileScenePacket(state, scene, { attemptId: takeId, recipe: scene.recipe, audioPath: ctx.audioPath });
     let s2 = addTakeFromPacket(state, scene, pk, providerId, null, takeId).state;
     // record the creator's accepted overrides on the attempt (audit of what was
     // knowingly relaxed) and submit.
@@ -156,6 +189,73 @@ function SceneEditor({ ctx, scene, patch, remove }: { ctx: DirectorCtx; scene: S
     const assetId = ctx.addAsset('generated-video', path, `${scene.title} take`);
     update(applyProviderResult(state, boundTake, assetId, path));
     setBusy(bind.via === 'manifest' ? 'Imported and bound via the package return-manifest.' : 'Imported and bound to this attempt.');
+  };
+
+  // Resolve the source MP4 for a repair/lip-sync child (its parent's clip).
+  const sourceVideoFor = (child: GenerationTake): string | null => {
+    const parent = state.takes.find((t) => t.id === child.parentTakeId);
+    return parent?.assetId ? ctx.assetPath(parent.assetId) : null;
+  };
+
+  // Generate a repair/lip-sync child take LIVE: the source video + the repair
+  // prompt (mouth-sync for lip-sync) go to the provider's source-video edit path;
+  // the parent interaction id carries conversational lineage when supported.
+  const generateChildLive = async (child: GenerationTake) => {
+    const src = sourceVideoFor(child);
+    if (!src) { setBusy('The parent take has no accepted clip to repair from.'); return; }
+    if (!child.repair) { setBusy('This take has no repair direction.'); return; }
+    const parent = state.takes.find((t) => t.id === child.parentTakeId);
+    const base = compileScenePacket(state, scene, { attemptId: child.id, recipe: scene.recipe, audioPath: ctx.audioPath });
+    const pk: GenerationPacket = { ...base, prompt: buildRepairPrompt(scene, state, child.repair) };
+    update(applyProviderSubmit(state, child.id, { providerId, modelId: providerId, jobId: null, phase: 'submitted' }));
+    setBusy(`Submitting ${child.repair.kind === 'lip-sync' ? 'lip-sync' : 'repair'} edit…`);
+    const outcome = await host.submitGeneration(pk, { sourceVideoPath: src, parentInteractionId: parent?.providerJob.jobId ?? undefined });
+    if (!outcome.ok) {
+      update(applyProviderSubmit(state, child.id, { providerId, modelId: null, jobId: null, phase: 'failed', error: outcome.blockedReason || outcome.error || 'submit failed' }));
+      setBusy(outcome.blockedReason ? `Blocked: ${outcome.blockedReason} (use Export package)` : `Submit failed: ${outcome.error}`);
+      return;
+    }
+    const s3 = applyProviderSubmit(state, child.id, { providerId, modelId: providerId, jobId: outcome.jobId ?? null, phase: 'submitted', parentJobId: parent?.providerJob.jobId ?? null });
+    update(s3);
+    setBusy(`Submitted (job ${outcome.jobId}). Auto-polling…`);
+    await pollTake(child.id, s3);
+  };
+
+  // Export the manual repair / lip-sync package for a child take.
+  const exportChildPackage = async (child: GenerationTake) => {
+    if (!host.canExportPackets) { setBusy('File export needs the desktop app.'); return; }
+    const src = sourceVideoFor(child);
+    if (!src) { setBusy('The parent take has no accepted clip to repair from.'); return; }
+    const parent = state.takes.find((t) => t.id === child.parentTakeId);
+    const dir = await host.pickPacketDir(); if (!dir) return;
+    const isLip = child.repair?.kind === 'lip-sync';
+    const files = isLip
+      ? compileLipSyncRepairPacket(state, scene, parent ?? child, { sourceVideoPath: src, audioPath: ctx.audioPath, intervalSec: child.repair?.intervalSec ?? null })
+      : compileRepairPacket(state, scene, { ...(parent ?? child), repair: child.repair }, { attemptId: child.id, sourceVideoPath: src, audioPath: ctx.audioPath }).files;
+    // Include a return-manifest so the imported MP4 binds to THIS child take.
+    files.push({ kind: 'text', relPath: 'return-manifest.json', content: JSON.stringify({ attemptId: child.id }, null, 2) });
+    const dest = `${dir}/${isLip ? 'lipsync' : 'repair'}-${scene.title.replace(/[^a-z0-9]+/gi, '_')}-${child.id}`;
+    setBusy('Exporting package…');
+    try {
+      await host.writeFiles(files, dest);
+      update(setTakeStatus(state, child.id, 'exported'));
+      setBusy(`${isLip ? 'Lip-sync' : 'Repair'} package written to ${dest}. Generate externally, then Import result.`);
+    } catch (e) { setBusy(`Export failed: ${e instanceof Error ? e.message : String(e)}`); }
+  };
+
+  const startLipSync = (parentTakeId: string, intervalSec: { start: number; end: number } | null, performerEntityId: string | null) => {
+    const { state: s2 } = addLipSyncRepair(state, parentTakeId, { intervalSec, performerEntityId });
+    update(s2);
+    setBusy('Lip-sync repair attempt created — generate it live or export the package below.');
+  };
+
+  // §7: execute a preflight/readiness resolution. Canonical state changes go
+  // through applySceneResolution; provider switches and package export are UI
+  // side effects. Overrides stay available only for genuine warnings.
+  const dispatchResolution = (key: string) => {
+    if (key === 'export-package') { exportPacket(); return; }
+    if (key.startsWith('provider:')) { host.setProvider(key.split(':')[1]); update({ ...state }); return; }
+    update(applySceneResolution(state, scene.id, key));
   };
 
   const entitiesById = Object.fromEntries(state.entities.map((e) => [e.id, e]));
@@ -251,7 +351,7 @@ function SceneEditor({ ctx, scene, patch, remove }: { ctx: DirectorCtx; scene: S
                 <b>{tool.name}</b>
                 {tool.fields.map((f) => (
                   <div key={f.id} className="dir-tool-field"><span className="muted small">{f.label}</span>
-                    <ToolFieldRenderer field={f} value={out?.values[f.id]} onChange={(v) => setVal(f.id, v)} />
+                    <ToolFieldRenderer field={f} value={out?.values[f.id]} onChange={(v) => setVal(f.id, v)} env={toolEnv} />
                   </div>
                 ))}
               </div>
@@ -267,7 +367,10 @@ function SceneEditor({ ctx, scene, patch, remove }: { ctx: DirectorCtx; scene: S
           {conflicts.map((c) => (
             <div key={c.id} className={`dir-conflict ${c.severity}`}>
               <b>{c.title}</b><p>{c.explanation}</p>
-              <div className="dir-conflict-choices">{c.choices.map((ch) => <span key={ch} className="chip small">{ch}</span>)}</div>
+              <div className="dir-conflict-choices">
+                {(c.actions ?? []).map((a) => <button key={a.key} className="chip small action" onClick={() => dispatchResolution(a.key)}>{a.label}</button>)}
+                {c.choices.filter((ch) => !(c.actions ?? []).length || ch === 'Continue knowingly').map((ch) => <span key={ch} className="chip small">{ch}</span>)}
+              </div>
             </div>
           ))}
         </div>
@@ -278,6 +381,11 @@ function SceneEditor({ ctx, scene, patch, remove }: { ctx: DirectorCtx; scene: S
         <label className="dir-provider-select">Provider
           <select value={providerId} onChange={(e) => { host.setProvider(e.target.value); update({ ...state }); }}>
             {host.providers().map((p) => <option key={p.id} value={p.id}>{p.label}{p.role === 'default' ? ' (default)' : ''}</option>)}
+          </select>
+        </label>
+        <label className="dir-provider-select">Conditioning
+          <select value={scene.recipe} onChange={(e) => patch({ recipe: e.target.value as ScenePlan['recipe'] })} title="How this scene's identity/motion is packaged for the generator">
+            {CONDITIONING_RECIPES.map((r) => <option key={r} value={r}>{r.replace(/-/g, ' ')}</option>)}
           </select>
         </label>
         <button className="ghost small" onClick={compile}>Inspect compiled packet</button>
@@ -293,7 +401,8 @@ function SceneEditor({ ctx, scene, patch, remove }: { ctx: DirectorCtx; scene: S
             <div key={it.id} className={`dir-conflict ${it.severity}`}>
               <b>{it.message}</b>
               <div className="dir-conflict-choices">
-                {it.resolutions.map((r) => <span key={r} className="chip small">{r}</span>)}
+                {(it.actions ?? []).map((a) => <button key={a.key} className="chip small action" onClick={() => dispatchResolution(a.key)}>{a.label}</button>)}
+                {(it.actions ?? []).length === 0 && it.resolutions.map((r) => <span key={r} className="chip small">{r}</span>)}
                 {it.overrideKey && it.severity === 'blocking' && (
                   <button className={`chip small ${overrides.includes(it.overrideKey) ? 'on' : ''}`} onClick={() => toggleOverride(it.overrideKey!)}>
                     {overrides.includes(it.overrideKey) ? '✓ Accepted knowingly' : 'Accept & continue knowingly'}
@@ -318,7 +427,11 @@ function SceneEditor({ ctx, scene, patch, remove }: { ctx: DirectorCtx; scene: S
             onAccept={() => update(acceptTake(state, t.id))}
             onReject={() => update(rejectTake(state, t.id))}
             onLipSync={(v) => update(setTakeStatus(state, t.id, t.status, { lipSync: v }))}
-            onRepair={(preserve, change, note) => { const { state: s2 } = addRepairAttempt(state, t.id, { preserve, change, intervalSec: null, note }); update(s2); }}
+            onRepair={(preserve, change, note) => { const { state: s2 } = addRepairAttempt(state, t.id, { kind: 'general', preserve, change, intervalSec: null, note }); update(s2); }}
+            onStartLipSync={(interval, performerId) => startLipSync(t.id, interval, performerId)}
+            onGenerateChild={() => generateChildLive(t)}
+            onExportChild={() => exportChildPackage(t)}
+            performers={state.entities.filter((e) => e.type === 'person' || e.type === 'character').map((e) => ({ id: e.id, name: e.name }))}
             entityName={(id) => entitiesById[id]?.name ?? id} />
         ))}
       </div>
@@ -326,17 +439,25 @@ function SceneEditor({ ctx, scene, patch, remove }: { ctx: DirectorCtx; scene: S
   );
 }
 
-function TakeRow({ ctx, take, onImport, onCheckStatus, onAccept, onReject, onLipSync, onRepair }: {
+function TakeRow({ ctx, scene, take, onImport, onCheckStatus, onAccept, onReject, onLipSync, onRepair, onStartLipSync, onGenerateChild, onExportChild, performers }: {
   ctx: DirectorCtx; scene: ScenePlan; take: GenerationTake;
   onImport: () => void; onCheckStatus?: () => void; onAccept: () => void; onReject: () => void;
   onLipSync: (v: GenerationTake['lipSync']) => void;
-  onRepair: (preserve: string[], change: string[], note: string) => void; entityName: (id: string) => string;
+  onRepair: (preserve: string[], change: string[], note: string) => void;
+  onStartLipSync: (interval: { start: number; end: number } | null, performerId: string | null) => void;
+  onGenerateChild: () => void; onExportChild: () => void;
+  performers: Array<{ id: string; name: string }>; entityName: (id: string) => string;
 }) {
   const [repairing, setRepairing] = useState(false);
   const [preserve, setPreserve] = useState(''); const [change, setChange] = useState(''); const [note, setNote] = useState('');
+  const [lipping, setLipping] = useState(false);
+  const [lipStart, setLipStart] = useState(scene.startSec); const [lipEnd, setLipEnd] = useState(scene.endSec);
+  const [lipPerformer, setLipPerformer] = useState(performers[0]?.id ?? '');
   const src = take.assetId ? ctx.host.toSrc(ctx.assetPath(take.assetId) ?? '') : null;
+  const isChild = Boolean(take.parentTakeId && take.repair);
+  const isLipChild = take.repair?.kind === 'lip-sync';
   return (
-    <div className={`dir-take${take.accepted ? ' accepted' : ''}`}>
+    <div className={`dir-take${take.accepted ? ' accepted' : ''}${isChild ? ' child' : ''}`}>
       <div className="dir-take-media">
         {src ? <video src={src} controls muted width={140} /> : <div className="dir-take-noresult">{take.status === 'exported' ? 'awaiting external result' : take.status}</div>}
       </div>
@@ -344,15 +465,19 @@ function TakeRow({ ctx, take, onImport, onCheckStatus, onAccept, onReject, onLip
         <div className="dir-take-meta">
           <span className="chip small">{take.provider}</span>
           <span className={`chip small status-${take.status}`}>{take.status}</span>
+          {isChild && <span className="chip small">{isLipChild ? 'lip-sync repair' : 'repair'} of {take.parentTakeId!.slice(0, 6)}</span>}
           {take.lipSync !== 'not-required' && <span className={`chip small lip-${take.lipSync}`}>lip: {take.lipSync}</span>}
           {take.error && <span className="dir-warn small">{take.error}</span>}
         </div>
         <div className="dir-take-actions">
           {onCheckStatus && <button className="ghost small" onClick={onCheckStatus}>Check status / resume</button>}
+          {isChild && !take.assetId && <button className="primary small" onClick={onGenerateChild} title="Send the source clip + repair direction to the provider's source-video edit path">Generate {isLipChild ? 'lip-sync' : 'repair'} (live)</button>}
+          {isChild && !take.assetId && <button className="ghost small" onClick={onExportChild} disabled={!ctx.host.canExportPackets}>Export {isLipChild ? 'lip-sync' : 'repair'} package</button>}
           {!take.assetId && <button className="ghost small" onClick={onImport}>Import result MP4</button>}
           {take.assetId && take.accepted !== true && <button className="primary small" onClick={onAccept}>Accept</button>}
           {take.assetId && <button className="ghost small" onClick={onReject}>Reject</button>}
           {take.assetId && <button className="ghost small" onClick={() => setRepairing((v) => !v)}>Add repair direction</button>}
+          {take.assetId && !isChild && <button className="ghost small" onClick={() => setLipping((v) => !v)}>Lip-sync repair…</button>}
         </div>
         {take.assetId && (
           <div className="dir-lipsync-controls">
@@ -360,6 +485,22 @@ function TakeRow({ ctx, take, onImport, onCheckStatus, onAccept, onReject, onLip
             {(['not-required', 'pending', 'passed', 'needs-repair'] as const).map((v) => (
               <button key={v} className={`chip small ${take.lipSync === v ? 'on' : ''}`} onClick={() => onLipSync(v)}>{v}</button>
             ))}
+          </div>
+        )}
+        {lipping && (
+          <div className="dir-repair dir-lipsync-panel">
+            <p className="muted small">Sync the mouth to the overlapping vocal. Note: the default video provider edits the source clip but does not guarantee exact audio-driven lip-sync — the manual package remains the most faithful path.</p>
+            <div className="dir-scene-times">
+              <label>From <input type="number" step={0.1} value={lipStart} onChange={(e) => setLipStart(Number(e.target.value))} /></label>
+              <label>To <input type="number" step={0.1} value={lipEnd} onChange={(e) => setLipEnd(Number(e.target.value))} /></label>
+              <label>Performer
+                <select value={lipPerformer} onChange={(e) => setLipPerformer(e.target.value)}>
+                  <option value="">—</option>
+                  {performers.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                </select>
+              </label>
+            </div>
+            <button className="ghost small" onClick={() => { onStartLipSync(lipEnd > lipStart ? { start: lipStart, end: lipEnd } : null, lipPerformer || null); setLipping(false); }}>Create lip-sync repair attempt</button>
           </div>
         )}
         {repairing && (

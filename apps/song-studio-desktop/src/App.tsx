@@ -522,6 +522,7 @@ export default function App() {
     width: 1080, height: 1920, fps: 30,
     addAsset,
     assetPath: assetPathById,
+    assets: releaseProject.assets.map((a) => ({ id: a.id, path: a.path, label: a.label ?? a.role, role: a.role })),
     textModelConfigured: IS_TAURI && googleApiKeyPresent(),
     generateTool: (request, refinement, previousJson) => generateToolWithGemini(request, refinement, previousJson),
   };

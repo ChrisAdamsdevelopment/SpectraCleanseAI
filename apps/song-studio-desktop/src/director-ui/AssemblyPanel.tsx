@@ -58,6 +58,25 @@ export function AssemblyPanel({ ctx }: { ctx: DirectorCtx }) {
         </div>
       )}
 
+      {plan.scenes.length > 0 && (
+        <details className="dir-shortclip">
+          <summary>Short-clip policy per scene (used when a generated clip is shorter than its scene)</summary>
+          {plan.scenes.map((s) => {
+            const scene = state.scenes.find((x) => x.id === s.sceneId);
+            if (!scene) return null;
+            return (
+              <div key={s.sceneId} className="dir-shortclip-row">
+                <span>{s.title}</span>
+                <select value={scene.shortClipPolicy} onChange={(e) => update({ ...state, scenes: state.scenes.map((x) => (x.id === s.sceneId ? { ...x, shortClipPolicy: e.target.value as typeof x.shortClipPolicy } : x)) })}>
+                  {(['unset', 'hold-last', 'loop', 'shorten-scene', 'leave-gap'] as const).map((p) => <option key={p} value={p}>{p}</option>)}
+                </select>
+              </div>
+            );
+          })}
+          <p className="muted small">'unset' blocks a FINAL export until you choose. hold-last freezes the last frame; loop repeats the clip; shorten-scene trims the scene to the clip; leave-gap shows black for the remainder.</p>
+        </details>
+      )}
+
       <div className="dir-assembly-actions">
         <button className="ghost small" onClick={() => build('workprint')} disabled={plan.scenes.length === 0}>Build workprint</button>
         <button className="primary small" onClick={() => build('final')} disabled={plan.scenes.length === 0 || (!plan.finalReady && !acceptGaps)}>Build final</button>

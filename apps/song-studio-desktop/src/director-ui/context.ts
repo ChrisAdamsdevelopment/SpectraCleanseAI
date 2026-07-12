@@ -17,6 +17,8 @@ export interface DirectorCtx {
   /** Register a project asset (reference / generated-video), returns its id. */
   addAsset: (role: 'artist-photo' | 'footage' | 'generated-video' | 'reference', path: string, label: string) => string;
   assetPath: (assetId: string) => string | null;
+  /** All project assets (for reference/image pickers). */
+  assets: Array<{ id: string; path: string; label: string; role: string }>;
   /** Text-model tool generation (may be blocked); returns validation. */
   textModelConfigured: boolean;
   generateTool: (request: string, refinement?: string, previousJson?: string) => Promise<ToolValidation & { rawPrompt: string }>;
