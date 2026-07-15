@@ -472,3 +472,38 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 .pv-row { display: flex; justify-content: space-between; gap: 8px; align-items: center; }
 .pv-toggle button { padding: 2px 8px; border: 1px solid var(--border); background: transparent; color: var(--muted); border-radius: 6px; cursor: pointer; }
 .pv-toggle button.on { border-color: var(--accent, #6ea8fe); color: var(--text); }
+
+/* ── ALPHA-001: onboarding, settings, providers, diagnostics ──────────────── */
+.onb-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.72); display: grid; place-items: center; z-index: 60; }
+.onb-card { width: min(620px, 92vw); background: var(--panel, #14171d); border: 1px solid var(--border); border-radius: 14px; padding: 28px; }
+.onb-card h2 { margin: 6px 0 10px; }
+.onb-lead { font-size: 15px; margin: 0 0 10px; }
+.onb-steps { display: flex; gap: 8px; margin-bottom: 6px; }
+.onb-dot { width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; font-size: 12px; border: 1px solid var(--border); color: var(--muted); }
+.onb-dot.on { background: var(--accent, #6ea8fe); color: #000; border-color: transparent; }
+.onb-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; }
+.onb-providers { display: grid; gap: 10px; margin: 14px 0; }
+.onb-provider { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; text-align: left; padding: 12px 14px; border: 1px solid var(--border); border-radius: 10px; background: transparent; color: var(--text); cursor: pointer; }
+.onb-provider:hover { border-color: var(--accent, #6ea8fe); }
+.onb-foot { margin: 14px 0 0; text-align: center; }
+
+.settings-screen { padding: 18px 22px; max-width: 900px; margin: 0 auto; }
+.settings-head { display: flex; align-items: center; gap: 14px; margin-bottom: 16px; }
+.settings-head h2 { margin: 0; }
+.settings-tabs { display: flex; gap: 6px; flex: 1; }
+.settings-body { display: grid; gap: 14px; }
+.prov-card { border: 1px solid var(--border); border-radius: 12px; padding: 16px; }
+.prov-card.connected { border-color: #3d7a4d; }
+.prov-card h3 { margin: 0 0 6px; }
+.prov-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
+.prov-connect { display: grid; gap: 10px; margin-top: 10px; }
+.prov-mode { display: grid; gap: 4px; font-size: 13px; }
+.prov-actions { display: flex; gap: 8px; margin-top: 10px; }
+.prov-advanced { margin-top: 10px; }
+.prov-advanced summary { cursor: pointer; color: var(--muted); font-size: 13px; }
+.prov-role { display: flex; justify-content: space-between; align-items: center; gap: 14px; padding: 8px 0; border-top: 1px solid var(--border); }
+.upd-progress { height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; margin: 8px 0; }
+.upd-bar { height: 100%; background: var(--accent, #6ea8fe); transition: width .2s; }
+.upd-notes { margin-top: 10px; }
+.diag-preview { max-height: 220px; overflow: auto; }
+.diag-opts { display: grid; gap: 6px; font-size: 13px; margin-bottom: 10px; }

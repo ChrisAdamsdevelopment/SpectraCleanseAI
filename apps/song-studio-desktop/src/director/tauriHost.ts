@@ -170,6 +170,8 @@ export function createTauriDirectorHost(opts: { outputDir: () => string | null }
       try { const res = await invoke<{ outputPath: string; bytes: number }>('run_ffmpeg', { args }); return res.bytes ?? 0; }
       catch { return 0; }
     },
+    // Settings runs its connection tests through this same injected boundary.
+    providerIo,
   };
 }
 

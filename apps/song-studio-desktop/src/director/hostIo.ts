@@ -5,7 +5,7 @@
 
 import type { GenerationPacket } from './compile';
 import type { PacketFileDirective } from './compile';
-import type { ProviderCapabilities, ImageProviderCapabilities } from './providers/types';
+import type { ProviderCapabilities, ImageProviderCapabilities, ProviderIo } from './providers/types';
 import { PROVIDERS, DEFAULT_PROVIDER_ID, capabilitiesFor, IMAGE_PROVIDERS, DEFAULT_IMAGE_PROVIDER_ID, imageCapabilitiesFor } from './providers/registry';
 
 export interface SubmitOutcome {
@@ -55,6 +55,10 @@ export interface DirectorHost {
   pollReferenceGeneration(jobId: string): Promise<{ phase: string; error?: string; resultPaths?: string[] }>;
   // assembly: run the workprint ffmpeg args, returns bytes written (0 = failed)
   runFfmpeg(args: string[]): Promise<number>;
+  /** The host's provider IO, exposed so Settings can run connection tests
+   * through the same injected boundary the adapters use (ALPHA-001 §6). Null in
+   * the browser fallback, where live calls are unavailable anyway. */
+  providerIo?: ProviderIo | null;
 }
 
 /** Non-Tauri fallback: pickers/writes are unavailable; the UI disables those
@@ -84,4 +88,5 @@ export const browserHost: DirectorHost = {
   async submitReferenceGeneration() { return { ok: false, blockedReason: 'Live reference generation needs the desktop app and an API key.' }; },
   async pollReferenceGeneration() { return { phase: 'failed', error: 'unavailable' }; },
   async runFfmpeg() { return 0; },
+  providerIo: null,
 };
