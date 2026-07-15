@@ -1,12 +1,12 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Song Studio",
-  "version": "0.1.0",
+  "version": "0.1.0-alpha.1",
   "identifier": "com.spectracleanse.songstudio",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "npm run build",
+    "beforeBuildCommand": "npm run build:release",
     "frontendDist": "../dist"
   },
   "app": {
@@ -28,15 +28,49 @@
       }
     }
   },
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://github.com/ChrisAdamsdevelopment/SpectraCleanseAI/releases/latest/download/latest.json"
+      ],
+      "pubkey": "",
+      "windows": {
+        "installMode": "passive"
+      }
+    }
+  },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": ["nsis", "msi"],
+    "createUpdaterArtifacts": true,
+    "publisher": "SpectraCleanse",
+    "copyright": "Copyright © 2026 SpectraCleanse",
+    "category": "Video",
+    "shortDescription": "Direct AI-generated moving scenes around your music.",
+    "longDescription": "Song Studio is a music-aware directing system for modern release videos. The artist directs; AI generates the moving scenes; Song Studio remembers, coordinates, repairs, and assembles the work.",
+    "homepage": "https://github.com/ChrisAdamsdevelopment/SpectraCleanseAI",
+    "licenseFile": "../../../LICENSE",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "externalBin": [
+      "binaries/ffmpeg"
+    ],
+    "windows": {
+      "nsis": {
+        "installerIcon": "icons/icon.ico",
+        "installMode": "currentUser",
+        "languages": ["English"],
+        "displayLanguageSelector": false,
+        "compression": "lzma"
+      },
+      "wix": {
+        "language": ["en-US"]
+      }
+    }
   }
 }

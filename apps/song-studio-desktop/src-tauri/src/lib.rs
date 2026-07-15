@@ -7,8 +7,45 @@ fn ffmpeg_exe_name() -> &'static str {
     if cfg!(windows) { "ffmpeg.exe" } else { "ffmpeg" }
 }
 
+/// The sidecar file name Tauri bundles from `bundle.externalBin` (ALPHA-001 §1).
+/// Tauri requires the source file to carry a `-$TARGET_TRIPLE` suffix; the
+/// bundled copy sits beside the app executable. We probe BOTH the stripped name
+/// and the triple-suffixed name so resolution is correct regardless of which
+/// convention the bundler used on this platform/version.
+fn sidecar_candidates() -> Vec<PathBuf> {
+    let mut v: Vec<PathBuf> = Vec::new();
+    let names: [String; 3] = [
+        ffmpeg_exe_name().to_string(),
+        format!("ffmpeg-{}{}", current_target_triple(), if cfg!(windows) { ".exe" } else { "" }),
+        format!("binaries/ffmpeg-{}{}", current_target_triple(), if cfg!(windows) { ".exe" } else { "" }),
+    ];
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            for n in &names {
+                v.push(dir.join(n));
+            }
+            // NSIS/MSI place resources under a `resources` subfolder.
+            for n in &names {
+                v.push(dir.join("resources").join(n));
+            }
+        }
+    }
+    v
+}
+
+/// The compile-time target triple, used to find the triple-suffixed sidecar.
+fn current_target_triple() -> &'static str {
+    // These are the alpha-supported desktop targets.
+    if cfg!(all(target_os = "windows", target_arch = "x86_64")) { "x86_64-pc-windows-msvc" }
+    else if cfg!(all(target_os = "macos", target_arch = "aarch64")) { "aarch64-apple-darwin" }
+    else if cfg!(all(target_os = "macos", target_arch = "x86_64")) { "x86_64-apple-darwin" }
+    else if cfg!(all(target_os = "linux", target_arch = "x86_64")) { "x86_64-unknown-linux-gnu" }
+    else { "unknown" }
+}
+
 /// Candidate dev FFmpeg locations (node_modules/ffmpeg-static), relative to the
 /// working dir and the executable, so dev mode "just works" without env setup.
+/// These are DEV-ONLY and are never consulted in an installed build (§1).
 fn dev_ffmpeg_candidates() -> Vec<PathBuf> {
     let name = ffmpeg_exe_name();
     let mut v: Vec<PathBuf> = Vec::new();
@@ -42,16 +79,38 @@ struct Resolved {
     found: bool,
 }
 
-/// Resolution order: SONG_STUDIO_FFMPEG -> (future sidecar) -> dev
-/// node_modules/ffmpeg-static -> system PATH `ffmpeg`.
+/// True for a real installed build (release profile). Debug builds are dev.
+fn is_installed_build() -> bool {
+    !cfg!(debug_assertions)
+}
+
+/// FFmpeg resolution (ALPHA-001 §1).
+///
+/// INSTALLED BUILD:  bundled sidecar ONLY. We deliberately do NOT fall back to a
+/// developer machine's node_modules or a system PATH ffmpeg — a shipped app must
+/// use the binary it shipped with, and a missing sidecar must be reported as a
+/// packaging fault rather than silently papered over by whatever is on PATH.
+///
+/// DEV BUILD:  SONG_STUDIO_FFMPEG -> sidecar -> node_modules/ffmpeg-static ->
+/// system PATH, so `tauri dev` works with no setup.
 fn resolve_ffmpeg() -> Resolved {
-    if let Ok(p) = std::env::var("SONG_STUDIO_FFMPEG") {
-        if !p.is_empty() {
-            let found = Path::new(&p).exists();
-            return Resolved { path: p, source: "env", found };
+    if !is_installed_build() {
+        if let Ok(p) = std::env::var("SONG_STUDIO_FFMPEG") {
+            if !p.is_empty() {
+                let found = Path::new(&p).exists();
+                return Resolved { path: p, source: "env", found };
+            }
         }
     }
-    // Sidecar (PLANNED): a bundled FFmpeg resource would be checked here.
+    for cand in sidecar_candidates() {
+        if cand.exists() {
+            return Resolved { path: cand.to_string_lossy().to_string(), source: "bundled-sidecar", found: true };
+        }
+    }
+    if is_installed_build() {
+        // Honest failure: no silent developer-machine fallback in a shipped app.
+        return Resolved { path: String::new(), source: "bundled-sidecar", found: false };
+    }
     for cand in dev_ffmpeg_candidates() {
         if cand.exists() {
             return Resolved { path: cand.to_string_lossy().to_string(), source: "dev-node-modules", found: true };
@@ -63,7 +122,90 @@ fn resolve_ffmpeg() -> Resolved {
 #[tauri::command]
 fn ffmpeg_status() -> serde_json::Value {
     let r = resolve_ffmpeg();
-    serde_json::json!({ "found": r.found, "path": r.path, "source": r.source })
+    serde_json::json!({ "found": r.found, "path": r.path, "source": r.source, "installedBuild": is_installed_build() })
+}
+
+// ── Secure API-key storage via the OS credential store (ALPHA-001 §7) ────────
+// Windows Credential Manager (and the platform equivalent elsewhere) through the
+// `keyring` crate. Secrets never pass through settings.json or ReleaseProject.
+// Every error is returned as a short category string — never the secret.
+
+const KEYRING_SERVICE: &str = "com.spectracleanse.songstudio";
+
+#[tauri::command]
+fn secure_available() -> bool {
+    // A store is usable if we can construct an entry and perform a read attempt
+    // without the backend erroring structurally (NoEntry is a success signal).
+    match keyring::Entry::new(KEYRING_SERVICE, "__probe__") {
+        Ok(entry) => match entry.get_password() {
+            Ok(_) => true,
+            Err(keyring::Error::NoEntry) => true,
+            Err(_) => false,
+        },
+        Err(_) => false,
+    }
+}
+
+#[tauri::command]
+fn secure_set(provider_id: String, secret: String) -> Result<(), String> {
+    let entry = keyring::Entry::new(KEYRING_SERVICE, &provider_id).map_err(|_| "credential-store-unavailable".to_string())?;
+    entry.set_password(&secret).map_err(|_| "credential-store-write-failed".to_string())
+}
+
+#[tauri::command]
+fn secure_get(provider_id: String) -> Result<Option<String>, String> {
+    let entry = keyring::Entry::new(KEYRING_SERVICE, &provider_id).map_err(|_| "credential-store-unavailable".to_string())?;
+    match entry.get_password() {
+        Ok(v) => Ok(Some(v)),
+        Err(keyring::Error::NoEntry) => Ok(None),
+        Err(_) => Err("credential-store-read-failed".to_string()),
+    }
+}
+
+#[tauri::command]
+fn secure_remove(provider_id: String) -> Result<(), String> {
+    let entry = keyring::Entry::new(KEYRING_SERVICE, &provider_id).map_err(|_| "credential-store-unavailable".to_string())?;
+    match entry.delete_credential() {
+        Ok(()) => Ok(()),
+        Err(keyring::Error::NoEntry) => Ok(()), // already gone == success
+        Err(_) => Err("credential-store-delete-failed".to_string()),
+    }
+}
+
+// ── Startup health checks (ALPHA-001 §1) ────────────────────────────────────
+// Reported to the UI, which renders plain-language recovery text. Never throws.
+
+#[tauri::command]
+fn health_check(app: tauri::AppHandle) -> serde_json::Value {
+    use tauri::Manager;
+    let ffmpeg = resolve_ffmpeg();
+
+    let app_data = app.path().app_data_dir().ok();
+    let app_data_ok = match &app_data {
+        Some(d) => std::fs::create_dir_all(d).is_ok(),
+        None => false,
+    };
+    let app_data_str = app_data.map(|d| d.to_string_lossy().to_string()).unwrap_or_default();
+
+    // Probe writability with a real temp file rather than assuming.
+    let app_data_writable = if app_data_ok && !app_data_str.is_empty() {
+        let probe = Path::new(&app_data_str).join(".write-probe");
+        let ok = std::fs::write(&probe, b"ok").is_ok();
+        let _ = std::fs::remove_file(&probe);
+        ok
+    } else { false };
+
+    serde_json::json!({
+        "appVersion": app.package_info().version.to_string(),
+        "installedBuild": is_installed_build(),
+        "targetTriple": current_target_triple(),
+        "appDataDir": app_data_str,
+        "appDataOk": app_data_ok && app_data_writable,
+        "ffmpeg": { "found": ffmpeg.found, "source": ffmpeg.source, "path": ffmpeg.path },
+        "secureStore": secure_available(),
+        // WebView is implicitly available — this code is running inside it.
+        "webview": true,
+    })
 }
 
 /// Return the first existing path from a candidate list (for font-family selection).
@@ -108,8 +250,14 @@ fn ensure_unique(path: &str) -> String {
 async fn run_ffmpeg(app: tauri::AppHandle, args: Vec<String>) -> Result<serde_json::Value, String> {
     let resolved = resolve_ffmpeg();
     let _ = app.emit("render://log", format!("[ffmpeg] using {} ({})", resolved.path, resolved.source));
-    if !resolved.found && resolved.source == "system-path" {
-        return Err("FFmpeg not found. Install FFmpeg, set SONG_STUDIO_FFMPEG, or run `npm install` so the dev binary is available.".to_string());
+    if !resolved.found {
+        // Plain-language, honest failure. An installed build never silently
+        // borrows a developer-machine or system FFmpeg (§1).
+        return Err(if is_installed_build() {
+            "Song Studio could not find its bundled video engine. This installation looks incomplete — please reinstall Song Studio from the original download. (Export a diagnostics package from Settings if this keeps happening.)".to_string()
+        } else {
+            "FFmpeg not found. Run `npm install` in apps/song-studio-desktop so the dev binary is available, or set SONG_STUDIO_FFMPEG.".to_string()
+        });
     }
 
     let mut args = args;
@@ -243,10 +391,21 @@ async fn run_canvas_lab(options: CanvasLabOptions) -> Result<CanvasLabRunResult,
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_fs::init())
-        .invoke_handler(tauri::generate_handler![run_ffmpeg, run_canvas_lab, font_path, resolve_font, ffmpeg_status])
+        .plugin(tauri_plugin_fs::init());
+
+    // ALPHA-001 §3: in-app updates on desktop targets only.
+    #[cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))]
+    let builder = builder
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init());
+
+    builder
+        .invoke_handler(tauri::generate_handler![
+            run_ffmpeg, run_canvas_lab, font_path, resolve_font, ffmpeg_status,
+            health_check, secure_available, secure_set, secure_get, secure_remove
+        ])
         .run(tauri::generate_context!())
         .expect("error while running Song Studio");
 }

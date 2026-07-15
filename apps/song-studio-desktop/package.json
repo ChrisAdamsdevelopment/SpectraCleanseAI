@@ -7,9 +7,15 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
+    "build:release": "node scripts/stage-ffmpeg.mjs && tsc && vite build",
+    "stage:ffmpeg": "node scripts/stage-ffmpeg.mjs",
+    "stage:ffmpeg:check": "node scripts/stage-ffmpeg.mjs --check",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "tauri": "tauri",
+    "alpha:build": "tauri build",
+    "alpha:config:test": "tsx scripts/release-config.test.mts",
+    "updater:keygen": "tauri signer generate -w .tauri/songstudio-updater.key",
     "render:smoke": "tsx render-core/smoke.mts",
     "loop-core:smoke": "tsx src/project/loop-core-integrity.smoke.mts",
     "canvas:smoke": "tsx src/canvas/smoke.mts",
@@ -22,12 +28,20 @@
     "director:model:test": "tsx src/director/director-model.test.mts",
     "director:logic:test": "tsx src/director/director-logic.test.mts",
     "director:assembly:smoke": "tsx render-core/director-assembly.smoke.mts",
-    "director:artifacts:smoke": "tsx render-core/director-artifacts.smoke.mts"
+    "director:artifacts:smoke": "tsx render-core/director-artifacts.smoke.mts",
+    "app:settings:test": "tsx src/app/app-settings.test.mts",
+    "app:security:test": "tsx src/app/security.test.mts",
+    "app:recovery:test": "tsx src/app/recovery.test.mts",
+    "app:diagnostics:test": "tsx src/app/diagnostics.test.mts",
+    "grok:test": "tsx src/director/providers/grok.test.mts",
+    "updater:test": "tsx src/app/updater.test.mts"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.1.1",
     "@tauri-apps/plugin-dialog": "^2.2.0",
     "@tauri-apps/plugin-fs": "^2.2.0",
+    "@tauri-apps/plugin-process": "^2.2.0",
+    "@tauri-apps/plugin-updater": "^2.3.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },

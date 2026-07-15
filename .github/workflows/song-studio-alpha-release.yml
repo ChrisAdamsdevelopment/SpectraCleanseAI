@@ -1,0 +1,250 @@
+# Song Studio — Windows x64 alpha release (ALPHA-001 §2)
+#
+# Produces a downloadable private-alpha build for test users:
+#   • NSIS installer  (Song Studio_<version>_x64-setup.exe)  ← primary artifact
+#   • MSI installer
+#   • portable ZIP    (packaged .exe + bundled FFmpeg sidecar)
+#   • updater bundle + .sig  (consumed by the in-app updater)
+#   • latest.json     (the update manifest the app polls)
+#   • SHA256SUMS.txt
+#
+# TRIGGERS
+#   • workflow_dispatch — pick a version + notes by hand
+#   • push of a tag matching song-studio-v*   (e.g. song-studio-v0.1.0-alpha.2)
+#
+# REQUIRED REPOSITORY SECRETS (see docs/alpha/RELEASE-OPERATOR.md):
+#   TAURI_SIGNING_PRIVATE_KEY           — updater private key (from `npm run updater:keygen`)
+#   TAURI_SIGNING_PRIVATE_KEY_PASSWORD  — its password ('' if you set none)
+# OPTIONAL (Windows code signing — absent = unsigned alpha, SmartScreen warns):
+#   WINDOWS_CERTIFICATE                 — base64 .pfx
+#   WINDOWS_CERTIFICATE_PASSWORD        — .pfx password
+# GITHUB_TOKEN is provided automatically; no PAT needed.
+#
+# NOTHING is hardcoded here. Secrets are only ever read from the secrets context.
+
+name: Song Studio Alpha Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Alpha version (e.g. 0.1.0-alpha.2). Must match tauri.conf.json.'
+        required: true
+        type: string
+      notes:
+        description: 'Release notes shown in the in-app updater'
+        required: false
+        type: string
+        default: 'Song Studio alpha build.'
+      publish:
+        description: 'Publish the GitHub prerelease (off = build + upload artifacts only)'
+        required: false
+        type: boolean
+        default: true
+  push:
+    tags:
+      - 'song-studio-v*'
+
+permissions:
+  contents: write   # required to create the release and upload assets
+
+defaults:
+  run:
+    working-directory: apps/song-studio-desktop
+
+jobs:
+  windows-alpha:
+    name: Windows x64 alpha
+    runs-on: windows-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: apps/song-studio-desktop/package-lock.json
+
+      - name: Setup Rust (x86_64-pc-windows-msvc)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Cache cargo
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: apps/song-studio-desktop/src-tauri -> target
+
+      - name: Install dependencies
+        run: npm ci
+
+      # ── Gate the release on the real suite. A broken alpha must not ship. ──
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Unit + logic tests
+        run: |
+          npm run app:settings:test
+          npm run app:security:test
+          npm run app:recovery:test
+          npm run app:diagnostics:test
+          npm run updater:test
+          npm run grok:test
+          npm run director:model:test
+          npm run director:logic:test
+          npm run director:generation:test
+          npm run direction:test
+          npm run render-freshness:test
+          npm run readiness:test
+
+      - name: Media smokes (real FFmpeg)
+        run: |
+          npm run director:artifacts:smoke
+          npm run director:assembly:smoke
+
+      # ── FFmpeg sidecar: staged from the ffmpeg-static dependency at BUILD
+      # time and given the target-triple name Tauri's externalBin requires. The
+      # binary is never stored in Git. ──────────────────────────────────────
+      - name: Stage FFmpeg sidecar
+        run: npm run stage:ffmpeg -- --target x86_64-pc-windows-msvc
+
+      - name: Verify sidecar staged
+        run: npm run stage:ffmpeg:check -- --target x86_64-pc-windows-msvc
+
+      - name: Validate release configuration
+        run: npm run alpha:config:test
+
+      - name: Resolve version
+        id: v
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ inputs.version }}"
+          else
+            VERSION="${GITHUB_REF_NAME#song-studio-v}"
+          fi
+          CONF_VERSION=$(node -p "require('./src-tauri/tauri.conf.json').version")
+          if [ "$VERSION" != "$CONF_VERSION" ]; then
+            echo "::error::Release version ($VERSION) does not match tauri.conf.json ($CONF_VERSION). Bump the config first."
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=song-studio-v$VERSION" >> "$GITHUB_OUTPUT"
+
+      # ── Build + publish. tauri-action creates the release, uploads the NSIS/
+      # MSI bundles, and (because createUpdaterArtifacts is on) the updater
+      # bundle, its .sig, and latest.json. ─────────────────────────────────
+      - name: Build and release
+        id: tauri
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Updater signing. Absent secrets => the build still runs, but produces
+          # NO valid updater signature, so in-app updates will not install.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # Optional Windows code signing. Absent => unsigned alpha (SmartScreen
+          # will warn; documented honestly for testers).
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        with:
+          projectPath: apps/song-studio-desktop
+          tagName: ${{ steps.v.outputs.tag }}
+          releaseName: 'Song Studio ${{ steps.v.outputs.version }} (Alpha)'
+          releaseBody: |
+            ${{ github.event_name == 'workflow_dispatch' && inputs.notes || 'Song Studio alpha build.' }}
+
+            **This is a private alpha.** The installer is not code-signed unless a
+            certificate is configured, so Windows SmartScreen may warn on first run —
+            choose **More info → Run anyway**. See docs/alpha/TESTERS.md.
+
+            You need your own Google and/or xAI API key to generate. Song Studio never
+            charges you and never sells credits — you pay the provider directly.
+          releaseDraft: false
+          prerelease: true
+          includeUpdaterJson: true
+          args: --target x86_64-pc-windows-msvc --verbose
+
+      # ── Portable ZIP fallback: the packaged exe + its FFmpeg sidecar, for
+      # testers who cannot or prefer not to run an installer. ──────────────
+      - name: Build portable ZIP
+        id: portable
+        shell: bash
+        run: |
+          set -e
+          VERSION="${{ steps.v.outputs.version }}"
+          REL="src-tauri/target/x86_64-pc-windows-msvc/release"
+          STAGE="portable/Song-Studio-$VERSION-Windows-x64"
+          mkdir -p "$STAGE"
+          cp "$REL/Song Studio.exe" "$STAGE/Song Studio.exe"
+          # The sidecar must travel with the portable build or FFmpeg is missing.
+          cp "$REL/ffmpeg-x86_64-pc-windows-msvc.exe" "$STAGE/" 2>/dev/null \
+            || cp src-tauri/binaries/ffmpeg-x86_64-pc-windows-msvc.exe "$STAGE/"
+          cp ../../LICENSE "$STAGE/LICENSE.txt" 2>/dev/null || true
+          printf 'Song Studio %s (portable)\n\nRun "Song Studio.exe".\nKeep ffmpeg-x86_64-pc-windows-msvc.exe next to it — it is the video engine.\nIn-app updates are disabled in the portable build; download a newer ZIP instead.\n' "$VERSION" > "$STAGE/README.txt"
+          cd portable && 7z a -tzip "Song-Studio-$VERSION-Windows-x64-Portable.zip" "Song-Studio-$VERSION-Windows-x64" >/dev/null
+          echo "zip=apps/song-studio-desktop/portable/Song-Studio-$VERSION-Windows-x64-Portable.zip" >> "$GITHUB_OUTPUT"
+
+      # ── Clear, product/version/platform/arch artifact names + checksums ────
+      - name: Collect artifacts and checksums
+        id: collect
+        shell: bash
+        run: |
+          set -e
+          VERSION="${{ steps.v.outputs.version }}"
+          OUT="release-artifacts"
+          mkdir -p "$OUT"
+          BUNDLE="src-tauri/target/x86_64-pc-windows-msvc/release/bundle"
+
+          find "$BUNDLE/nsis" -name '*-setup.exe' -exec cp {} "$OUT/Song-Studio-$VERSION-Windows-x64-Setup.exe" \; 2>/dev/null || true
+          find "$BUNDLE/nsis" -name '*-setup.nsis.zip' -exec cp {} "$OUT/Song-Studio-$VERSION-Windows-x64-Updater.zip" \; 2>/dev/null || true
+          find "$BUNDLE/nsis" -name '*-setup.nsis.zip.sig' -exec cp {} "$OUT/Song-Studio-$VERSION-Windows-x64-Updater.zip.sig" \; 2>/dev/null || true
+          find "$BUNDLE/msi" -name '*.msi' -exec cp {} "$OUT/Song-Studio-$VERSION-Windows-x64.msi" \; 2>/dev/null || true
+          cp "${{ steps.portable.outputs.zip }}" "$OUT/" 2>/dev/null || true
+
+          cd "$OUT"
+          sha256sum * > SHA256SUMS.txt || certutil -hashfile * SHA256 > SHA256SUMS.txt
+          echo "--- artifacts ---" && ls -la
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: Song-Studio-${{ steps.v.outputs.version }}-Windows-x64
+          path: apps/song-studio-desktop/release-artifacts/*
+          if-no-files-found: error
+          retention-days: 30
+
+      # Attach the portable ZIP + checksums to the prerelease created above.
+      - name: Attach extra assets to the release
+        if: ${{ github.event_name == 'push' || inputs.publish }}
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.v.outputs.tag }}
+          prerelease: true
+          files: |
+            apps/song-studio-desktop/release-artifacts/*Portable.zip
+            apps/song-studio-desktop/release-artifacts/SHA256SUMS.txt
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Signing status summary
+        shell: bash
+        run: |
+          {
+            echo "### Song Studio ${{ steps.v.outputs.version }} — Windows x64"
+            echo ""
+            if [ -n "${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}" ]; then
+              echo "- Updater signing: **configured** — in-app updates can install."
+            else
+              echo "- Updater signing: **MISSING** — \`TAURI_SIGNING_PRIVATE_KEY\` is not set, so in-app updates will FAIL verification. Set the secret and re-run."
+            fi
+            if [ -n "${{ secrets.WINDOWS_CERTIFICATE }}" ]; then
+              echo "- Windows code signing: **configured**."
+            else
+              echo "- Windows code signing: **not configured** — this is an UNSIGNED alpha. SmartScreen will warn testers."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
