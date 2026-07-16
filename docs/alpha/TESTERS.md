@@ -35,8 +35,7 @@ This is normal for a private alpha and does not mean anything is wrong.
 To continue: click **More info** → **Run anyway**.
 
 If you would rather not do that, use the **Portable ZIP** instead: unzip it anywhere and run
-`Song Studio.exe`. Keep `ffmpeg-x86_64-pc-windows-msvc.exe` in the same folder — that is the
-video engine.
+`Song Studio.exe`. Keep `ffmpeg.exe` in the same folder — that is the video engine.
 
 > The portable build does **not** auto-update. To update it, download a newer ZIP.
 
@@ -162,7 +161,7 @@ Send the package with a short note about what you were doing.
 
 ## Known alpha limitations
 
-- **Windows x64 only.** No Mac or Linux build.
+- **Windows x64 only.** No Mac or Linux build. The download is an installer (`.exe`) or a portable ZIP — there is no MSI for alpha builds.
 - **The installer is unsigned**, so SmartScreen warns on first run (see above).
 - **You bring your own API key**, and provider costs are yours. Video is expensive.
 - **Grok cannot repair an existing video.** xAI does not document source-video editing, so

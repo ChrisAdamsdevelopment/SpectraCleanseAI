@@ -2,8 +2,10 @@
 #
 # Produces a downloadable private-alpha build for test users:
 #   • NSIS installer  (Song Studio_<version>_x64-setup.exe)  ← primary artifact
-#   • MSI installer
 #   • portable ZIP    (packaged .exe + bundled FFmpeg sidecar)
+#   (No MSI: a real `tauri build` on 2026-07-15 showed WiX rejects a semver
+#    pre-release identifier — "must be numeric-only". MSI and an -alpha.N
+#    version are mutually exclusive, so the alpha ships NSIS + ZIP.)
 #   • updater bundle + .sig  (consumed by the in-app updater)
 #   • latest.json     (the update manifest the app polls)
 #   • SHA256SUMS.txt
@@ -180,12 +182,18 @@ jobs:
           REL="src-tauri/target/x86_64-pc-windows-msvc/release"
           STAGE="portable/Song-Studio-$VERSION-Windows-x64"
           mkdir -p "$STAGE"
-          cp "$REL/Song Studio.exe" "$STAGE/Song Studio.exe"
+          # The app exe. Tauri names the binary after the Cargo package.
+          cp "$REL/song-studio-desktop.exe" "$STAGE/Song Studio.exe" 2>/dev/null \
+            || cp "$REL/Song Studio.exe" "$STAGE/Song Studio.exe"
           # The sidecar must travel with the portable build or FFmpeg is missing.
-          cp "$REL/ffmpeg-x86_64-pc-windows-msvc.exe" "$STAGE/" 2>/dev/null \
-            || cp src-tauri/binaries/ffmpeg-x86_64-pc-windows-msvc.exe "$STAGE/"
+          # A real build showed Tauri stages externalBin next to the exe with the
+          # target triple STRIPPED (ffmpeg.exe); fall back to the other spellings.
+          cp "$REL/ffmpeg.exe" "$STAGE/ffmpeg.exe" 2>/dev/null \
+            || cp "$REL/ffmpeg-x86_64-pc-windows-msvc.exe" "$STAGE/ffmpeg.exe" 2>/dev/null \
+            || cp src-tauri/binaries/ffmpeg-x86_64-pc-windows-msvc.exe "$STAGE/ffmpeg.exe"
+          test -f "$STAGE/ffmpeg.exe" || { echo "::error::portable build has no FFmpeg sidecar"; exit 1; }
           cp ../../LICENSE "$STAGE/LICENSE.txt" 2>/dev/null || true
-          printf 'Song Studio %s (portable)\n\nRun "Song Studio.exe".\nKeep ffmpeg-x86_64-pc-windows-msvc.exe next to it — it is the video engine.\nIn-app updates are disabled in the portable build; download a newer ZIP instead.\n' "$VERSION" > "$STAGE/README.txt"
+          printf 'Song Studio %s (portable)\n\nRun "Song Studio.exe".\nKeep ffmpeg.exe next to it — it is the video engine.\nIn-app updates are disabled in the portable build; download a newer ZIP instead.\n' "$VERSION" > "$STAGE/README.txt"
           cd portable && 7z a -tzip "Song-Studio-$VERSION-Windows-x64-Portable.zip" "Song-Studio-$VERSION-Windows-x64" >/dev/null
           echo "zip=apps/song-studio-desktop/portable/Song-Studio-$VERSION-Windows-x64-Portable.zip" >> "$GITHUB_OUTPUT"
 
@@ -203,8 +211,14 @@ jobs:
           find "$BUNDLE/nsis" -name '*-setup.exe' -exec cp {} "$OUT/Song-Studio-$VERSION-Windows-x64-Setup.exe" \; 2>/dev/null || true
           find "$BUNDLE/nsis" -name '*-setup.nsis.zip' -exec cp {} "$OUT/Song-Studio-$VERSION-Windows-x64-Updater.zip" \; 2>/dev/null || true
           find "$BUNDLE/nsis" -name '*-setup.nsis.zip.sig' -exec cp {} "$OUT/Song-Studio-$VERSION-Windows-x64-Updater.zip.sig" \; 2>/dev/null || true
-          find "$BUNDLE/msi" -name '*.msi' -exec cp {} "$OUT/Song-Studio-$VERSION-Windows-x64.msi" \; 2>/dev/null || true
           cp "${{ steps.portable.outputs.zip }}" "$OUT/" 2>/dev/null || true
+
+          # The installer is the whole point — fail loudly rather than publish an
+          # empty release.
+          if [ ! -f "$OUT/Song-Studio-$VERSION-Windows-x64-Setup.exe" ]; then
+            echo "::error::NSIS installer was not produced — refusing to publish."
+            exit 1
+          fi
 
           cd "$OUT"
           sha256sum * > SHA256SUMS.txt || certutil -hashfile * SHA256 > SHA256SUMS.txt

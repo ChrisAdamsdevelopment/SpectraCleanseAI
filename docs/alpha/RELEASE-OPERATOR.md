@@ -103,10 +103,15 @@ smokes, then stages FFmpeg, validates the release config, and builds.
 
 A **prerelease** containing:
 
+> **No MSI.** A real `tauri build` proved WiX rejects a semver pre-release identifier
+> ("must be numeric-only"), so an `-alpha.N` version and an MSI are mutually exclusive.
+> The alpha ships the NSIS installer (the preferred format) plus a portable ZIP. If you
+> ever need an MSI, move to a numeric version like `0.1.0` and add `"msi"` back to
+> `bundle.targets` — `alpha:config:test` will hold you to that.
+
 | Asset | Purpose |
 |---|---|
 | `Song-Studio-<v>-Windows-x64-Setup.exe` | NSIS installer — the primary download |
-| `Song-Studio-<v>-Windows-x64.msi` | MSI installer |
 | `Song-Studio-<v>-Windows-x64-Portable.zip` | Portable build (exe + FFmpeg sidecar), no auto-update |
 | `Song-Studio-<v>-Windows-x64-Updater.zip` + `.sig` | Consumed by the in-app updater |
 | `latest.json` | The update manifest the app polls |

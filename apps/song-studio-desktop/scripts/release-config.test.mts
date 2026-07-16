@@ -54,9 +54,20 @@ const cargo = readFileSync(join(APP, 'src-tauri', 'Cargo.toml'), 'utf8');
 {
   assert.ok(Array.isArray(conf.bundle.targets), 'explicit bundle targets (not "all")');
   assert.ok(conf.bundle.targets.includes('nsis'), 'NSIS installer is the primary artifact');
-  assert.ok(conf.bundle.targets.includes('msi'), 'MSI produced as well');
   assert.equal(conf.bundle.active, true);
   assert.equal(conf.bundle.windows.nsis.installMode, 'currentUser', 'per-user install needs no admin rights for testers');
+
+  // MSI is deliberately excluded: a REAL `tauri build` proved WiX rejects a
+  // semver pre-release identifier ("must be numeric-only"), so 'msi' + an
+  // -alpha.N version cannot both be true. We keep the honest version and ship
+  // NSIS + portable ZIP. This assertion locks the decision so nobody re-adds
+  // 'msi' without also moving off the alpha version and re-testing.
+  if (/-alpha\./.test(conf.version)) {
+    assert.ok(!conf.bundle.targets.includes('msi'),
+      'MSI must not be a target while the version carries a semver pre-release tag (WiX rejects it — see bundle.windows._msiNote)');
+    assert.ok(typeof conf.bundle.windows._msiNote === 'string' && conf.bundle.windows._msiNote.includes('numeric-only'),
+      'the MSI exclusion is documented in the config');
+  }
 }
 
 // ── FFmpeg sidecar (§1/§8) ─────────────────────────────────────────────────
@@ -74,6 +85,21 @@ const cargo = readFileSync(join(APP, 'src-tauri', 'Cargo.toml'), 'utf8');
   // The huge binary must never be committed.
   const ignore = readFileSync(join(APP, '.gitignore'), 'utf8');
   assert.ok(/^src-tauri\/binaries\/$/m.test(ignore), 'the staged sidecar directory is git-ignored');
+
+  // A real `tauri build` (2026-07-15) generated an NSIS script containing:
+  //   File /a "/oname=ffmpeg.exe" "...\binaries\ffmpeg-x86_64-pc-windows-msvc.exe"
+  // i.e. the sidecar is installed NEXT TO the app exe with the target triple
+  // STRIPPED. The Rust resolver must therefore probe the stripped name, or an
+  // installed build would never find its own video engine.
+  const libRs = readFileSync(join(APP, 'src-tauri', 'src', 'lib.rs'), 'utf8');
+  assert.ok(/fn sidecar_candidates/.test(libRs), 'a sidecar resolver exists');
+  assert.ok(/ffmpeg_exe_name\(\)\.to_string\(\)/.test(libRs),
+    'the resolver probes the STRIPPED sidecar name (ffmpeg.exe) — the name NSIS actually installs');
+  assert.ok(/format!\("ffmpeg-\{\}\{\}", current_target_triple\(\)/.test(libRs),
+    'and also the triple-suffixed name, so resolution is correct either way');
+  assert.ok(/is_installed_build\(\)[\s\S]{0,400}?bundled-sidecar/.test(libRs)
+    || /No silent developer-machine fallback|no silent developer-machine fallback/i.test(libRs),
+    'an installed build resolves the bundled sidecar ONLY — no dev/PATH fallback');
 }
 
 // ── Updater (§3) ───────────────────────────────────────────────────────────
@@ -138,4 +164,4 @@ const cargo = readFileSync(join(APP, 'src-tauri', 'Cargo.toml'), 'utf8');
   }
 }
 
-console.log('[release-config] PASS — product/version/publisher/copyright/URL metadata, matching Cargo version, real license + icon files, NSIS+MSI per-user targets, FFmpeg sidecar registered + staged by build:release + git-ignored, updater artifacts/endpoint/pubkey/installMode + both plugin deps + keygen command, keyring secure storage, protocol-asset feature matches config, Windows x64 release workflow (dispatch + tag, typecheck, prerelease, official action, signing secrets, checksums, no inlined secrets), and all three release docs.');
+console.log('[release-config] PASS — product/version/publisher/copyright/URL metadata, matching Cargo version, real license + icon files, NSIS per-user target (MSI correctly excluded while the version carries an -alpha tag), FFmpeg sidecar registered + staged by build:release + git-ignored, updater artifacts/endpoint/pubkey/installMode + both plugin deps + keygen command, keyring secure storage, protocol-asset feature matches config, Windows x64 release workflow (dispatch + tag, typecheck, prerelease, official action, signing secrets, checksums, no inlined secrets), and all three release docs.');
