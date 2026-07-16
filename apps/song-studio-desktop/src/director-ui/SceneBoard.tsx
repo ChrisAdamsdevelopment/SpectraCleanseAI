@@ -35,7 +35,9 @@ export function SceneBoard({ ctx }: { ctx: DirectorCtx }) {
     const cur = stateRef.current;
     const take = cur.takes.find((t) => t.id === takeId);
     if (!take?.providerJob.jobId || take.assetId) return 'succeeded';
-    const res = await host.pollGeneration(take.providerJob.jobId);
+    // TAKE-SCOPED (P1-3): poll the provider RECORDED on the take, never the
+    // current dropdown selection — a Grok job never gets polled against Google.
+    const res = await host.pollGeneration(take.providerJob.jobId, take.providerJob.providerId);
     if (res.phase === 'succeeded' && res.resultPath) {
       const sc = cur.scenes.find((s) => s.id === take.sceneId);
       const assetId = ctx.addAsset('generated-video', res.resultPath, `${sc?.title ?? 'scene'} take`);
@@ -112,11 +114,16 @@ function SceneEditor({ ctx, scene, patch, remove }: { ctx: DirectorCtx; scene: S
     const attemptId = 'preview-' + scene.id;
     setPacket(compileScenePacket(state, scene, { attemptId, recipe: scene.recipe, audioPath: ctx.audioPath }));
   };
-  const providerId = host.selectedProviderId();
+  const selectedProviderId = host.selectedProviderId();          // may be 'auto'
+  const resolvedProviderId = host.resolvedVideoProviderId();      // concrete
+  const resolvedLabel = host.providers().find((p) => p.id === resolvedProviderId)?.label ?? resolvedProviderId;
+  // When Auto is selected, name the provider it resolved to so the creator sees
+  // exactly who will run before submitting.
+  const providerLabel = selectedProviderId === 'auto' ? `Auto → ${resolvedLabel}` : resolvedLabel;
   const caps = host.providerCapabilities();
-  const readiness = packet ? assessProviderReadiness(packet, caps, host.providers().find((p) => p.id === providerId)?.label ?? providerId) : null;
+  const readiness = packet ? assessProviderReadiness(packet, caps, providerLabel) : null;
   const previewPacket = useMemo(() => compileScenePacket(state, scene, { attemptId: 'chk', recipe: scene.recipe, audioPath: ctx.audioPath }), [state, scene, ctx.audioPath]);
-  const previewReadiness = assessProviderReadiness(previewPacket, caps, providerId);
+  const previewReadiness = assessProviderReadiness(previewPacket, caps, providerLabel);
   const previewUnresolved = unresolvedOverrideKeys(previewReadiness, overrides);
   const canGenerate = !conflicts.some((c) => c.severity === 'blocking') && previewUnresolved.length === 0;
 
@@ -139,21 +146,24 @@ function SceneEditor({ ctx, scene, patch, remove }: { ctx: DirectorCtx; scene: S
 
   const submitLive = async () => {
     if (previewUnresolved.length > 0) { setBusy('Resolve the highlighted provider conflicts before generating.'); return; }
-    setBusy(`Submitting to ${host.providers().find((p) => p.id === providerId)?.label ?? providerId}…`);
+    setBusy(`Submitting to ${providerLabel}…`);
     const takeId = makeOutputId();
     const pk = compileScenePacket(state, scene, { attemptId: takeId, recipe: scene.recipe, audioPath: ctx.audioPath });
-    let s2 = addTakeFromPacket(state, scene, pk, providerId, null, takeId).state;
+    // Record the CONCRETE resolved provider on the take (never 'auto'), so
+    // polling and resume are take-scoped even if the selection changes later.
+    const takeProviderId = resolvedProviderId;
+    let s2 = addTakeFromPacket(state, scene, pk, takeProviderId, null, takeId).state;
     // record the creator's accepted overrides on the attempt (audit of what was
     // knowingly relaxed) and submit.
     s2 = { ...s2, takes: s2.takes.map((t) => (t.id === takeId ? { ...t, acceptedOverrides: overrides } : t)) };
     update(s2);
-    const outcome = await host.submitGeneration(pk);
+    const outcome = await host.submitGeneration(pk, { providerId: takeProviderId });
     if (!outcome.ok) {
-      update(applyProviderSubmit(s2, takeId, { providerId, modelId: caps.notes ? providerId : null, jobId: null, phase: 'failed', error: outcome.blockedReason || outcome.error || 'submit failed' }));
+      update(applyProviderSubmit(s2, takeId, { providerId: takeProviderId, modelId: null, jobId: null, phase: 'failed', error: outcome.blockedReason || outcome.error || 'submit failed' }));
       setBusy(outcome.blockedReason ? `Live generation blocked: ${outcome.blockedReason} (use Export package instead)` : `Submit failed: ${outcome.error}`);
       return;
     }
-    const s3 = applyProviderSubmit(s2, takeId, { providerId, modelId: providerId, jobId: outcome.jobId ?? null, phase: 'submitted' });
+    const s3 = applyProviderSubmit(s2, takeId, { providerId: takeProviderId, modelId: takeProviderId, jobId: outcome.jobId ?? null, phase: 'submitted' });
     update(s3);
     setBusy(`Submitted (job ${outcome.jobId}). Checking status…`);
     await pollTake(takeId, s3);
@@ -166,7 +176,7 @@ function SceneEditor({ ctx, scene, patch, remove }: { ctx: DirectorCtx; scene: S
     const take = from.takes.find((t) => t.id === takeId);
     if (!take?.providerJob.jobId) { setBusy('No provider job to check for this take.'); return; }
     setBusy('Checking generation status…');
-    const res = await host.pollGeneration(take.providerJob.jobId);
+    const res = await host.pollGeneration(take.providerJob.jobId, take.providerJob.providerId);
     if (res.phase === 'succeeded' && res.resultPath) {
       const assetId = ctx.addAsset('generated-video', res.resultPath, `${scene.title} take`);
       update(applyProviderResult(from, takeId, assetId, res.resultPath));
@@ -205,17 +215,20 @@ function SceneEditor({ ctx, scene, patch, remove }: { ctx: DirectorCtx; scene: S
     if (!src) { setBusy('The parent take has no accepted clip to repair from.'); return; }
     if (!child.repair) { setBusy('This take has no repair direction.'); return; }
     const parent = state.takes.find((t) => t.id === child.parentTakeId);
+    // The repair runs on the CHILD take's recorded provider (inherited from the
+    // parent) — submit and poll stay take-scoped and consistent.
+    const childProvider = child.provider;
     const base = compileScenePacket(state, scene, { attemptId: child.id, recipe: scene.recipe, audioPath: ctx.audioPath });
     const pk: GenerationPacket = { ...base, prompt: buildRepairPrompt(scene, state, child.repair) };
-    update(applyProviderSubmit(state, child.id, { providerId, modelId: providerId, jobId: null, phase: 'submitted' }));
+    update(applyProviderSubmit(state, child.id, { providerId: childProvider, modelId: childProvider, jobId: null, phase: 'submitted' }));
     setBusy(`Submitting ${child.repair.kind === 'lip-sync' ? 'lip-sync' : 'repair'} edit…`);
-    const outcome = await host.submitGeneration(pk, { sourceVideoPath: src, parentInteractionId: parent?.providerJob.jobId ?? undefined });
+    const outcome = await host.submitGeneration(pk, { sourceVideoPath: src, parentInteractionId: parent?.providerJob.jobId ?? undefined, providerId: childProvider });
     if (!outcome.ok) {
-      update(applyProviderSubmit(state, child.id, { providerId, modelId: null, jobId: null, phase: 'failed', error: outcome.blockedReason || outcome.error || 'submit failed' }));
+      update(applyProviderSubmit(state, child.id, { providerId: childProvider, modelId: null, jobId: null, phase: 'failed', error: outcome.blockedReason || outcome.error || 'submit failed' }));
       setBusy(outcome.blockedReason ? `Blocked: ${outcome.blockedReason} (use Export package)` : `Submit failed: ${outcome.error}`);
       return;
     }
-    const s3 = applyProviderSubmit(state, child.id, { providerId, modelId: providerId, jobId: outcome.jobId ?? null, phase: 'submitted', parentJobId: parent?.providerJob.jobId ?? null });
+    const s3 = applyProviderSubmit(state, child.id, { providerId: childProvider, modelId: childProvider, jobId: outcome.jobId ?? null, phase: 'submitted', parentJobId: parent?.providerJob.jobId ?? null });
     update(s3);
     setBusy(`Submitted (job ${outcome.jobId}). Auto-polling…`);
     await pollTake(child.id, s3);
@@ -379,8 +392,8 @@ function SceneEditor({ ctx, scene, patch, remove }: { ctx: DirectorCtx; scene: S
       {/* Provider + generate + export */}
       <div className="dir-generate-bar">
         <label className="dir-provider-select">Provider
-          <select value={providerId} onChange={(e) => { host.setProvider(e.target.value); update({ ...state }); }}>
-            {host.providers().map((p) => <option key={p.id} value={p.id}>{p.label}{p.role === 'default' ? ' (default)' : ''}</option>)}
+          <select value={selectedProviderId} onChange={(e) => { host.setProvider(e.target.value); update({ ...state }); }}>
+            {host.providers().map((p) => <option key={p.id} value={p.id}>{p.label}{p.id === 'auto' ? '' : ''}</option>)}
           </select>
         </label>
         <label className="dir-provider-select">Conditioning
@@ -391,7 +404,7 @@ function SceneEditor({ ctx, scene, patch, remove }: { ctx: DirectorCtx; scene: S
         <button className="ghost small" onClick={compile}>Inspect compiled packet</button>
         <button className="ghost small" onClick={exportPacket} disabled={!host.canExportPackets} title={host.canExportPackets ? 'Write a complete manual generation package to a folder' : 'File export needs the desktop app (npm run tauri dev)'}>Export generation package</button>
         <button className="primary small" onClick={submitLive} disabled={!canGenerate} title={canGenerate ? '' : 'Resolve conflicts first'}>
-          {ctx.host.providerConfigured() ? `Generate with ${host.providers().find((p) => p.id === providerId)?.label ?? providerId}` : 'Generate (needs API key)'}
+          {ctx.host.providerConfigured() ? `Generate with ${providerLabel}` : 'Generate (connect a provider in Settings)'}
         </button>
       </div>
       {/* Provider readiness — blocks are actionable, never silently dropped (§C) */}

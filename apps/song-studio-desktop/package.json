@@ -34,7 +34,9 @@
     "app:recovery:test": "tsx src/app/recovery.test.mts",
     "app:diagnostics:test": "tsx src/app/diagnostics.test.mts",
     "grok:test": "tsx src/director/providers/grok.test.mts",
-    "updater:test": "tsx src/app/updater.test.mts"
+    "updater:test": "tsx src/app/updater.test.mts",
+    "host:integration:test": "tsx src/director/host-integration.test.mts",
+    "app:atomic:test": "tsx src/app/atomic-file.test.mts"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.1.1",

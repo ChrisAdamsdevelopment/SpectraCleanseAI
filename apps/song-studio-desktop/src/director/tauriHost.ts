@@ -14,15 +14,28 @@ import { pickReferenceImage, pickGeneratedVideo, pickPacketExportDir } from '../
 import { createGoogleVideoAdapter } from './providers/googleVideo';
 import { createOmniFlashAdapter } from './providers/omniFlash';
 import { createGeminiImageAdapter } from './providers/geminiImage';
-import { PROVIDERS, DEFAULT_PROVIDER_ID, capabilitiesFor, IMAGE_PROVIDERS, DEFAULT_IMAGE_PROVIDER_ID, imageCapabilitiesFor } from './providers/registry';
-import type { ProviderIo, VideoProviderAdapter } from './providers/types';
+import { createGrokVideoAdapter, createGrokImageAdapter } from './providers/xai';
+import {
+  PROVIDERS, DEFAULT_PROVIDER_ID, capabilitiesFor, providerAccount, resolveVideoProvider,
+  IMAGE_PROVIDERS, DEFAULT_IMAGE_PROVIDER_ID, imageCapabilitiesFor, imageProviderAccount, resolveImageProvider,
+  type ConnectedAccounts,
+} from './providers/registry';
+import type { ProviderIo, VideoProviderAdapter, ImageProviderAdapter } from './providers/types';
 
-let sessionKey: string | null = null;
-export function setGoogleApiKey(k: string | null) { sessionKey = k && k.trim() ? k.trim() : null; }
-export function googleApiKeyPresent(): boolean {
-  if (sessionKey) return true;
-  const env = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env;
-  return Boolean(env?.GOOGLE_API_KEY || env?.GEMINI_API_KEY);
+/** The account a credential belongs to. 'none' providers (manual) need no key. */
+export type AccountId = 'google' | 'xai';
+
+/** Deps the host needs from the app: where results go, how to resolve a key for
+ * an account (async — the OS vault may be read), and a synchronous snapshot of
+ * which accounts are currently connected (for UI gating without a restart). */
+export interface DirectorHostDeps {
+  outputDir: () => string | null;
+  keyFor: (account: AccountId) => Promise<string | null>;
+  connected: () => ConnectedAccounts;
+  /** Provider IO. Defaults to the real Tauri IO; tests inject a mock so the
+   * full host routing + credential-resolution boundary can be exercised
+   * without network or fs (ALPHA-002 §16). */
+  io?: ProviderIo;
 }
 
 async function toBase64(path: string): Promise<string> {
@@ -75,14 +88,33 @@ const tauriFs: PacketFs = {
   async statBytes(path) { try { return (await stat(path)).size ?? 0; } catch { return 0; } },
 };
 
-export function createTauriDirectorHost(opts: { outputDir: () => string | null }): DirectorHost {
-  let providerId = DEFAULT_PROVIDER_ID;
+/** Build the concrete video adapter for a provider id with a resolved key.
+ * Routing is by STABLE provider id, never a model-name substring. */
+export function videoAdapterFor(id: string, key: string | null, io: ProviderIo): VideoProviderAdapter {
+  switch (id) {
+    case 'google-veo': return createGoogleVideoAdapter({ sessionKey: key, io });
+    case 'xai-video': return createGrokVideoAdapter({ key, io });
+    case 'google-omni':
+    default: return createOmniFlashAdapter({ sessionKey: key, io });
+  }
+}
+export function imageAdapterFor(id: string, key: string | null, io: ProviderIo): ImageProviderAdapter {
+  return id === 'xai-image' ? createGrokImageAdapter({ key, io }) : createGeminiImageAdapter({ sessionKey: key, io });
+}
+
+/** Human account label for a blocked-reason message. */
+function accountLabel(a: AccountId): string { return a === 'xai' ? 'xAI / Grok' : 'Google'; }
+
+export function createTauriDirectorHost(deps: DirectorHostDeps): DirectorHost {
+  const opts = deps;
+  const io = deps.io ?? providerIo;             // real Tauri IO unless a test injects one
+  let providerId = DEFAULT_PROVIDER_ID;         // may be 'auto'
   let imageProviderId = DEFAULT_IMAGE_PROVIDER_ID;
-  const adapterFor = (id: string): VideoProviderAdapter =>
-    id === 'google-veo'
-      ? createGoogleVideoAdapter({ sessionKey, io: providerIo })
-      : createOmniFlashAdapter({ sessionKey, io: providerIo });
-  const imageAdapterFor = () => createGeminiImageAdapter({ sessionKey, io: providerIo });
+
+  // Resolve 'auto' → concrete against capabilities + connected accounts. A
+  // concrete selection is respected as-is.
+  const resolvedVideo = (): string => (providerId === 'auto' ? resolveVideoProvider('auto', deps.connected()) : providerId);
+  const resolvedImage = (): string => (imageProviderId === 'auto' ? resolveImageProvider('auto', deps.connected()) : imageProviderId);
 
   return {
     canExportPackets: true,
@@ -109,15 +141,23 @@ export function createTauriDirectorHost(opts: { outputDir: () => string | null }
     async resolveReturnAttempt(mp4Path, guided) { return resolveReturnAttemptId(mp4Path, tauriFs, guided); },
     async fileBytes(path) { return tauriFs.statBytes(path); },
 
-    providers: () => PROVIDERS.filter((p) => p.role !== 'manual').map((p) => ({ id: p.id, label: p.label, role: p.role, bestFor: p.bestFor })),
+    // The dropdown offers 'Auto' first, then every non-manual provider.
+    providers: () => [{ id: 'auto', label: 'Auto', role: 'default', bestFor: 'Song Studio picks the best connected provider for this scene.' }, ...PROVIDERS.filter((p) => p.role !== 'manual').map((p) => ({ id: p.id, label: p.label, role: p.role, bestFor: p.bestFor }))],
     selectedProviderId: () => providerId,
-    setProvider: (id: string) => { if (PROVIDERS.some((p) => p.id === id)) providerId = id; },
-    providerCapabilities: () => capabilitiesFor(providerId),
-    setApiKey: (k: string | null) => setGoogleApiKey(k),
-    providerConfigured: () => googleApiKeyPresent(),
-    async submitGeneration(packet: GenerationPacket, subOpts?: { sourceVideoPath?: string; parentInteractionId?: string }): Promise<SubmitOutcome> {
-      if (!googleApiKeyPresent()) return { ok: false, blockedReason: 'No Google API key set (add one in Director settings, or use Export package).' };
-      const a = adapterFor(providerId);
+    setProvider: (id: string) => { if (id === 'auto' || PROVIDERS.some((p) => p.id === id)) providerId = id; },
+    resolvedVideoProviderId: () => resolvedVideo(),
+    providerCapabilities: () => capabilitiesFor(resolvedVideo()),
+    providerConfigured: () => {
+      const acc = providerAccount(resolvedVideo());
+      return acc === 'none' ? false : Boolean(deps.connected()[acc]);
+    },
+    async submitGeneration(packet: GenerationPacket, subOpts?: { sourceVideoPath?: string; parentInteractionId?: string; providerId?: string }): Promise<SubmitOutcome> {
+      const id = subOpts?.providerId ?? resolvedVideo();
+      const account = providerAccount(id);
+      if (account === 'none') return { ok: false, blockedReason: 'No live provider is connected. Use Export package, or connect Google or xAI in Settings.' };
+      const key = await deps.keyFor(account);
+      if (!key) return { ok: false, blockedReason: `Connect ${accountLabel(account)} in Settings → AI Providers to generate with this provider, or use Export package.` };
+      const a = videoAdapterFor(id, key, io);
       const first = packet.references.find((r) => r.kind === 'first-frame')?.sourcePath;
       const last = packet.references.find((r) => r.kind === 'final-frame')?.sourcePath;
       const refPaths = packet.references.filter((r) => r.kind !== 'first-frame' && r.kind !== 'final-frame').map((r) => r.sourcePath);
@@ -132,37 +172,55 @@ export function createTauriDirectorHost(opts: { outputDir: () => string | null }
       if (out.phase === 'failed') return { ok: false, error: out.error };
       return { ok: true, jobId: out.jobId };
     },
-    async pollGeneration(jobId: string) {
-      const a = adapterFor(providerId);
+    // TAKE-SCOPED: poll uses the provider RECORDED on the take, never the current
+    // dropdown selection — so a Grok job never gets polled against Google.
+    async pollGeneration(jobId: string, pollProviderId: string) {
+      const account = providerAccount(pollProviderId);
+      if (account === 'none') return { phase: 'failed', error: 'This take has no live provider to poll.' };
+      const key = await deps.keyFor(account);
+      if (!key) return { phase: 'failed', error: `Connect ${accountLabel(account)} in Settings to check this job.` };
+      const a = videoAdapterFor(pollProviderId, key, io);
       const s = await a.poll(jobId);
       if (s.phase !== 'succeeded') return { phase: s.phase, error: s.error };
-      const dir = opts.outputDir() ?? '.';
+      const dir = opts.outputDir();
+      if (!dir) return { phase: 'failed', error: 'No output folder is set for this project. Choose a "Save folder" and check status again — your job is still generating.' };
       const toPath = `${dir}/generated_${Date.now().toString(36)}.mp4`;
       try {
-        if (s.resultInlineBase64) { await providerIo.writeBase64ToFile(s.resultInlineBase64, toPath); return { phase: 'succeeded', resultPath: toPath }; }
+        if (s.resultInlineBase64) { await io.writeBase64ToFile(s.resultInlineBase64, toPath); return { phase: 'succeeded', resultPath: toPath }; }
         if (s.resultUri) { await a.download(s.resultUri, toPath); return { phase: 'succeeded', resultPath: toPath }; }
         return { phase: 'failed', error: 'succeeded but no video payload' };
       } catch (e) { return { phase: 'failed', error: e instanceof Error ? e.message : String(e) }; }
     },
-    imageProviders: () => IMAGE_PROVIDERS.filter((p) => p.role !== 'manual').map((p) => ({ id: p.id, label: p.label, role: p.role, bestFor: p.bestFor })),
+    imageProviders: () => [{ id: 'auto', label: 'Auto', role: 'default', bestFor: 'Song Studio picks the best connected image provider.' }, ...IMAGE_PROVIDERS.filter((p) => p.role !== 'manual').map((p) => ({ id: p.id, label: p.label, role: p.role, bestFor: p.bestFor }))],
     selectedImageProviderId: () => imageProviderId,
-    setImageProvider: (id: string) => { if (IMAGE_PROVIDERS.some((p) => p.id === id)) imageProviderId = id; },
-    imageProviderCapabilities: () => imageCapabilitiesFor(imageProviderId),
-    async submitReferenceGeneration(prompt, conditioningPaths, outputCount, aspect): Promise<SubmitOutcome> {
-      if (!googleApiKeyPresent()) return { ok: false, blockedReason: 'No Google API key set (add one in Director settings, or use the manual reference package).' };
-      const a = imageAdapterFor();
+    setImageProvider: (id: string) => { if (id === 'auto' || IMAGE_PROVIDERS.some((p) => p.id === id)) imageProviderId = id; },
+    resolvedImageProviderId: () => resolvedImage(),
+    imageProviderCapabilities: () => imageCapabilitiesFor(resolvedImage()),
+    async submitReferenceGeneration(prompt, conditioningPaths, outputCount, aspect): Promise<SubmitOutcome & { providerId?: string }> {
+      const id = resolvedImage();
+      const account = imageProviderAccount(id);
+      if (account === 'none') return { ok: false, blockedReason: 'No image provider is connected. Use the manual reference package, or connect Google or xAI in Settings.' };
+      const key = await deps.keyFor(account);
+      if (!key) return { ok: false, blockedReason: `Connect ${accountLabel(account)} in Settings to generate references, or use the manual reference package.` };
+      const a = imageAdapterFor(id, key, io);
       const out = await a.submit({ prompt, referenceImagePaths: conditioningPaths, outputCount, aspect });
-      if (out.phase === 'failed') return { ok: false, error: out.error };
+      if (out.phase === 'failed') return { ok: false, error: out.error, providerId: id };
       // Whether it completed inline or is pending, the interaction is stored and
       // polling materializes the images (avoids orphaning inline writes here).
-      return { ok: true, jobId: out.jobId };
+      return { ok: true, jobId: out.jobId, providerId: id };
     },
-    async pollReferenceGeneration(jobId: string) {
-      const a = imageAdapterFor();
+    async pollReferenceGeneration(jobId: string, pollProviderId: string) {
+      const account = imageProviderAccount(pollProviderId);
+      if (account === 'none') return { phase: 'failed', error: 'This request has no live provider to poll.' };
+      const key = await deps.keyFor(account);
+      if (!key) return { phase: 'failed', error: `Connect ${accountLabel(account)} in Settings to check this request.` };
+      const a = imageAdapterFor(pollProviderId, key, io);
       const s = await a.poll(jobId);
       if (s.phase !== 'succeeded') return { phase: s.phase, error: s.error };
+      const dir = opts.outputDir();
+      if (!dir) return { phase: 'failed', error: 'No output folder is set for this project. Choose a "Save folder" and check the request again.' };
       try {
-        const paths = await materializeImages(s.resultInlineBase64, s.resultUris, a, opts.outputDir() ?? '.');
+        const paths = await materializeImages(s.resultInlineBase64, s.resultUris, a, dir, io);
         return paths.length ? { phase: 'succeeded', resultPaths: paths } : { phase: 'failed', error: 'succeeded but no image payload' };
       } catch (e) { return { phase: 'failed', error: e instanceof Error ? e.message : String(e) }; }
     },
@@ -171,17 +229,17 @@ export function createTauriDirectorHost(opts: { outputDir: () => string | null }
       catch { return 0; }
     },
     // Settings runs its connection tests through this same injected boundary.
-    providerIo,
+    providerIo: io,
   };
 }
 
 /** Write inline base64 images / download image URIs to local PNG files. */
-async function materializeImages(inline: string[] | undefined, uris: string[] | undefined, a: { download(uri: string, to: string): Promise<number> }, dir: string): Promise<string[]> {
+async function materializeImages(inline: string[] | undefined, uris: string[] | undefined, a: { download(uri: string, to: string): Promise<number> }, dir: string, io: ProviderIo): Promise<string[]> {
   const out: string[] = [];
   let n = 0;
   for (const b64 of inline ?? []) {
     const to = `${dir}/ref_${Date.now().toString(36)}_${n++}.png`;
-    await providerIo.writeBase64ToFile(b64, to); out.push(to);
+    await io.writeBase64ToFile(b64, to); out.push(to);
   }
   for (const uri of uris ?? []) {
     const to = `${dir}/ref_${Date.now().toString(36)}_${n++}.png`;
@@ -193,9 +251,8 @@ async function materializeImages(inline: string[] | undefined, uris: string[] | 
 // ── Text-model tool generation (Gemini generateContent) ─────────────────────
 import { toolGenerationPrompt, parseToolFromModelText, type ToolValidation } from './toolSchema';
 
-export async function generateToolWithGemini(request: string, refinement?: string, previousJson?: string): Promise<ToolValidation & { rawPrompt: string }> {
+export async function generateToolWithGemini(key: string | null, request: string, refinement?: string, previousJson?: string): Promise<ToolValidation & { rawPrompt: string }> {
   const rawPrompt = toolGenerationPrompt(request, refinement, previousJson);
-  const key = sessionKey || (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env?.GEMINI_API_KEY || (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env?.GOOGLE_API_KEY;
   if (!key) return { ok: false, tool: null, errors: ['no text-model key configured'], rawPrompt };
   try {
     const res = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent', {

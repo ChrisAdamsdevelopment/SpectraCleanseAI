@@ -2,7 +2,7 @@
 // provider-neutral capability system Google uses. No forked workflow: Grok
 // consumes the identical canonical direction + GenerationPacket.
 //
-// VERIFIED against official xAI documentation on 2026-07-12
+// RE-VERIFIED against official xAI documentation on 2026-07-16
 // (docs.x.ai/docs/overview, /docs/guides/image-generations,
 //  /docs/guides/video-generations, /docs/api-reference). CONFIRMED:
 //   Base URL   : https://api.x.ai/v1
@@ -16,13 +16,20 @@
 //   Video poll : GET  /v1/videos/{request_id}  -> { status: 'done', video: { url } }
 //   Async      : video returns `request_id`; poll until status done.
 //   Limits     : images n up to 10; image editing up to 3 reference images;
-//                video duration up to 15s.
+//                video duration up to 15s (INTEGER seconds).
+// VIDEO REFERENCE INPUT (verified 2026-07-16): the video request takes a SINGLE
+//   `image` field — the "up to 3 source images" limit is documented for IMAGE
+//   EDITING, not video. Grok video therefore declares referenceImages: 1 so
+//   readiness BLOCKS (and offers resolutions for) any scene with more than one
+//   selected direct reference, rather than silently sending only the first.
 // NOT documented on the pages read (declared honestly, NOT invented):
 //   - a dedicated key-validation endpoint (we use the cheapest documented call:
 //     a 1-token chat completion — see testXaiConnection);
 //   - exact aspect-ratio enumerations for video;
-//   - source-video editing / video extension for Grok video — therefore those
-//     capabilities are declared FALSE rather than guessed.
+//   - video Editing and Extension are NAMED as capabilities in the docs, but NO
+//     endpoint path, model id, or request/response shape is published for either.
+//     Song Studio will not invent a request shape, so sourceVideoEditing and
+//     videoExtension stay FALSE until xAI documents the contract.
 //
 // A consumer Grok/X subscription does NOT imply xAI API access; the settings UI
 // says so and the error mapping distinguishes "no credits / no access".
@@ -93,13 +100,13 @@ export function mapXaiError(status: number, body: string): MappedError {
  * unconfirmed is FALSE so readiness never promises what we cannot verify. */
 export const xaiVideoCapabilities: ProviderCapabilities = {
   textToVideo: true,
-  imageToVideo: true,               // documented: `image` field (image-to-video)
+  imageToVideo: true,               // documented: single `image` field (image-to-video)
   lastFrame: false,                 // not documented
-  referenceImages: 3,               // documented multi-image limit
+  referenceImages: 1,              // VERIFIED: video takes ONE `image` field (not 3)
   humanLikenessReferences: true,
   characterConsistency: true,
-  videoExtension: false,            // not documented — declared false, not guessed
-  sourceVideoEditing: false,        // not documented for video — declared false
+  videoExtension: false,            // named but no request shape published — declared false
+  sourceVideoEditing: false,        // named but no request shape published — declared false
   conversationalEditing: false,
   audioInput: false,                // not documented
   lipSync: false,
@@ -109,7 +116,7 @@ export const xaiVideoCapabilities: ProviderCapabilities = {
   resolutions: ['720p', '1080p'],
   async: true,                      // documented request_id + polling
   costInfo: 'none',
-  notes: 'Grok Imagine video via the xAI API. Async job + polling. Up to 15s per clip. Source-video repair and video extension are not documented for this provider, so Song Studio does not offer them here.',
+  notes: 'Grok Imagine video via the xAI API. Async job + polling. Up to 15s per clip; one direct reference image. Source-video repair and video extension are named by xAI but have no published request shape, so Song Studio does not offer them here.',
 };
 
 export const xaiImageCapabilities: ImageProviderCapabilities = {
@@ -275,9 +282,12 @@ export function createGrokVideoAdapter(opts: { key: string | null; io?: Provider
         const model = usingRefs ? XAI_VIDEO_REF_MODEL : baseModel;
         const body: Record<string, unknown> = {
           model, prompt,
-          // NO SILENT DURATION CHANGE (§8): send the exact directed duration.
-          // Readiness blocks anything above XAI_MAX_VIDEO_SECONDS before we get here.
-          duration: req.durationSec,
+          // NO SILENT DURATION CHANGE (§8): send the directed duration. xAI
+          // documents `duration` as INTEGER seconds, so round to the nearest
+          // whole second (readiness already blocks anything above the cap). This
+          // is a format requirement, not a creative clamp — a scene directed at
+          // 8.4s and one at 8s are the same integer request to xAI.
+          duration: Math.max(1, Math.round(req.durationSec)),
         };
         // image-to-video: the documented `image` field takes a source image.
         const firstRef = req.firstFramePath ?? req.referenceImagePaths[0];

@@ -225,7 +225,15 @@ function mockIo(script: Array<{ ok: boolean; status: number; json: unknown; text
   const body = io.calls[0].body as { model: string; duration: number; prompt: string };
   assert.equal(body.model, XAI_VIDEO_MODEL, 'text-to-video uses the base video model');
   assert.equal(body.duration, 8, 'EXACT directed duration sent — never silently changed');
+  assert.ok(Number.isInteger(body.duration), 'duration is an INTEGER (verified xAI type, 2026-07-16)');
   assert.match(body.prompt, /no captions/, 'negative constraints folded into the prompt (Grok has no negative field)');
+  // A fractional directed duration is rounded to the documented integer type,
+  // not sent as a float.
+  {
+    const io2 = mockIo([{ ok: true, status: 200, json: { request_id: 'r' } }]);
+    await createGrokVideoAdapter({ key: KEY, io: io2 }).submit({ prompt: 'p', aspect: '9:16', resolution: '720p', durationSec: 8.4, referenceImagePaths: [] });
+    assert.equal((io2.calls[0].body as { duration: number }).duration, 8, 'fractional 8.4s → integer 8 (format requirement, not a creative clamp)');
+  }
 
   assert.equal((await vid.poll('req-abc')).phase, 'running', 'pending → running');
   assert.equal(io.calls[1].url, `${XAI_BASE}/videos/req-abc`, 'documented polling endpoint');
@@ -284,13 +292,36 @@ function mockIo(script: Array<{ ok: boolean; status: number; json: unknown; text
   state.scenes.push(scene);
   const packet = compileScenePacket(state, scene, { attemptId: 'a', audioPath: '/tmp/song.m4a' });
 
+  // ALPHA-002 P1-6: Grok VIDEO takes a single `image` field → cap is 1.
+  assert.equal(xaiVideoCapabilities.referenceImages, 1, 'Grok video declares a 1-reference cap (verified 2026-07-16)');
+
   const readiness = assessProviderReadiness(packet, xaiVideoCapabilities, 'Grok Imagine');
-  assert.ok(readiness.blocking.some((b) => b.id === 'too-many-references'), '4 refs > 3 → BLOCKS (never sends only 3)');
+  assert.ok(readiness.blocking.some((b) => b.id === 'too-many-references'), '4 refs > 1 → BLOCKS (never silently sends only the first)');
   assert.ok(readiness.blocking.some((b) => b.id === 'duration-exceeds-provider'), '20s > 15s → BLOCKS (never shortens)');
   assert.equal(packet.timing.durationSec, 20, 'the packet still carries the EXACT directed 20s');
   assert.equal(canSubmit(readiness, []), false, 'cannot submit while blocked');
   assert.deepEqual(unresolvedOverrideKeys(readiness, []).sort(), ['duration:accept-15', 'refs:choose'].sort());
   assert.equal(canSubmit(readiness, ['refs:choose', 'duration:accept-15']), true, 'explicit, visible overrides unblock');
+
+  // Even TWO references block (cap is 1) — proves nothing is silently discarded.
+  {
+    const s2 = emptyDirectorState(); s2.songAudioPath = '/tmp/song.m4a';
+    const a2 = makeEntity('Sobelo', 'person', 'lean');
+    const r1 = makeReference(a2.id, 'face', '/f/face.png', 'face', 'upload'); r1.approved = true;
+    const r2 = makeReference(a2.id, 'profile', '/f/prof.png', 'profile', 'upload'); r2.approved = true;
+    a2.references.push(r1, r2); s2.entities.push(a2);
+    const sc = makeScene('Two', 0, 8);
+    sc.castings.push({ entityId: a2.id, relationship: 'exact', mustRemain: [], mayVary: [], referenceIds: [r1.id, r2.id] });
+    s2.scenes.push(sc);
+    const pk2 = compileScenePacket(s2, sc, { attemptId: 'b' });
+    assert.equal(pk2.references.length, 2, 'two references selected');
+    const rd = assessProviderReadiness(pk2, xaiVideoCapabilities, 'Grok Imagine');
+    assert.ok(rd.blocking.some((b) => b.id === 'too-many-references'), 'two references BLOCK on Grok video (cap 1)');
+    // A contact-sheet resolution recompiles the packet to a SINGLE combined
+    // reference — changing the outgoing request rather than dropping a reference.
+    const trimmed = compileScenePacket({ ...s2, scenes: [{ ...sc, castings: [{ ...sc.castings[0], referenceIds: [r1.id] }] }] }, { ...sc, castings: [{ ...sc.castings[0], referenceIds: [r1.id] }] }, { attemptId: 'c' });
+    assert.equal(assessProviderReadiness(trimmed, xaiVideoCapabilities, 'Grok Imagine').blocking.some((b) => b.id === 'too-many-references'), false, 'after choosing one reference, readiness clears');
+  }
 
   // The blocks carry EXECUTABLE resolutions, not just prose.
   const dur = readiness.blocking.find((b) => b.id === 'duration-exceeds-provider')!;

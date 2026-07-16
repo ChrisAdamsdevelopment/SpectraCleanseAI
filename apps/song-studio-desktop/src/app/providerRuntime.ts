@@ -93,11 +93,13 @@ export async function testAccount(account: AccountId, key: string, io: ProviderI
 
 // ── Key resolution per account ──────────────────────────────────────────────
 
-/** Env fallbacks are DEV-ONLY conveniences; installed builds rely on the vault
- * or session entry. */
+/** Env fallbacks are a DEV-ONLY convenience and are used ONLY when explicitly
+ * opted in with SONG_STUDIO_DEV_KEYS=1 (ALPHA-002 §1). An installed build never
+ * sets that flag, so it relies solely on the OS vault or a session entry — and
+ * a stray developer env var can never make the app behave as if a key exists. */
 function envFor(account: AccountId): string | null {
   const env = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env;
-  if (!env) return null;
+  if (!env || env.SONG_STUDIO_DEV_KEYS !== '1') return null;
   return account === 'xai'
     ? env.XAI_API_KEY ?? null
     : env.GOOGLE_API_KEY ?? env.GEMINI_API_KEY ?? null;

@@ -32,27 +32,41 @@ export interface DirectorHost {
   writeFiles(files: PacketFileDirective[], destDir: string): Promise<string[]>;
   resolveReturnAttempt(mp4Path: string, guidedAttemptId?: string): Promise<{ attemptId: string | null; via: 'manifest' | 'guided' | 'none' }>;
   fileBytes(path: string): Promise<number>;
-  // provider selection (capabilities contract, not provider names in logic)
+  // provider selection (capabilities contract, not provider names in logic).
+  // The selected id MAY be the literal 'auto' — resolvedVideoProviderId()
+  // resolves it against capabilities + connected accounts.
   providers(): ProviderChoice[];
   selectedProviderId(): string;
   setProvider(id: string): void;
+  /** Resolve 'auto' (or a concrete id) to the concrete provider that will
+   * actually run. Used to record the provider on the take (so polling is
+   * take-scoped) and to show the creator which provider Auto chose. */
+  resolvedVideoProviderId(): string;
   providerCapabilities(): ProviderCapabilities;
-  setApiKey(key: string | null): void;
-  // live provider (may be credential-blocked — never silently succeeds)
+  // live provider (may be credential-blocked — never silently succeeds).
+  // providerConfigured reflects whether the RESOLVED video provider's account
+  // has a usable key right now (secure store OR session) — no restart needed.
   providerConfigured(): boolean;
-  submitGeneration(packet: GenerationPacket, opts?: { sourceVideoPath?: string; parentInteractionId?: string }): Promise<SubmitOutcome>;
-  /** Poll and, on success, materialize the MP4 locally; returns resultPath. */
-  pollGeneration(jobId: string): Promise<{ phase: string; error?: string; resultPath?: string }>;
+  /** Submit on an EXPLICIT provider when given (repairs pass the child take's
+   * recorded provider), else the resolved video provider. Keeps submit and the
+   * recorded take provider identical, so polling is always take-scoped. */
+  submitGeneration(packet: GenerationPacket, opts?: { sourceVideoPath?: string; parentInteractionId?: string; providerId?: string }): Promise<SubmitOutcome>;
+  /** Poll a job on the take's RECORDED provider (never the current UI
+   * selection) and, on success, materialize the MP4 locally. */
+  pollGeneration(jobId: string, providerId: string): Promise<{ phase: string; error?: string; resultPath?: string }>;
   // image provider (reference-variant generation, §1)
   imageProviders(): ProviderChoice[];
   selectedImageProviderId(): string;
   setImageProvider(id: string): void;
+  resolvedImageProviderId(): string;
   imageProviderCapabilities(): ImageProviderCapabilities;
   /** Submit a reference-variant image request; conditioningPaths are approved
-   * reference image paths used as identity guides. */
-  submitReferenceGeneration(prompt: string, conditioningPaths: string[], outputCount: number, aspect: string): Promise<SubmitOutcome>;
-  /** Poll a reference image job; on success returns materialized local paths. */
-  pollReferenceGeneration(jobId: string): Promise<{ phase: string; error?: string; resultPaths?: string[] }>;
+   * reference image paths used as identity guides. Returns the concrete
+   * providerId used, so it can be recorded on the request for take-scoped poll. */
+  submitReferenceGeneration(prompt: string, conditioningPaths: string[], outputCount: number, aspect: string): Promise<SubmitOutcome & { providerId?: string }>;
+  /** Poll a reference image job on its recorded provider; on success returns
+   * materialized local paths. */
+  pollReferenceGeneration(jobId: string, providerId: string): Promise<{ phase: string; error?: string; resultPaths?: string[] }>;
   // assembly: run the workprint ffmpeg args, returns bytes written (0 = failed)
   runFfmpeg(args: string[]): Promise<number>;
   /** The host's provider IO, exposed so Settings can run connection tests
@@ -76,14 +90,15 @@ export const browserHost: DirectorHost = {
   providers() { return PROVIDERS.map((p) => ({ id: p.id, label: p.label, role: p.role, bestFor: p.bestFor })); },
   selectedProviderId() { return DEFAULT_PROVIDER_ID; },
   setProvider() { /* no-op in browser */ },
+  resolvedVideoProviderId() { return DEFAULT_PROVIDER_ID; },
   providerCapabilities() { return capabilitiesFor(DEFAULT_PROVIDER_ID); },
-  setApiKey() { /* no-op in browser */ },
   providerConfigured() { return false; },
   async submitGeneration() { return { ok: false, blockedReason: 'Live generation needs the desktop app and an API key.' }; },
   async pollGeneration() { return { phase: 'failed', error: 'unavailable' }; },
   imageProviders() { return IMAGE_PROVIDERS.map((p) => ({ id: p.id, label: p.label, role: p.role, bestFor: p.bestFor })); },
   selectedImageProviderId() { return DEFAULT_IMAGE_PROVIDER_ID; },
   setImageProvider() { /* no-op in browser */ },
+  resolvedImageProviderId() { return DEFAULT_IMAGE_PROVIDER_ID; },
   imageProviderCapabilities() { return imageCapabilitiesFor(DEFAULT_IMAGE_PROVIDER_ID); },
   async submitReferenceGeneration() { return { ok: false, blockedReason: 'Live reference generation needs the desktop app and an API key.' }; },
   async pollReferenceGeneration() { return { phase: 'failed', error: 'unavailable' }; },

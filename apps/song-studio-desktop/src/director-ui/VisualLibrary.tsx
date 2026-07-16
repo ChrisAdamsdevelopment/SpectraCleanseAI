@@ -169,7 +169,8 @@ function ReferenceGenPanel({ ctx, entity }: { ctx: DirectorCtx; entity: Director
   const [count, setCount] = useState(1);
   const [selectedCond, setSelectedCond] = useState<string[]>(entity.references.filter((r) => r.approved).map((r) => r.id));
   const [busy, setBusy] = useState('');
-  const providerId = host.selectedImageProviderId();
+  const providerId = host.selectedImageProviderId();               // may be 'auto'
+  const resolvedImageProvider = host.resolvedImageProviderId();     // concrete
   const caps = host.imageProviderCapabilities();
   const approvedRefs = entity.references.filter((r) => r.approved);
   const requests = state.referenceRequests.filter((r) => r.entityId === entity.id);
@@ -186,19 +187,23 @@ function ReferenceGenPanel({ ctx, entity }: { ctx: DirectorCtx; entity: Director
 
   const generateLive = async () => {
     if (!canGenerate) { setBusy('Resolve the highlighted conditioning limit first.'); return; }
-    const req: ReferenceRequest = { ...draft, providerId, status: 'submitted' };
+    // Record the CONCRETE resolved provider (never 'auto') so polling/resume is
+    // take-scoped even if the selection changes later.
+    const reqProvider = resolvedImageProvider;
+    const req: ReferenceRequest = { ...draft, providerId: reqProvider, status: 'submitted' };
     const withReq: ReferenceRequest[] = [...state.referenceRequests, req];
     const base = { ...state, referenceRequests: withReq };
     persist(req);
     const condPaths = selectedCond.map((cid) => approvedRefs.find((r) => r.id === cid)?.path).filter((p): p is string => Boolean(p));
     setBusy('Requesting reference variant…');
     const out = await host.submitReferenceGeneration(promptPreview, condPaths, count, entity.type === 'person' ? '9:16' : '1:1');
+    const usedProvider = out.providerId ?? reqProvider;
     if (!out.ok) {
-      update(applyReferenceSubmit(base, req.id, { providerId, modelId: null, jobId: null, phase: 'failed', error: out.blockedReason || out.error || 'submit failed' }));
+      update(applyReferenceSubmit(base, req.id, { providerId: usedProvider, modelId: null, jobId: null, phase: 'failed', error: out.blockedReason || out.error || 'submit failed' }));
       setBusy(out.blockedReason ? `Reference generation blocked: ${out.blockedReason} (use Export request instead)` : `Failed: ${out.error}`);
       return;
     }
-    const s = applyReferenceSubmit(base, req.id, { providerId, modelId: providerId, jobId: out.jobId ?? null, phase: 'submitted' });
+    const s = applyReferenceSubmit(base, req.id, { providerId: usedProvider, modelId: usedProvider, jobId: out.jobId ?? null, phase: 'submitted' });
     update(s);
     setBusy(`Submitted (job ${out.jobId}). Checking…`);
     await pollRequest(req.id, s);
@@ -208,7 +213,7 @@ function ReferenceGenPanel({ ctx, entity }: { ctx: DirectorCtx; entity: Director
     const req = from.referenceRequests.find((r) => r.id === requestId);
     if (!req?.jobId) { setBusy('No image job to check.'); return; }
     setBusy('Checking reference generation…');
-    const res = await host.pollReferenceGeneration(req.jobId);
+    const res = await host.pollReferenceGeneration(req.jobId, req.providerId);
     if (res.phase === 'succeeded' && res.resultPaths?.length) {
       let s = from;
       for (const p of res.resultPaths) s = addProposedVariant(s, requestId, p, { origin: 'ai-generated' }).state;
