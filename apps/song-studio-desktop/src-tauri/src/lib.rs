@@ -3,6 +3,22 @@ use std::process::Command;
 use serde::{Deserialize, Serialize};
 use tauri::Emitter;
 
+/// Windows CREATE_NO_WINDOW flag (ALPHA-002 §13): keep bundled FFmpeg/ffprobe
+/// child processes from flashing a console window in the GUI-subsystem app.
+/// stdout/stderr/exit-code capture is unaffected. No-op on non-Windows.
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
+fn quiet_command(program: &str) -> Command {
+    let mut cmd = Command::new(program);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+    cmd
+}
+
 fn ffmpeg_exe_name() -> &'static str {
     if cfg!(windows) { "ffmpeg.exe" } else { "ffmpeg" }
 }
@@ -271,7 +287,7 @@ async fn run_ffmpeg(app: tauri::AppHandle, args: Vec<String>) -> Result<serde_js
     let out_path = args.last().cloned().unwrap_or_default();
 
     let _ = app.emit("render://log", format!("[ffmpeg] rendering ({} args)…", args.len()));
-    let output = Command::new(&resolved.path)
+    let output = quiet_command(&resolved.path)
         .args(&args)
         .output()
         .map_err(|e| format!("Failed to start ffmpeg '{}': {}", resolved.path, e))?;
@@ -368,7 +384,7 @@ async fn run_canvas_lab(options: CanvasLabOptions) -> Result<CanvasLabRunResult,
 
     let app_dir = app_dir()?;
     let npm = if cfg!(windows) { "npm.cmd" } else { "npm" };
-    let output = Command::new(npm)
+    let output = quiet_command(npm)
         .current_dir(app_dir)
         .args(&args)
         .output()

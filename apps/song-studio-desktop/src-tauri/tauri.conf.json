@@ -31,7 +31,7 @@
   "plugins": {
     "updater": {
       "endpoints": [
-        "https://github.com/ChrisAdamsdevelopment/SpectraCleanseAI/releases/latest/download/latest.json"
+        "https://github.com/ChrisAdamsdevelopment/SpectraCleanseAI/releases/download/song-studio-alpha-updater/latest.json"
       ],
       "pubkey": "",
       "windows": {
@@ -67,8 +67,7 @@
         "languages": ["English"],
         "displayLanguageSelector": false,
         "compression": "lzma"
-      },
-      "_msiNote": "MSI is intentionally NOT a target. WiX requires the semver pre-release identifier to be numeric-only (<=65535), so it rejects '0.1.0-alpha.1' outright — verified by a real `tauri build` on 2026-07-15. The alpha keeps its honest semantic version and ships NSIS (the preferred format) plus a portable ZIP. To produce an MSI, move to a numeric version such as 0.1.0 and add 'msi' back to bundle.targets."
+      }
     }
   }
 }

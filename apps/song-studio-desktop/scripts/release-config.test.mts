@@ -4,7 +4,7 @@
 // Run: npm run alpha:config:test
 
 import assert from 'node:assert/strict';
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync, readdirSync } from 'node:fs';
 import { resolve, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -64,10 +64,11 @@ const cargo = readFileSync(join(APP, 'src-tauri', 'Cargo.toml'), 'utf8');
   // 'msi' without also moving off the alpha version and re-testing.
   if (/-alpha\./.test(conf.version)) {
     assert.ok(!conf.bundle.targets.includes('msi'),
-      'MSI must not be a target while the version carries a semver pre-release tag (WiX rejects it — see bundle.windows._msiNote)');
-    assert.ok(typeof conf.bundle.windows._msiNote === 'string' && conf.bundle.windows._msiNote.includes('numeric-only'),
-      'the MSI exclusion is documented in the config');
+      'MSI must not be a target while the version carries a semver pre-release tag (WiX rejects it as non-numeric — documented in RELEASE-OPERATOR.md)');
   }
+  // The `_msiNote` placeholder key was removed — tauri-build rejects unknown
+  // config fields with a warning; the rationale lives in the docs + this test.
+  assert.equal(conf.bundle.windows._msiNote, undefined, 'no unknown _msiNote field in tauri.conf.json');
 }
 
 // ── FFmpeg sidecar (§1/§8) ─────────────────────────────────────────────────
@@ -110,6 +111,12 @@ const cargo = readFileSync(join(APP, 'src-tauri', 'Cargo.toml'), 'utf8');
   assert.ok(Array.isArray(u.endpoints) && u.endpoints.length > 0, 'an update endpoint is configured');
   assert.ok(u.endpoints[0].startsWith('https://'), 'updates are fetched over HTTPS only');
   assert.ok(u.endpoints[0].includes('latest.json'), 'endpoint points at an update manifest');
+  // P1-3: the endpoint must NOT use GitHub's `/releases/latest`, which excludes
+  // prereleases; it must point at a FIXED release tag whose assets are replaced.
+  assert.ok(!/releases\/latest\//.test(u.endpoints[0]),
+    'updater endpoint must not use /releases/latest (it excludes the alpha prereleases)');
+  assert.ok(/song-studio-alpha-updater/.test(u.endpoints[0]),
+    'updater endpoint points at the fixed prerelease-compatible updater tag');
   assert.equal(typeof u.pubkey, 'string', 'pubkey field present');
   assert.equal(u.windows.installMode, 'passive', 'passive install shows progress without prompting');
 
@@ -150,11 +157,65 @@ const cargo = readFileSync(join(APP, 'src-tauri', 'Cargo.toml'), 'utf8');
   assert.ok(/TAURI_SIGNING_PRIVATE_KEY/.test(wf), 'updater signing key wired in CI');
   assert.ok(/sha256|checksum/i.test(wf), 'checksums produced');
 
+  // ALPHA-002 layout corrections:
+  // v2 NSIS updater artifact is `-setup.exe` + `-setup.exe.sig`, NOT the v1
+  // `-setup.nsis.zip`.
+  assert.ok(/-setup\.exe\.sig/.test(wf), 'collects the Tauri v2 -setup.exe.sig updater signature');
+  // Ignore comment lines (which may mention the v1 name to explain it is unused).
+  const wfCode = wf.split('\n').filter((l) => !l.trim().startsWith('#')).join('\n');
+  assert.ok(!/-setup\.nsis\.zip/.test(wfCode), 'no stale Tauri v1 -setup.nsis.zip glob in executable steps');
+  // The documented installer name must actually be attached to the release.
+  assert.ok(/Song-Studio-.*-Windows-x64-Setup\.exe/.test(wf), 'documented installer name attached to the release');
+  // The prerelease-compatible updater channel must be published to the fixed tag.
+  assert.ok(/song-studio-alpha-updater/.test(wf), 'publishes to the fixed updater tag');
+  assert.ok(/latest\.json/.test(wf), 'generates/publishes latest.json');
+  // Fail-if-missing installer, and updater is skipped (not faked) when unsigned.
+  assert.ok(/refusing to publish/i.test(wf), 'workflow fails if the installer is missing');
+  assert.ok(/signed\s*==\s*'true'/.test(wf), 'updater publish is gated on a real signature (no fake update channel)');
+  // §12: no misleading "code signing configured" claim.
+  assert.ok(!/code signing.*\*\*configured\*\*/i.test(wf), 'workflow never claims Windows code signing is configured');
+
   // Secrets must be referenced, never inlined.
   assert.ok(/\$\{\{\s*secrets\./.test(wf), 'secrets are referenced via the secrets context');
   assert.ok(!/AIza[0-9A-Za-z\-_]{20,}/.test(wf), 'no Google key hardcoded');
   assert.ok(!/xai-[0-9A-Za-z\-_]{16,}/.test(wf), 'no xAI key hardcoded');
   assert.ok(!/-----BEGIN/.test(wf), 'no private key material inlined');
+}
+
+// ── §16-F: release-layout — the workflow's collection globs match REAL Tauri v2
+// bundle output. Use the actual bundle dir when a prior build produced it,
+// otherwise a fixture listing of the documented v2 names. ───────────────────
+{
+  const setupGlob = /\*-setup\.exe\b/;      // installer + updater artifact (v2)
+  const sigGlob = /-setup\.exe\.sig\b/;      // updater signature (v2)
+  const wf = readFileSync(join(REPO, '.github', 'workflows', 'song-studio-alpha-release.yml'), 'utf8');
+
+  // The workflow must look for the v2 names and NOT the v1 .nsis.zip.
+  assert.ok(setupGlob.test(wf), 'workflow collects *-setup.exe (v2 installer/updater artifact)');
+  assert.ok(sigGlob.test(wf), 'workflow collects the *-setup.exe.sig updater signature');
+
+  // A representative Tauri v2 NSIS bundle listing (what a real build emits under
+  // bundle/nsis). The collection logic must find the installer and .sig here.
+  const v2BundleListing = [
+    'Song Studio_0.1.0-alpha.1_x64-setup.exe',
+    'Song Studio_0.1.0-alpha.1_x64-setup.exe.sig',
+  ];
+  assert.ok(v2BundleListing.some((f) => /-setup\.exe$/.test(f)), 'fixture has a v2 -setup.exe');
+  assert.ok(v2BundleListing.some((f) => /-setup\.exe\.sig$/.test(f)), 'fixture has a v2 -setup.exe.sig');
+  assert.ok(!v2BundleListing.some((f) => /\.nsis\.zip/.test(f)), 'v2 output has NO .nsis.zip (that was v1)');
+
+  // If a real build is present on disk, assert against IT too (strongest proof).
+  const realNsis = join(APP, 'src-tauri', 'target', 'x86_64-pc-windows-msvc', 'release', 'bundle', 'nsis');
+  // D:-drive cargo target override is used in this workspace; check both.
+  const altNsis = 'D:/DevCache/cargo-target/x86_64-pc-windows-msvc/release/bundle/nsis';
+  for (const dir of [realNsis, altNsis]) {
+    if (existsSync(dir)) {
+      const files = readdirSync(dir);
+      assert.ok(files.some((f) => /-setup\.exe$/.test(f)), `real build ${dir} has a -setup.exe`);
+      assert.ok(!files.some((f) => /\.nsis\.zip$/.test(f)), `real build ${dir} has no v1 .nsis.zip`);
+      break;
+    }
+  }
 }
 
 // ── Release docs exist (§13) ───────────────────────────────────────────────
