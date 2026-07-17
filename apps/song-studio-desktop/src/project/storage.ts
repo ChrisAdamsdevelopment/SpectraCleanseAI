@@ -1,7 +1,16 @@
 import { open, save } from '@tauri-apps/plugin-dialog';
-import { writeTextFile, readTextFile } from '@tauri-apps/plugin-fs';
+import { writeTextFile, readTextFile, exists, rename, remove } from '@tauri-apps/plugin-fs';
 import { parseTime } from '../lib/time';
+import { atomicWrite, type AtomicFs } from '../app/atomicFile';
 import { normalizeDirectorState } from '../director/normalize';
+
+/** Backup-swap safe-replace fs for project files (ALPHA-002 P1-5/P1-7). */
+const projectAtomicFs: AtomicFs = {
+  async writeText(p, c) { await writeTextFile(p, c); },
+  async exists(p) { try { return await exists(p); } catch { return false; } },
+  async rename(a, b) { await rename(a, b); },
+  async remove(p) { try { await remove(p); } catch { /* already gone */ } },
+};
 import {
   defaultLoopCore, emptyOutput, emptyReleaseProject, isLoopOutputType, makeOutputId,
   type DirectionCue, type LoopAnchorPoint, type LoopContinuityMode, type LoopCore, type LoopVisualStateMarker,
@@ -285,18 +294,36 @@ export async function pickCanvasOutputDir(): Promise<string | null> {
   return pickOutputDir();
 }
 
-export async function saveReleaseProjectToFile(project: ReleaseProject): Promise<string | null> {
-  const target = await save({
+/** Save the project. With `toPath` (normal Save) writes directly to the current
+ * file; without it (Save As / first save) prompts for a location. Returns the
+ * path written, or null when the Save As dialog was cancelled. The write uses
+ * the safe backup-swap replacement so a user's file is never left torn. */
+export async function saveReleaseProjectToFile(project: ReleaseProject, toPath?: string): Promise<string | null> {
+  const target = toPath ?? await save({
     defaultPath: `${(project.title || 'song').replace(/[^a-z0-9-_ ]/gi, '_') || 'song'}.songstudio.json`,
     filters: [{ name: 'Song Studio Project', extensions: ['json'] }],
   });
   if (!target) return null;
   const payload: ReleaseProject = { ...project, updatedAt: new Date().toISOString() };
-  await writeTextFile(target, JSON.stringify(payload, null, 2));
+  await atomicWrite(target, JSON.stringify(payload, null, 2), projectAtomicFs);
   return target;
 }
 
-export async function loadReleaseProjectFromFile(): Promise<ReleaseProject | null> {
+/** Read + normalize a project from a KNOWN path (reopen-last-project). Returns
+ * null when the file is missing or unreadable — the caller then offers to pick
+ * another. Never writes anything. */
+export async function readProjectAtPath(path: string): Promise<ReleaseProject | null> {
+  try {
+    if (!(await exists(path))) return null;
+    return normalizeReleaseProject(JSON.parse(await readTextFile(path)));
+  } catch { return null; }
+}
+
+/** Open a project and return BOTH the normalized project AND its file path, so
+ * the caller can take ownership of that path (autosave to it, remember it as the
+ * last project). Normalization runs BEFORE anything is written, so a malformed
+ * file never overwrites anything. */
+export async function loadReleaseProjectFromFile(): Promise<{ project: ReleaseProject; path: string } | null> {
   const selected = await open({
     multiple: false,
     directory: false,
@@ -304,5 +331,5 @@ export async function loadReleaseProjectFromFile(): Promise<ReleaseProject | nul
   });
   if (typeof selected !== 'string') return null;
   const text = await readTextFile(selected);
-  return normalizeReleaseProject(JSON.parse(text));
+  return { project: normalizeReleaseProject(JSON.parse(text)), path: selected };
 }

@@ -23,9 +23,10 @@ export const tauriSettingsFs: SettingsFs = {
   async writeText(p, c) { await writeTextFile(p, c); },
   async exists(p) { try { return await exists(p); } catch { return false; } },
   async rename(a, b) {
-    // Tauri's rename fails if the destination exists on some platforms; remove
-    // first so the replace step is still effectively atomic from the app's view.
-    try { if (await exists(b)) await remove(b); } catch { /* ignore */ }
+    // PLAIN rename — NEVER delete the destination first (ALPHA-002 P1-5). The
+    // shared atomicWrite() backup-swap guarantees `b` does not exist when this
+    // is called, so a plain rename is safe on every platform and there is no
+    // window in which the user's file could be deleted.
     await rename(a, b);
   },
   async remove(p) { try { await remove(p); } catch { /* already gone */ } },

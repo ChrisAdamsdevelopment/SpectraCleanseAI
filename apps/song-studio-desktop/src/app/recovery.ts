@@ -35,6 +35,10 @@ export const MAX_SNAPSHOTS = 5;
 export interface DebounceState {
   /** When the project last changed (ms epoch). */
   lastChangeAt: number | null;
+  /** When the CURRENT dirty streak first became dirty (ms epoch). Reset to null
+   * on write. Used so continuous typing still reaches MAX_DEFER_MS even before
+   * the very first write of the session (P3). */
+  firstDirtyAt: number | null;
   /** When we last wrote (ms epoch). */
   lastWriteAt: number | null;
   /** Whether a change is waiting to be written. */
@@ -46,36 +50,33 @@ export const DEBOUNCE_MS = 1500;
 export const MAX_DEFER_MS = 10_000;
 
 export function emptyDebounceState(): DebounceState {
-  return { lastChangeAt: null, lastWriteAt: null, dirty: false };
+  return { lastChangeAt: null, firstDirtyAt: null, lastWriteAt: null, dirty: false };
 }
 
 export function markChanged(s: DebounceState, now: number): DebounceState {
-  return { ...s, dirty: true, lastChangeAt: now };
+  return { ...s, dirty: true, lastChangeAt: now, firstDirtyAt: s.dirty ? s.firstDirtyAt : now };
 }
 
 /** PURE: should we write right now? Writes when the edit has settled for
- * DEBOUNCE_MS, or when we have been deferring for MAX_DEFER_MS straight. */
+ * DEBOUNCE_MS, or when this dirty streak has been open for MAX_DEFER_MS straight
+ * — the latter works even before the first write of the session. */
 export function shouldWrite(s: DebounceState, now: number): boolean {
   if (!s.dirty || s.lastChangeAt === null) return false;
   const settled = now - s.lastChangeAt >= DEBOUNCE_MS;
-  const firstWrite = s.lastWriteAt === null;
-  const deferredTooLong = !firstWrite && now - s.lastWriteAt! >= MAX_DEFER_MS;
+  const deferredTooLong = s.firstDirtyAt !== null && now - s.firstDirtyAt >= MAX_DEFER_MS;
   return settled || deferredTooLong;
 }
 
 export function markWritten(s: DebounceState, now: number): DebounceState {
-  return { ...s, dirty: false, lastWriteAt: now };
+  return { ...s, dirty: false, firstDirtyAt: null, lastWriteAt: now };
 }
 
 // ── Atomic write ────────────────────────────────────────────────────────────
-
-/** Write text atomically: full content to a temp file, then replace the target.
- * A crash mid-write leaves either the old file or the new one — never a torn one. */
-export async function atomicWrite(path: string, content: string, fs: RecoveryFs): Promise<void> {
-  const tmp = `${path}.tmp`;
-  await fs.writeText(tmp, content);
-  await fs.rename(tmp, path);
-}
+// Re-exported from the shared safe-replace module (ALPHA-002 P1-5): backup-swap
+// so a crash mid-replace always leaves at least one valid copy. RecoveryFs
+// satisfies AtomicFs.
+export { atomicWrite } from './atomicFile';
+import { atomicWrite } from './atomicFile';
 
 // ── Snapshots ───────────────────────────────────────────────────────────────
 

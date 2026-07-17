@@ -47,18 +47,34 @@ const project = (n: number) => JSON.stringify({ schemaVersion: 5, title: 'Demo',
   assert.equal(shouldWrite(s, 1000 + DEBOUNCE_MS - 1), false, 'still typing → no write');
   assert.equal(shouldWrite(s, 1000 + DEBOUNCE_MS), true, 'writes once the edit settles');
 
-  // Continuous typing keeps deferring...
-  let t = 1000;
-  s = emptyDebounceState();
-  s = markChanged(s, t);
-  s = markWritten(s, t);          // baseline write
-  for (let i = 0; i < 20; i++) { t += 500; s = markChanged(s, t); }
-  // ...but never longer than MAX_DEFER_MS.
-  assert.equal(shouldWrite(s, t + 1), true, 'constant typing still forces a write within MAX_DEFER_MS');
-  assert.ok(t - 1000 >= MAX_DEFER_MS, 'sanity: we actually exceeded the defer window');
+  // Continuous typing keeps deferring, but never longer than MAX_DEFER_MS from
+  // when the dirty streak STARTED — this works even BEFORE the first write of
+  // the session (ALPHA-002 §15: no first-write starvation).
+  {
+    let t = 1000;
+    let d = emptyDebounceState();
+    d = markChanged(d, t);          // firstDirtyAt = 1000, NO prior write
+    const start = t;
+    for (let i = 0; i < 30; i++) { t += 500; d = markChanged(d, t); }  // keep typing past 10s
+    assert.equal(shouldWrite(d, start + MAX_DEFER_MS - 1), false, 'still within the defer window → no forced write');
+    assert.equal(shouldWrite(d, start + MAX_DEFER_MS), true, 'constant typing forces a write at MAX_DEFER_MS from the FIRST dirty change, even before any baseline write');
+  }
 
-  s = markWritten(s, t + 1);
-  assert.equal(shouldWrite(s, t + 2), false, 'clean again after writing');
+  // After a write, the streak restarts: the next change begins a fresh window,
+  // measured from ITS first dirty change (not the old one).
+  {
+    let d = emptyDebounceState();
+    d = markChanged(d, 1000);
+    d = markWritten(d, 1200);       // clean
+    assert.equal(shouldWrite(d, 5000), false, 'nothing pending after a write');
+    let t = 2000;
+    d = markChanged(d, t);          // new streak starts at 2000
+    for (let i = 0; i < 30; i++) { t += 500; d = markChanged(d, t); }  // keep typing
+    assert.equal(shouldWrite(d, 2000 + MAX_DEFER_MS - 1), false, 'new streak still deferring (measured from 2000, not the earlier write)');
+    assert.equal(shouldWrite(d, 2000 + MAX_DEFER_MS), true, 'new streak forces a write at MAX_DEFER_MS from ITS start');
+    d = markWritten(d, 2000 + MAX_DEFER_MS);
+    assert.equal(shouldWrite(d, 2000 + MAX_DEFER_MS + 1), false, 'clean again after writing');
+  }
 }
 
 // ── Atomic write: crash leaves the OLD file intact ─────────────────────────
@@ -187,6 +203,48 @@ const project = (n: number) => JSON.stringify({ schemaVersion: 5, title: 'Demo',
     'a saved project autosaves to its own file');
   assert.deepEqual(autosaveTarget(null, '/appdata/recovery'), { kind: 'recovery-only', dir: '/appdata/recovery' },
     'an unsaved project autosaves ONLY to the recovery area — we never pretend it has a home');
+}
+
+// ── §16-C: open-project autosave targets the user's file + reopen-last ──────
+// Simulates the App autosave decision path without React: an OPENED project has
+// a path → autosave replaces that file atomically AND writes a recovery
+// snapshot; a NEVER-saved project autosaves only to recovery. "Reopen last"
+// resolves the same path.
+{
+  const fs = memFs();
+  const recDir = '/appdata/' + RECOVERY_DIR;
+  const pathA = '/docs/song-a.songstudio.json';
+  const pathB = '/docs/song-b.songstudio.json';
+
+  // The user's file already exists on disk (they opened it).
+  await atomicWrite(pathA, project(1), fs);
+
+  // App autosave step for an OPENED project (explicitPath = pathA):
+  async function autosave(explicitPath: string | null, json: string) {
+    await writeSnapshot(recDir, json, fs);                       // always the crash net
+    const target = autosaveTarget(explicitPath, recDir);
+    if (target.kind === 'user-file') await atomicWrite(target.path, json, fs);   // P1-7
+  }
+
+  await autosave(pathA, project(2));
+  assert.equal(JSON.parse(fs.files.get(pathA)!).rev, 2, 'autosave replaced the OPENED project file (path retained)');
+  assert.ok((await listSnapshots(recDir, fs)).length >= 1, 'a recovery snapshot exists as a backup too');
+
+  // "Reopen last" resolves pathA and reads rev 2.
+  assert.ok(await fs.exists(pathA), 'last-project path is a real file to reopen');
+  assert.equal(JSON.parse(fs.files.get(pathA)!).rev, 2, 'reopen-last would read the latest autosaved content');
+
+  // Save As from A to B: future autosaves target B, not A.
+  await atomicWrite(pathB, project(3), fs);                      // Save As wrote B
+  await autosave(pathB, project(4));
+  assert.equal(JSON.parse(fs.files.get(pathB)!).rev, 4, 'after Save As, autosave targets the NEW file B');
+  assert.equal(JSON.parse(fs.files.get(pathA)!).rev, 2, 'the old file A is left untouched after Save As');
+
+  // A never-saved project autosaves ONLY to recovery, never inventing a home.
+  const before = (await listSnapshots(recDir, fs)).length;
+  await autosave(null, project(9));
+  assert.equal((await listSnapshots(recDir, fs)).length, before + 1, 'unsaved project still snapshots');
+  // (no user file was created for it — there is nothing to assert a path for)
 }
 
 console.log('[recovery] PASS — debounce (settle + max-defer), atomic replacement preserves the old file on crash, rolling snapshot window, newest-valid load with corrupt fallback (bad files preserved), pending-job + accepted-take restoration, unclean-shutdown detection, launch-offer ordering, honest autosave target.');

@@ -9,6 +9,7 @@
 //   - a corrupt file is preserved as .corrupt for diagnosis rather than deleted.
 
 import { migrateAppSettings, defaultAppSettings, type AppSettings } from './appSettings';
+import { atomicWrite } from './atomicFile';
 
 export interface SettingsFs {
   readText(path: string): Promise<string>;
@@ -51,10 +52,10 @@ export async function loadAppSettings(dir: string, fs: SettingsFs): Promise<Load
 export async function saveAppSettings(dir: string, settings: AppSettings, fs: SettingsFs): Promise<number> {
   await fs.mkdir(dir);
   const path = fs.join(dir, SETTINGS_FILE);
-  const tmp = `${path}.tmp`;
   const content = JSON.stringify(settings, null, 2);
-  await fs.writeText(tmp, content);
-  await fs.rename(tmp, path);   // replace is the atomic step
+  // Backup-swap safe replace (ALPHA-002 P1-5): never leaves settings.json in a
+  // torn state, and never deletes the old file before the new one is in place.
+  await atomicWrite(path, content, fs);
   return content.length;
 }
 
