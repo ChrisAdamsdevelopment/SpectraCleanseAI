@@ -60,8 +60,13 @@ matching private key.
 - Rotating the key requires shipping a new build with the new `pubkey`, which existing installs
   can only get by reinstalling. Treat rotation as a last resort.
 
-> The `pubkey` is currently **empty** in `tauri.conf.json`. Until you paste a real public key,
-> in-app updates cannot verify. This is the single blocking item for update delivery.
+> The `pubkey` is currently **empty** in `tauri.conf.json`, and `bundle.createUpdaterArtifacts`
+> is on. A real `tauri build` (2026-07-16) confirmed the build **produces the installer but then
+> FAILS at the updater-signing step** when `TAURI_SIGNING_PRIVATE_KEY` is absent. Therefore an
+> alpha **release requires** the signing key + a real `pubkey` — the workflow now fails early and
+> clearly if either is missing. (You can still run `tauri build` locally to smoke-test the
+> UNSIGNED `.exe`, which is produced before the signing step.) This is the single blocking item
+> for update delivery.
 
 ---
 

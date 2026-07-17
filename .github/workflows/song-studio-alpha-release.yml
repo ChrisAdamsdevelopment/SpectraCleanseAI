@@ -126,6 +126,24 @@ jobs:
       - name: Validate release configuration
         run: npm run alpha:config:test
 
+      # Fail EARLY and clearly (§10) rather than 15 minutes into the build:
+      # bundle.createUpdaterArtifacts is on, so `tauri build` produces the
+      # installer but then FAILS at the updater-signing step without a private
+      # key (verified by a real build 2026-07-16). An alpha release therefore
+      # REQUIRES the updater signing secret + a real pubkey.
+      - name: Require updater signing key
+        shell: bash
+        run: |
+          if [ -z "${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}" ]; then
+            echo "::error::TAURI_SIGNING_PRIVATE_KEY is not set. Alpha releases require the updater signing key (the build produces updater artifacts and will fail without it). Run 'npm run updater:keygen', set the secret + set plugins.updater.pubkey in tauri.conf.json, then re-run. To build a local UNSIGNED installer for smoke-testing only, run 'tauri build' locally — the .exe is still produced before the signing step."
+            exit 1
+          fi
+          PUBKEY=$(node -p "require('./src-tauri/tauri.conf.json').plugins.updater.pubkey || ''")
+          if [ -z "$PUBKEY" ]; then
+            echo "::error::plugins.updater.pubkey is empty in tauri.conf.json. Paste the public key from 'npm run updater:keygen' so installed builds can verify updates."
+            exit 1
+          fi
+
       - name: Resolve version
         id: v
         shell: bash

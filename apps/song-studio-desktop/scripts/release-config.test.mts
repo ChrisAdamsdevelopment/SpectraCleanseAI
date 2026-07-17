@@ -172,6 +172,10 @@ const cargo = readFileSync(join(APP, 'src-tauri', 'Cargo.toml'), 'utf8');
   // Fail-if-missing installer, and updater is skipped (not faked) when unsigned.
   assert.ok(/refusing to publish/i.test(wf), 'workflow fails if the installer is missing');
   assert.ok(/signed\s*==\s*'true'/.test(wf), 'updater publish is gated on a real signature (no fake update channel)');
+  // A real build proved createUpdaterArtifacts fails without a signing key, so the
+  // release must require it EARLY and clearly (§10).
+  assert.ok(/Require updater signing key/.test(wf), 'the workflow requires the updater signing key up front');
+  assert.ok(/pubkey is empty/i.test(wf), 'and fails clearly when the pubkey is empty');
   // §12: no misleading "code signing configured" claim.
   assert.ok(!/code signing.*\*\*configured\*\*/i.test(wf), 'workflow never claims Windows code signing is configured');
 
