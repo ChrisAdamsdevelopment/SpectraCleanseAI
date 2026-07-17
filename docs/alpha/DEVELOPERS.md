@@ -51,6 +51,43 @@ If you add a provider, add its key pattern to `redactSecret()` **and** to the as
 
 ---
 
+## 2b. Canonical credential flow + runtime provider routing (ALPHA-002)
+
+There is ONE credential path. Settings and generation resolve keys through the
+same service:
+
+```
+SettingsScreen (connect/test/forget)
+  └─ secureStore.rememberKey/forgetKey ── OS vault (keyring) OR session memory
+App (useAppState.secureStore) ──────────── connectedAccounts() snapshot ─┐
+createTauriDirectorHost({ keyFor, connected, io })                       │
+  keyFor(account)  = providerRuntime.keyForAccount(account, store) ──────┘  (async, per request)
+  connected()      = live snapshot (sync, for UI gating — no restart needed)
+```
+
+- Adapters receive a **resolved key at request time**; `keyFor` reads the vault
+  or session. The env-var fallback is DEV-ONLY and gated behind
+  `SONG_STUDIO_DEV_KEYS=1`, so a stray developer env var can never make an
+  installed build behave as if a key exists.
+- **Routing is by stable provider id**, never a model-name substring:
+  `videoAdapterFor(id, key, io)` → Omni / Veo / Grok-video;
+  `imageAdapterFor(id, key, io)` → Gemini / Grok-image. Missing credentials
+  **block with a clear reason** and make no network call. There is no silent
+  Grok→Google fallback.
+- **`providerConfigured()`** reflects the RESOLVED provider's account against the
+  connected snapshot. Connecting a key in Settings makes it usable immediately.
+- **`resolvedVideoProviderId()` / `resolvedImageProviderId()`** resolve `'auto'`
+  by capability + connection; the SceneBoard records the CONCRETE id on the take.
+- Session-only "Connected" metadata is cleared on boot
+  (`clearStaleSessionCredentials`) so the UI never claims a key that is gone.
+
+## 2c. Take-scoped polling (ALPHA-002 P1-3)
+
+`pollGeneration(jobId, providerId)` and `pollReferenceGeneration(jobId, providerId)`
+poll the provider RECORDED on the take/request (`take.providerJob.providerId`),
+never the current dropdown selection. A Grok job never polls Google and vice
+versa, even after switching providers or reopening the project.
+
 ## 3. Provider architecture
 
 Unchanged from DEC-003: canonical direction → conditioning compiler → `GenerationPacket` →
@@ -92,7 +129,20 @@ Pure logic + an injected `RecoveryFs`; the Node harness and the Tauri host share
 
 - **Debounce:** `shouldWrite()` fires when an edit settles for `DEBOUNCE_MS` (1.5s) *or* when
   we've deferred for `MAX_DEFER_MS` (10s) under constant typing.
-- **Atomic:** `atomicWrite()` = temp + rename. A crash never truncates a project.
+- **Atomic (ALPHA-002 P1-5):** `atomicWrite()` in `app/atomicFile.ts` is a
+  **backup-swap** safe replace (temp → move-old-aside → rename-in → drop-backup;
+  restore-on-failure). It NEVER deletes the destination before the replacement,
+  so a crash always leaves at least one valid copy. Both settings and project
+  files use it; the host `rename` is a plain rename (the swap guarantees the
+  target never exists at rename time). Proven by `app:atomic:test` against a real
+  temp dir with injected failures at each step.
+- **Opened-project path ownership (P1-7):** `loadReleaseProjectFromFile()` returns
+  `{ project, path }`; App threads the path so autosave targets the user's file
+  (not just recovery), `lastProjectPath` is set, Save writes the current path and
+  Save As prompts. `readProjectAtPath()` powers reopen-last.
+- **Recovery UI (P1-4):** the start screen renders `recoveryOffer` (recover /
+  reopen-last / open-another / dismiss); `snapshotNewerThanFile` is computed by
+  comparing the snapshot's `updatedAt` with the saved file's, not hardcoded.
 - **Snapshots:** zero-padded names so lexicographic == chronological; rolling window of
   `MAX_SNAPSHOTS` (5); `loadNewestValidSnapshot()` skips corrupt files and **preserves them**.
 - **Unclean shutdown:** a `session.open` marker is written at launch and removed on clean exit.

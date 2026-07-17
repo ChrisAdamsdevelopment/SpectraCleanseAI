@@ -122,11 +122,18 @@ Add references later, only when a scene actually needs them.
 
 ---
 
-## Saving
+## Saving, reopening, and recovery
 
-Song Studio saves as you work and remembers your last project. If it ever closes unexpectedly,
-it offers to recover your work the next time you open it. **Save** and **Save As** still work
-normally.
+Song Studio saves as you work. Your projects are `.songstudio.json` files you choose the location
+for.
+
+- **Save** writes to your current project file; **Save As** makes a copy at a new location.
+- When you reopen Song Studio, the opening screen offers **Reopen last project**.
+- If Song Studio ever closes unexpectedly, the opening screen offers **Recover unsaved work**.
+  Recovering never overwrites your saved file until you choose to Save — your original is safe.
+
+Everything you need (Settings, your version, update status, and whether the video engine is
+working) is on that opening screen, before you open a project.
 
 ---
 

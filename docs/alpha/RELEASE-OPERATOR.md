@@ -111,14 +111,37 @@ A **prerelease** containing:
 
 | Asset | Purpose |
 |---|---|
-| `Song-Studio-<v>-Windows-x64-Setup.exe` | NSIS installer — the primary download |
+| `Song-Studio-<v>-Windows-x64-Setup.exe` | NSIS installer — the primary download (also the Tauri v2 updater artifact) |
 | `Song-Studio-<v>-Windows-x64-Portable.zip` | Portable build (exe + FFmpeg sidecar), no auto-update |
-| `Song-Studio-<v>-Windows-x64-Updater.zip` + `.sig` | Consumed by the in-app updater |
-| `latest.json` | The update manifest the app polls |
+| `Song-Studio-<v>-Windows-x64-Setup.exe.sig` | Tauri v2 updater signature (there is NO `.nsis.zip` — that was v1) |
+| `latest.json` (on the `song-studio-alpha-updater` tag) | The manifest the app polls |
 | `SHA256SUMS.txt` | Checksums |
 
-The app polls the **`latest.json` attached to the newest release**
-(`.../releases/latest/download/latest.json`).
+### How the update channel works (prerelease-safe)
+
+GitHub's `/releases/latest` **excludes prereleases**, and every alpha is a prerelease — so the app
+does NOT poll `/releases/latest`. Instead it polls a **fixed release tag**
+`song-studio-alpha-updater` whose assets the workflow **replaces on every publish**:
+
+- `latest.json` — the manifest (version, notes, signature, and a stable installer URL)
+- `Song-Studio-Windows-x64-Setup.exe` — the newest signed installer (stable name)
+- `Song-Studio-Windows-x64-Setup.exe.sig` — its updater signature
+
+The endpoint in `tauri.conf.json` is
+`.../releases/download/song-studio-alpha-updater/latest.json`. This is independent of GitHub's
+prerelease handling and supports alpha.1 → alpha.2 ordering.
+
+**If updater signing is not configured** (`TAURI_SIGNING_PRIVATE_KEY` absent), the workflow still
+builds and publishes the installer, but **skips the updater channel** and the job summary says
+in-app updates are disabled — it never publishes a fake/unsigned update.
+
+### Windows code signing
+
+Windows code signing is **not performed** by the workflow (setting a certificate env var alone
+does not sign anything in Tauri v2 — it needs `bundle.windows.certificateThumbprint`/`signCommand`
+plus a certificate import step). The alpha ships **unsigned on purpose**; SmartScreen warns and
+that is documented for testers. Updater signing (minisign) is separate and IS required for
+in-app updates.
 
 ---
 
