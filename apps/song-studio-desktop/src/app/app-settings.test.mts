@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import {
   defaultAppSettings, normalizeAppSettings, migrateAppSettings, shouldShowOnboarding,
   completeOnboarding, resetOnboarding, setCredentialMeta, clearCredentialMeta,
-  setPreferredProvider, APP_SETTINGS_SCHEMA_VERSION,
+  setPreferredProvider, clearStaleSessionCredentials, APP_SETTINGS_SCHEMA_VERSION,
 } from './appSettings';
 import { loadAppSettings, saveAppSettings, settingsContainsSecretLike, SETTINGS_FILE, type SettingsFs } from './settingsStore';
 
@@ -177,4 +177,23 @@ function memFs() {
   assert.equal(s.providers.credentials.google, undefined, 'forgetting a key removes its metadata');
 }
 
-console.log('[app-settings] PASS — defaults, total normalization, migration (onboarding survives), no-secrets boundary, atomic write + crash safety, corruption fallback, one-time onboarding across restart/update/reset, credential metadata.');
+// ── ALPHA-002 §8: stale session-only "Connected" is cleared on boot ─────────
+{
+  // A session-only credential that persisted `configured:true` is stale after a
+  // restart (the key is gone). Boot must downgrade it so the UI never lies.
+  let s = setCredentialMeta(defaultAppSettings(), 'google', { configured: true, storage: 'session', lastSuccessAt: '2026-07-16T00:00:00Z' });
+  s = setCredentialMeta(s, 'xai', { configured: true, storage: 'secure', lastSuccessAt: '2026-07-16T00:00:00Z' });
+
+  const booted = clearStaleSessionCredentials(s);
+  assert.equal(booted.providers.credentials.google.configured, false, 'session-only credential is NOT connected after restart');
+  assert.equal(booted.providers.credentials.google.storage, 'none', 'and its storage mode is downgraded');
+  assert.equal(booted.providers.credentials.xai.configured, true, 'a securely-stored credential SURVIVES restart');
+  assert.equal(booted.providers.credentials.xai.storage, 'secure');
+
+  // No stale session metadata → same object back (so boot can skip a write).
+  assert.equal(clearStaleSessionCredentials(booted), booted, 'no-op returns the same object when nothing is stale');
+  const fresh = defaultAppSettings();
+  assert.equal(clearStaleSessionCredentials(fresh), fresh, 'a fresh install has nothing to clear');
+}
+
+console.log('[app-settings] PASS — defaults, total normalization, migration (onboarding survives), no-secrets boundary, atomic write + crash safety, corruption fallback, one-time onboarding across restart/update/reset, credential metadata, and stale session-only "Connected" cleared on boot.');

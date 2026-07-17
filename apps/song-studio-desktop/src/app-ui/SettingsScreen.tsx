@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { AppSettings, CredentialStorageMode } from '../app/appSettings';
 import { setCredentialMeta, clearCredentialMeta, setPreferredProvider, resetOnboarding } from '../app/appSettings';
 import { ACCOUNTS, accountInfo, testAccount, type AccountId } from '../app/providerRuntime';
@@ -63,7 +63,7 @@ function ProvidersTab(d: SettingsDeps) {
     <div className="settings-body">
       <p className="muted">Song Studio directs; a provider generates. You bring your own key — Song Studio never charges you and never sells credits.</p>
 
-      {ACCOUNTS.map((a) => <AccountCard key={a.id} account={a.id} {...d} />)}
+      {ACCOUNTS.map((a) => <AccountCard key={a.id} account={a.id} focused={d.focusAccount === a.id} {...d} />)}
 
       <div className="prov-card">
         <div className="prov-head">
@@ -80,10 +80,14 @@ function ProvidersTab(d: SettingsDeps) {
   );
 }
 
-function AccountCard({ account, settings, update, secureStore, io }: SettingsDeps & { account: AccountId }) {
+function AccountCard({ account, settings, update, secureStore, io, focused }: SettingsDeps & { account: AccountId; focused?: boolean }) {
   const info = accountInfo(account);
   const meta = settings.providers.credentials[account];
   const connected = Boolean(meta?.configured);
+  const cardRef = useRef<HTMLDivElement | null>(null);
+  // §15: when opened from onboarding for a specific account, scroll it into view
+  // and briefly highlight it so the creator lands on the right card.
+  useEffect(() => { if (focused && cardRef.current) cardRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' }); }, [focused]);
   const [key, setKey] = useState('');
   const [mode, setMode] = useState<CredentialStorageMode>('secure');
   const [busy, setBusy] = useState('');
@@ -141,7 +145,7 @@ function AccountCard({ account, settings, update, secureStore, io }: SettingsDep
   };
 
   return (
-    <div className={`prov-card${connected ? ' connected' : ''}`}>
+    <div ref={cardRef} className={`prov-card${connected ? ' connected' : ''}${focused ? ' focused' : ''}`}>
       <div className="prov-head">
         <div>
           <h3>{info.label}</h3>

@@ -507,3 +507,11 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 .upd-notes { margin-top: 10px; }
 .diag-preview { max-height: 220px; overflow: auto; }
 .diag-opts { display: grid; gap: 6px; font-size: 13px; margin-bottom: 10px; }
+
+/* ── ALPHA-002: start-screen alpha bar + recovery offer ───────────────────── */
+.start-view { min-height: 100vh; }
+.start-bar { display: flex; align-items: center; gap: 12px; padding: 10px 18px; border-bottom: 1px solid var(--border); }
+.start-bar .brand { font-weight: 600; }
+.recovery-offer { margin: 14px 18px; }
+.recovery-offer > div { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 10px; }
+.prov-card.focused { border-color: var(--accent, #6ea8fe); box-shadow: 0 0 0 2px var(--accent, #6ea8fe); }

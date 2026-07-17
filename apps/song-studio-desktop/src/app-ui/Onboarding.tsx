@@ -59,6 +59,8 @@ export function Onboarding({ onConnect, onFinish }: {
             </div>
             <p className="muted small">You bring your own API key. Song Studio never charges you and never sells credits — you pay the provider directly. No key? Manual packages work without one.</p>
             <div className="onb-actions">
+              <button className="ghost" onClick={() => setStage('welcome')}>Back</button>
+              <div className="spacer" />
               <button className="ghost" onClick={skip}>Skip for now</button>
               <button className="primary" onClick={() => setStage('begin')}>Continue</button>
             </div>
@@ -75,6 +77,8 @@ export function Onboarding({ onConnect, onFinish }: {
               <button className="onb-provider" onClick={() => onFinish('complete', 'explore')}><b>Explore Song Studio</b><span className="muted small">Look around first</span></button>
             </div>
             <div className="onb-actions">
+              <button className="ghost" onClick={() => setStage('providers')}>Back</button>
+              <div className="spacer" />
               <button className="ghost" onClick={skip}>Skip</button>
             </div>
           </>

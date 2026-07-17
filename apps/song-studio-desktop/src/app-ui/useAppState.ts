@@ -6,7 +6,8 @@ import {
   type HealthReport,
 } from '../app/appHost';
 import { loadAppSettings, saveAppSettings } from '../app/settingsStore';
-import { defaultAppSettings, type AppSettings } from '../app/appSettings';
+import { defaultAppSettings, clearStaleSessionCredentials, type AppSettings } from '../app/appSettings';
+import { readProjectAtPath } from '../project/storage';
 import type { SecureStore } from '../app/secureStore';
 import {
   initialUpdaterState, checkForUpdate, downloadUpdate, restartIntoUpdate, maybeStartupCheck,
@@ -37,8 +38,12 @@ export interface AppStateApi {
   restart: (busy: BusyState) => Promise<void>;
   /** Launch offer (reopen last / recover). Cleared by dismissRecovery(). */
   recoveryOffer: RecoveryOffer;
+  /** Timestamps behind the recovery offer, for a truthful UI ("last saved …"). */
+  recoveryMeta: { snapshotUpdatedAt: string | null; fileUpdatedAt: string | null };
   dismissRecovery: () => void;
   loadRecoverySnapshot: () => Promise<unknown | null>;
+  /** Non-null when the last autosave failed (surfaced to the creator). */
+  autosaveError: string | null;
   /** Autosave a project payload; explicitPath=null → recovery area only. */
   noteProjectChanged: (json: string, explicitPath: string | null) => void;
   lastAutosaveAt: string | null;
@@ -52,7 +57,9 @@ export function useAppState(): AppStateApi {
   const [appVersion, setAppVersion] = useState('0.1.0-alpha.1');
   const [updater, setUpdater] = useState<UpdaterState>(initialUpdaterState('0.1.0-alpha.1'));
   const [recoveryOffer, setRecoveryOffer] = useState<RecoveryOffer>({ kind: 'none' });
+  const [recoveryMeta, setRecoveryMeta] = useState<{ snapshotUpdatedAt: string | null; fileUpdatedAt: string | null }>({ snapshotUpdatedAt: null, fileUpdatedAt: null });
   const [lastAutosaveAt, setLastAutosaveAt] = useState<string | null>(null);
+  const [autosaveError, setAutosaveError] = useState<string | null>(null);
 
   const dirRef = useRef<string | null>(null);
   const settingsRef = useRef(settings); settingsRef.current = settings;
@@ -62,6 +69,7 @@ export function useAppState(): AppStateApi {
   const debounce = useRef(emptyDebounceState());
   const pending = useRef<{ json: string; explicitPath: string | null } | null>(null);
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const writeInFlight = useRef(false);
 
   // ── Boot ────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -80,29 +88,50 @@ export function useAppState(): AppStateApi {
         ]);
         if (cancelled) return;
 
-        setSettingsState(loaded.settings);
+        // §8: session-only credentials do NOT survive a restart, so any
+        // "configured · session" metadata is stale on a fresh process. Downgrade
+        // it before anything reads it, so the UI never claims Connected when no
+        // key exists. Secure-stored metadata is left untouched.
+        let booted = clearStaleSessionCredentials(loaded.settings);
+
+        setSettingsState(booted);
         setSecureStore(store);
         setHealth(h);
         setAppVersion(v);
         setUpdater(initialUpdaterState(v));
 
-        // If a migration happened, persist the upgraded shape immediately so the
-        // next launch is cheap and the file is never left in an older form.
-        if (loaded.migratedFrom !== null || loaded.status !== 'ok') {
-          await saveAppSettings(dir, loaded.settings, tauriSettingsFs).catch(() => {});
+        // Persist if migration happened OR we cleared stale session metadata, so
+        // the file is never left in an older/inconsistent form.
+        if (loaded.migratedFrom !== null || loaded.status !== 'ok' || booted !== loaded.settings) {
+          await saveAppSettings(dir, booted, tauriSettingsFs).catch(() => {});
         }
 
         // Recovery: was the last session clean, and is there a snapshot?
         const recDir = tauriRecoveryFs.join(dir, RECOVERY_DIR);
         const unclean = await wasUncleanShutdown(recDir, tauriRecoveryFs);
         const snap = await loadNewestValidSnapshot(recDir, tauriRecoveryFs);
+
+        // REAL freshness (P1-4): compare the newest snapshot's updatedAt with the
+        // saved project file's updatedAt. A snapshot strictly newer than the file
+        // means unsaved work exists even after a clean exit.
+        let snapshotNewer = false;
+        if (snap.value && booted.lastProjectPath) {
+          try {
+            const fileProj = await readProjectAtPath(booted.lastProjectPath);
+            const snapAt = (snap.value as { updatedAt?: string }).updatedAt ?? '';
+            const fileAt = fileProj?.updatedAt ?? '';
+            snapshotNewer = Boolean(snapAt) && snapAt > fileAt;
+            setRecoveryMeta({ snapshotUpdatedAt: snapAt || null, fileUpdatedAt: fileAt || null });
+          } catch { /* leave as false */ }
+        } else if (snap.value) {
+          setRecoveryMeta({ snapshotUpdatedAt: (snap.value as { updatedAt?: string }).updatedAt ?? null, fileUpdatedAt: null });
+        }
+
         setRecoveryOffer(decideLaunchOffer({
-          lastProjectPath: loaded.settings.lastProjectPath,
+          lastProjectPath: booted.lastProjectPath,
           uncleanShutdown: unclean,
           newestSnapshot: snap.name,
-          // We only claim "newer" when we cannot prove otherwise; an unclean
-          // shutdown already forces the recover branch.
-          snapshotNewerThanFile: false,
+          snapshotNewerThanFile: snapshotNewer,
         }));
 
         // Mark this session open; clear it on a clean exit.
@@ -140,7 +169,11 @@ export function useAppState(): AppStateApi {
       const { json, explicitPath } = pending.current;
       const recDir = tauriRecoveryFs.join(dirRef.current, RECOVERY_DIR);
       const target = autosaveTarget(explicitPath, recDir);
-      debounce.current = markWritten(debounce.current, now);
+      // Mark that a write is IN FLIGHT so we do not stack writes, but do NOT
+      // clear the dirty flag until the write SUCCEEDS (P3) — a failed write must
+      // be retried, not silently dropped.
+      if (writeInFlight.current) return;
+      writeInFlight.current = true;
       void (async () => {
         try {
           // A rolling snapshot ALWAYS happens — that is the crash net.
@@ -148,8 +181,16 @@ export function useAppState(): AppStateApi {
           // A project the creator actually saved also updates its own file,
           // atomically. An unsaved project stays in the recovery area only.
           if (target.kind === 'user-file') await atomicWrite(target.path, json, tauriRecoveryFs);
+          debounce.current = markWritten(debounce.current, Date.now());   // only NOW is it clean
           setLastAutosaveAt(new Date().toISOString());
-        } catch { /* autosave must never surface as a crash */ }
+          setAutosaveError(null);
+        } catch (e) {
+          // Surface the failure (P3) and leave the dirty flag set so the next
+          // tick retries. Never crash the app over an autosave.
+          setAutosaveError(e instanceof Error ? e.message : String(e));
+        } finally {
+          writeInFlight.current = false;
+        }
       })();
     }, 500);
     return () => { if (timer.current) clearInterval(timer.current); };
@@ -193,7 +234,7 @@ export function useAppState(): AppStateApi {
     healthMessages: healthProblems(health),
     appVersion, updater,
     checkUpdates, downloadUpdate: doDownload, restart,
-    recoveryOffer, dismissRecovery: () => setRecoveryOffer({ kind: 'none' }),
-    loadRecoverySnapshot, noteProjectChanged, lastAutosaveAt,
+    recoveryOffer, recoveryMeta, dismissRecovery: () => setRecoveryOffer({ kind: 'none' }),
+    loadRecoverySnapshot, noteProjectChanged, lastAutosaveAt, autosaveError,
   };
 }

@@ -208,6 +208,26 @@ export function clearCredentialMeta(s: AppSettings, providerId: string): AppSett
   return { ...s, providers: { ...s.providers, credentials } };
 }
 
+/** On boot (ALPHA-002 §8): a session-only key cannot survive a restart, so any
+ * `storage:'session'` credential that still claims `configured:true` is stale.
+ * Downgrade it to not-configured so the UI never shows "Connected" without a
+ * key. Secure-stored metadata is left untouched. Returns the same object when
+ * nothing changed (so callers can skip a needless write). */
+export function clearStaleSessionCredentials(s: AppSettings): AppSettings {
+  const entries = Object.entries(s.providers.credentials);
+  let changed = false;
+  const credentials: Record<string, CredentialMeta> = {};
+  for (const [id, meta] of entries) {
+    if (meta.storage === 'session' && meta.configured) {
+      credentials[id] = { ...meta, configured: false, storage: 'none' };
+      changed = true;
+    } else {
+      credentials[id] = meta;
+    }
+  }
+  return changed ? { ...s, providers: { ...s.providers, credentials } } : s;
+}
+
 export function setPreferredProvider(s: AppSettings, role: keyof AppSettings['providers']['preferred'], providerId: ProviderPreference): AppSettings {
   return { ...s, providers: { ...s.providers, preferred: { ...s.providers.preferred, [role]: providerId } } };
 }
