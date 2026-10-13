@@ -1,0 +1,49 @@
+name: Song Studio desktop CI
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'apps/song-studio-desktop/**'
+      - '.github/workflows/song-studio-ci.yml'
+      - 'docs/**'
+      - 'README.md'
+  push:
+    branches: [main]
+    paths:
+      - 'apps/song-studio-desktop/**'
+      - '.github/workflows/song-studio-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  desktop-validation:
+    runs-on: windows-latest
+    timeout-minutes: 35
+    defaults:
+      run:
+        working-directory: apps/song-studio-desktop
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: apps/song-studio-desktop/package-lock.json
+      - name: Install frozen desktop dependencies
+        run: npm ci
+      - name: Dependency security audit (high and critical)
+        run: npm audit --audit-level=high
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Build frontend
+        run: npm run build
+      - name: Model and security tests (mock only)
+        run: |
+          npm run director:model:test
+          npm run director:logic:test
+          npm run app:security:test
+          npm run host:integration:test
+      - name: FFmpeg director assembly smoke (synthetic assets only)
+        run: npm run director:assembly:smoke

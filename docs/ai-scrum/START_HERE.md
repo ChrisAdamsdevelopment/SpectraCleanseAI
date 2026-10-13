@@ -20,8 +20,9 @@ A durable product mission sits above the single active North Star and explains w
 
 - Active product: **Song Studio Desktop**.
 - Active app path: `apps/song-studio-desktop/`.
-- Old root SpectraCleanse web app: **off limits unless explicitly requested**.
+- Retired web application: no longer in the active main tree. New work must focus on Song Studio Desktop.
 - Current default base for new work: latest remote `main`, unless the owner explicitly names another base.
+- Current published implementation status: [Song Studio status](../SONG_STUDIO_STATUS.md).
 - Do not branch from or modify another open PR unless the owner explicitly says to do that.
 
 ## Current work
@@ -40,6 +41,7 @@ A durable product mission sits above the single active North Star and explains w
 - Decision record template: `docs/ai-scrum/templates/decision-record.md`
 - First decision record: `docs/ai-scrum/decisions/DEC-001-directed-video-north-star.md`
 - Product mission / active wedge / future horizons: `docs/ai-scrum/decisions/DEC-002-product-mission-active-wedge-and-future-horizons.md`
+- Director Mode / AI production engine doctrine: `docs/ai-scrum/decisions/DEC-003-director-mode-ai-production-engine.md`
 
 ## Required agent handoff header
 

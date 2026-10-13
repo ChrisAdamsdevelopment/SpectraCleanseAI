@@ -18,7 +18,7 @@ export interface ContextDecision {
 }
 
 export interface ContextModeInput {
-  view: 'start' | 'home' | 'editor' | 'canvas-test-drive';
+  view: 'start' | 'home' | 'editor' | 'canvas-test-drive' | 'director';
   activeOutputFunctionId: string | null;
   hasLoopCore: boolean;
   hasExportResult: boolean;

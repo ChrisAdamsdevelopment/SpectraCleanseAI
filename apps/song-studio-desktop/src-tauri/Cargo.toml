@@ -1,10 +1,13 @@
 [package]
 name = "song-studio-desktop"
-version = "0.1.0"
-description = "Song Studio desktop app"
+version = "0.1.0-alpha.1"
+description = "Song Studio — direct AI-generated moving scenes around your music"
 authors = ["SpectraCleanse"]
 edition = "2021"
 rust-version = "1.77.2"
+homepage = "https://github.com/ChrisAdamsdevelopment/SpectraCleanseAI"
+repository = "https://github.com/ChrisAdamsdevelopment/SpectraCleanseAI"
+license = "SEE LICENSE IN LICENSE"
 
 [lib]
 name = "song_studio_desktop_lib"
@@ -14,8 +17,31 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
+# `protocol-asset` matches app.security.assetProtocol.enable in tauri.conf.json —
+# it is what lets the UI preview local reference images and generated MP4s via
+# convertFileSrc. Declaring it here keeps a plain `cargo check` honest instead of
+# only working under the Tauri CLI, which injects allowlist features implicitly.
+tauri = { version = "2", features = ["protocol-asset"] }
 tauri-plugin-dialog = "2"
 tauri-plugin-fs = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+
+# ALPHA-001 §7: API keys live in the OS credential store (Windows Credential
+# Manager), never in project/settings JSON. The Windows alpha is the shipping
+# target; macOS/Linux backends are feature-gated per target below.
+keyring = "3"
+
+# ALPHA-001 §3: in-app updates. Updater needs `process` for relaunch.
+[target.'cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))'.dependencies]
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+keyring = { version = "3", features = ["windows-native"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+keyring = { version = "3", features = ["apple-native"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+keyring = { version = "3", features = ["sync-secret-service"] }
