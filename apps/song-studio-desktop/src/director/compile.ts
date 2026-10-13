@@ -1,0 +1,463 @@
+// CONDITIONING COMPILER (DEC-003 §6) — the translation layer between
+// human-facing direction and machine-facing generation inputs.
+//
+// Canonical scene direction is provider-independent. This module compiles a
+// ScenePlan (+ its castings, tool outputs, and lyric performance) into a
+// GenerationPacket: a deterministic manifest, a prompt, negative constraints,
+// NAMED reference files, conditioning data, and a return contract. A contact
+// sheet or storyboard is a compiled ARTIFACT; the canonical references stay
+// separate and remain the source of truth. Pure module: no IO — packet
+// writers (Node/Tauri) materialize the file list.
+
+import {
+  fnv1a64, RELATIONSHIP_MEANING, sceneLyrics,
+  isPoseSequenceData, isCameraPathData, isImageBoardData, isReferencePickData,
+  type DirectorState, type ScenePlan, type GenerationTake, type DirectorEntity,
+  type ReferenceVariant, type LyricEvent, type ConditioningRecipe, type PoseSequenceData,
+  type CameraPathData,
+} from './model';
+import type { ProviderCapabilities } from './providers/types';
+import { contactSheetSvg, storyboardSvg, poseSheetSvg, performanceScoreSvg, motionGuideSvg } from './artifacts';
+
+export function slug(s: string): string {
+  return s.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 40) || 'unnamed';
+}
+
+// ── Packet shapes ────────────────────────────────────────────────────────────
+
+export interface PacketReference {
+  fileName: string;        // deterministic packet-relative name under references/
+  sourcePath: string;      // local file it is copied from
+  entityId: string;
+  entityName: string;
+  referenceId: string;
+  kind: string;
+}
+
+export type PacketFileDirective =
+  | { kind: 'text'; relPath: string; content: string }
+  | { kind: 'copy'; relPath: string; sourcePath: string }
+  | { kind: 'audio-segment'; relPath: string; audioPath: string; startSec: number; durationSec: number };
+
+export interface GenerationPacket {
+  attemptId: string;
+  sceneId: string;
+  recipe: ConditioningRecipe;
+  prompt: string;
+  negative: string;
+  promptDigest: string;
+  references: PacketReference[];
+  timing: { sceneStartSec: number; sceneEndSec: number; durationSec: number };
+  aspect: '9:16' | '16:9';
+  resolution: string;
+  entityFingerprints: Record<string, string>;
+  preserveRules: string[];
+  varyRules: string[];
+  files: PacketFileDirective[];   // complete manual-package file list
+  manifest: Record<string, unknown>;
+}
+
+// ── Deterministic reference naming ───────────────────────────────────────────
+// character_sobelo_face_front.png / tattoo_left_forearm_close.png style names:
+// <entityType>_<entitySlug>_<kind>[_<n>].<ext>
+
+function refFileName(entity: DirectorEntity, ref: ReferenceVariant, seen: Set<string>): string {
+  const ext = (ref.path.split('.').pop() || 'png').toLowerCase();
+  const typePrefix = entity.type === 'person' ? 'character' : entity.type;
+  const body = ref.bodyLocation ? `_${slug(ref.bodyLocation)}` : '';
+  let base = `${typePrefix}_${slug(entity.name)}${body}_${slug(ref.kind)}`;
+  let name = `${base}.${ext}`;
+  let n = 2;
+  while (seen.has(name)) { name = `${base}_${String(n).padStart(2, '0')}.${ext}`; n++; }
+  seen.add(name);
+  return name;
+}
+
+// ── Prompt assembly (director language → generation language) ───────────────
+
+function castingBlock(scene: ScenePlan, state: DirectorState): { lines: string[]; preserve: string[]; vary: string[] } {
+  const lines: string[] = [];
+  const preserve: string[] = [];
+  const vary: string[] = [];
+  for (const c of scene.castings) {
+    const e = state.entities.find((en) => en.id === c.entityId);
+    if (!e) continue;
+    lines.push(`- ${e.name} (${e.type}) — ${c.relationship.toUpperCase()}: ${RELATIONSHIP_MEANING[c.relationship]}${e.description ? ` ${e.name}: ${e.description}` : ''}`);
+    for (const m of [...e.lockedTraits, ...c.mustRemain]) preserve.push(`${e.name}: ${m}`);
+    for (const m of [...e.variableTraits, ...c.mayVary]) vary.push(`${e.name}: ${m}`);
+  }
+  return { lines, preserve: [...new Set(preserve)], vary: [...new Set(vary)] };
+}
+
+function lyricsBlock(scene: ScenePlan, state: DirectorState): { lines: string[]; events: LyricEvent[] } {
+  // Canonical selection (§E): song-time overlap + explicit include − exclude.
+  const events = sceneLyrics(state, scene);
+  const lines = events.map((l) => {
+    const local = (t: number) => (t - scene.startSec).toFixed(2);
+    const perf = l.performerEntityId ? state.entities.find((e) => e.id === l.performerEntityId)?.name ?? 'performer' : 'off-camera voice';
+    return `- [${local(l.startSec)}s→${local(l.endSec)}s] ${perf} (${l.role}): "${l.word}" emphasis ${(l.emphasis * 100).toFixed(0)}%${l.delivery ? `, ${l.delivery}` : ''}${l.emotion ? `, ${l.emotion}` : ''} — mouth ${l.mouthVisibility}`;
+  });
+  return { lines, events };
+}
+
+/** Resolve a reference id to a human label across all entities. */
+function refLabel(state: DirectorState, refId: string): string | null {
+  for (const e of state.entities) {
+    const r = e.references.find((rr) => rr.id === refId);
+    if (r) return `${e.name} ${r.kind}`;
+  }
+  return null;
+}
+
+/** Compile a camera-path into machine-facing camera direction. */
+export function compileCameraPath(cp: CameraPathData): string {
+  const pt = (p: { x: number; y: number }) => `(${p.x.toFixed(2)}, ${p.y.toFixed(2)})`;
+  const via = cp.control.length > 0 ? ` via ${cp.control.map(pt).join(' → ')}` : '';
+  return `${cp.movement} camera move from ${pt(cp.start)} to ${pt(cp.end)}${via} in normalized frame space${cp.orientation ? `, facing ${cp.orientation}` : ''}`;
+}
+
+function toolBlock(scene: ScenePlan, state: DirectorState): string[] {
+  const lines: string[] = [];
+  for (const out of scene.toolOutputs) {
+    const tool = state.tools.find((t) => t.id === out.toolId);
+    if (!tool) continue;
+    lines.push(`Directing tool "${tool.name}": ${tool.compileHints || tool.description}`);
+    for (const [key, fieldId] of Object.entries(tool.outputSchema)) {
+      const v = out.values[fieldId];
+      if (v === undefined) continue;
+      if (isPoseSequenceData(v)) {
+        lines.push(`  ${key}: pose sequence with ${v.poses.length} key poses — ${v.poses.map((p) => `beat ${p.atBeat} hold ${p.holdBeats} (${p.transition})`).join('; ')} (see conditioning/pose-sequence.json for exact joint positions)`);
+      } else if (isCameraPathData(v)) {
+        lines.push(`  ${key}: ${compileCameraPath(v)}`);
+      } else if (isImageBoardData(v)) {
+        const items = v.items.map((it, i) => `${i + 1}. ${it.label || 'image'}${it.referenceId ? ` [${refLabel(state, it.referenceId) ?? 'reference'}]` : ''}`);
+        lines.push(`  ${key}: image board — ${items.join('; ')}`);
+      } else if (isReferencePickData(v)) {
+        const names = v.referenceIds.map((id) => refLabel(state, id)).filter(Boolean);
+        lines.push(`  ${key}: reference selection — ${[...names, ...v.assetIds.map(() => 'project asset')].join(', ') || 'none'}`);
+      } else {
+        // lyric-blocks feed the vocal-performance selection (see sceneLyrics),
+        // so they need no separate prompt line here.
+        const isLyricBlocks = typeof v === 'object' && v !== null && 'selectedLyricIds' in (v as object);
+        if (!isLyricBlocks) lines.push(`  ${key}: ${typeof v === 'string' ? v : JSON.stringify(v)}`);
+      }
+    }
+  }
+  return lines;
+}
+
+export function buildScenePrompt(scene: ScenePlan, state: DirectorState, references: PacketReference[]): { prompt: string; negative: string; preserve: string[]; vary: string[] } {
+  const cast = castingBlock(scene, state);
+  const lyr = lyricsBlock(scene, state);
+  const tools = toolBlock(scene, state);
+  const dur = (scene.endSec - scene.startSec).toFixed(1);
+
+  const prompt = [
+    `A ${dur}-second ${scene.generationPrefs.aspect} music-video scene${scene.styleGenre ? ` in the style of ${scene.styleGenre}` : ''}.`,
+    scene.purpose && `Purpose: ${scene.purpose}`,
+    scene.description && `Scene: ${scene.description}`,
+    scene.action && `Action: ${scene.action}`,
+    scene.movement && `Movement: ${scene.movement}`,
+    scene.environment && `Environment: ${scene.environment}`,
+    scene.camera && `Camera: ${scene.camera}${scene.cameraDistance !== 'unspecified' ? ` (${scene.cameraDistance.replace('-', ' ')} shot)` : ''}${scene.cameraMotion !== 'unspecified' ? `, ${scene.cameraMotion} camera` : ''}`,
+    scene.lighting && `Lighting: ${scene.lighting}${scene.lightingStyle !== 'unspecified' ? ` (${scene.lightingStyle})` : ''}`,
+    scene.emotion && `Emotional intention: ${scene.emotion}`,
+    scene.howItBegins && `The scene begins: ${scene.howItBegins}`,
+    scene.howItEnds && `The scene ends: ${scene.howItEnds}`,
+    cast.lines.length > 0 && `WHO/WHAT APPEARS:\n${cast.lines.join('\n')}`,
+    references.length > 0 && `REFERENCE IMAGES (attached, by name):\n${references.map((r) => `- ${r.fileName}: ${r.entityName} ${r.kind}`).join('\n')}`,
+    cast.preserve.length > 0 && `MUST REMAIN TRUE (do not alter):\n${cast.preserve.map((p) => `- ${p}`).join('\n')}`,
+    cast.vary.length > 0 && `MAY VARY NATURALLY:\n${cast.vary.map((p) => `- ${p}`).join('\n')}`,
+    scene.invented && `THE AI MAY INVENT: ${scene.invented}`,
+    scene.continuityNotes && `Continuity: ${scene.continuityNotes}`,
+    tools.length > 0 && tools.join('\n'),
+    lyr.lines.length > 0 && `VOCAL PERFORMANCE (timed within the scene):\n${lyr.lines.join('\n')}`,
+  ].filter(Boolean).join('\n\n');
+
+  const negative = [
+    'Do not add captions, subtitles, watermarks, or on-screen text unless directed.',
+    ...cast.preserve.map((p) => `Do not alter: ${p}.`),
+  ].join('\n');
+
+  return { prompt, negative, preserve: cast.preserve, vary: cast.vary };
+}
+
+// ── Packet compilation ───────────────────────────────────────────────────────
+
+export function compileScenePacket(
+  state: DirectorState,
+  scene: ScenePlan,
+  opts: { attemptId: string; recipe?: ConditioningRecipe; audioPath?: string | null },
+): GenerationPacket {
+  const recipe: ConditioningRecipe = opts.recipe ?? scene.recipe ?? 'separate-references';
+  const seen = new Set<string>();
+  const references: PacketReference[] = [];
+  const fingerprints: Record<string, string> = {};
+
+  for (const c of scene.castings) {
+    const e = state.entities.find((en) => en.id === c.entityId);
+    if (!e) continue;
+    fingerprints[e.id] = e.activeFingerprint;
+    for (const refId of c.referenceIds) {
+      const ref = e.references.find((r) => r.id === refId && r.approved);
+      if (!ref) continue; // only APPROVED references ever enter a packet
+      references.push({
+        fileName: refFileName(e, ref, seen), sourcePath: ref.path,
+        entityId: e.id, entityName: e.name, referenceId: ref.id, kind: ref.kind,
+      });
+    }
+  }
+
+  const { prompt, negative, preserve, vary } = buildScenePrompt(scene, state, references);
+  const promptDigest = 'p-' + fnv1a64(prompt + ' ' + negative);
+  const durationSec = scene.endSec - scene.startSec;
+  const lyr = lyricsBlock(scene, state);
+  const poseOutputs = scene.toolOutputs.flatMap((o) =>
+    Object.values(o.values).filter((v): v is PoseSequenceData => typeof v === 'object' && v !== null && 'poses' in (v as object)));
+  const cameraPaths = scene.toolOutputs.flatMap((o) => Object.values(o.values).filter(isCameraPathData));
+  // First/last-frame references are resolved DISTINCTLY (never treated as
+  // ordinary references by accident): keyed strictly on their kind.
+  const firstFrame = references.find((r) => r.kind === 'first-frame') ?? null;
+  const finalFrame = references.find((r) => r.kind === 'final-frame') ?? null;
+
+  const returnContract = {
+    attemptId: opts.attemptId,
+    sceneId: scene.id,
+    expected: 'one MP4 video file',
+    durationSec,
+    aspect: scene.generationPrefs.aspect,
+    howToReturn: 'In Song Studio, open the scene → this attempt → "Import generated result", or place the MP4 next to a return-manifest.json containing {"attemptId": "' + opts.attemptId + '"} and import it.',
+  };
+
+  const manifest: Record<string, unknown> = {
+    format: 'songstudio-generation-packet',
+    formatVersion: 1,
+    attemptId: opts.attemptId,
+    sceneId: scene.id,
+    sceneTitle: scene.title,
+    recipe,
+    promptDigest,
+    timing: { sceneStartSec: scene.startSec, sceneEndSec: scene.endSec, durationSec },
+    aspect: scene.generationPrefs.aspect,
+    resolution: scene.generationPrefs.resolution,
+    entityFingerprints: fingerprints,
+    references: references.map((r) => ({ file: `references/${r.fileName}`, entity: r.entityName, kind: r.kind, referenceId: r.referenceId })),
+    preserve, vary,
+    lyricsIncluded: lyr.events.length > 0,
+    poseSequenceIncluded: poseOutputs.length > 0,
+    firstFrame: firstFrame ? `references/${firstFrame.fileName}` : null,
+    finalFrame: finalFrame ? `references/${finalFrame.fileName}` : null,
+  };
+
+  const files: PacketFileDirective[] = [
+    {
+      kind: 'text', relPath: 'README.md',
+      content: [
+        `# Song Studio generation packet — ${scene.title}`, '',
+        'How to use this package with an external generator:',
+        '1. Open your video generator.',
+        `2. Attach the images in references/ using their file names as identity guides.`,
+        '3. Paste prompt.md as the prompt and negative-constraints.md as negative guidance.',
+        `4. Generate a ${durationSec.toFixed(1)}s ${scene.generationPrefs.aspect} MP4.`,
+        '5. ' + returnContract.howToReturn,
+      ].join('\n'),
+    },
+    { kind: 'text', relPath: 'manifest.json', content: JSON.stringify(manifest, null, 2) },
+    { kind: 'text', relPath: 'scene-spec.json', content: JSON.stringify(scene, null, 2) },
+    { kind: 'text', relPath: 'prompt.md', content: prompt },
+    { kind: 'text', relPath: 'negative-constraints.md', content: negative },
+    { kind: 'text', relPath: 'provider-notes.md', content: `Recipe: ${recipe}. Preferred: ${scene.generationPrefs.resolution} ${scene.generationPrefs.aspect}, ~${durationSec.toFixed(1)}s. References are canonical and separate; any contact sheet is a compiled artifact.` },
+    { kind: 'text', relPath: 'return-contract.json', content: JSON.stringify(returnContract, null, 2) },
+    ...references.map((r): PacketFileDirective => ({ kind: 'copy', relPath: `references/${r.fileName}`, sourcePath: r.sourcePath })),
+  ];
+  if (poseOutputs.length > 0) {
+    files.push({ kind: 'text', relPath: 'conditioning/pose-sequence.json', content: JSON.stringify(poseOutputs, null, 2) });
+  }
+  if (lyr.events.length > 0) {
+    files.push({
+      kind: 'text', relPath: 'lyrics/timed-lyrics.json',
+      content: JSON.stringify(lyr.events.map((l) => ({
+        word: l.word, phrase: l.phrase,
+        startInSceneSec: +(l.startSec - scene.startSec).toFixed(3),
+        endInSceneSec: +(l.endSec - scene.startSec).toFixed(3),
+        emphasis: l.emphasis, delivery: l.delivery, emotion: l.emotion,
+        role: l.role, mouthVisibility: l.mouthVisibility,
+      })), null, 2),
+    });
+  }
+  if (opts.audioPath) {
+    files.push({ kind: 'audio-segment', relPath: 'audio/scene-audio.wav', audioPath: opts.audioPath, startSec: scene.startSec, durationSec });
+  }
+
+  // ── Recipe-specific materialized artifacts (§3). Each recipe emits materially
+  // different packet contents; the canonical references above stay separate and
+  // authoritative. SVG is a real, inspectable image format (no rasterizer needed).
+  switch (recipe) {
+    case 'contact-sheet':
+      files.push({ kind: 'text', relPath: 'conditioning/contact-sheet.svg', content: contactSheetSvg(scene.title, references.map((r) => ({ file: `references/${r.fileName}`, entity: r.entityName, kind: r.kind }))) });
+      break;
+    case 'storyboard':
+      files.push({ kind: 'text', relPath: 'conditioning/storyboard.svg', content: storyboardSvg(scene, lyr.events) });
+      break;
+    case 'pose-sequence':
+      if (poseOutputs.length > 0) files.push({ kind: 'text', relPath: 'conditioning/pose-sheet.svg', content: poseSheetSvg(poseOutputs[0]) });
+      break;
+    case 'first-last-frame':
+      files.push({ kind: 'text', relPath: 'conditioning/first-last-frame.json', content: JSON.stringify({ firstFrame: manifest.firstFrame, finalFrame: manifest.finalFrame, note: firstFrame || finalFrame ? 'Distinct first/final frame references included.' : 'No first-frame/final-frame references were selected for this scene.' }, null, 2) });
+      break;
+    case 'audio-timed-lyrics':
+      if (lyr.events.length > 0) files.push({ kind: 'text', relPath: 'conditioning/performance-score.svg', content: performanceScoreSvg(scene, lyr.events) });
+      break;
+    case 'motion-guide':
+      files.push({ kind: 'text', relPath: 'conditioning/motion-guide.svg', content: motionGuideSvg(scene, poseOutputs[0] ?? null, cameraPaths[0] ?? null) });
+      break;
+    case 'separate-references':
+    default:
+      break;
+  }
+
+  return {
+    attemptId: opts.attemptId, sceneId: scene.id, recipe, prompt, negative, promptDigest,
+    references, timing: { sceneStartSec: scene.startSec, sceneEndSec: scene.endSec, durationSec },
+    aspect: scene.generationPrefs.aspect, resolution: scene.generationPrefs.resolution,
+    entityFingerprints: fingerprints, preserveRules: preserve, varyRules: vary,
+    files, manifest,
+  };
+}
+
+// ── Lip-sync repair packet (DEC-003 §11B) ────────────────────────────────────
+
+export function compileLipSyncRepairPacket(
+  state: DirectorState, scene: ScenePlan, take: GenerationTake,
+  opts: { sourceVideoPath: string; audioPath: string | null; intervalSec?: { start: number; end: number } | null },
+): PacketFileDirective[] {
+  const lyr = lyricsBlock(scene, state);
+  const performers = new Set(lyr.events.map((l) => l.performerEntityId).filter(Boolean));
+  const seen = new Set<string>();
+  const refs: PacketReference[] = [];
+  for (const pid of performers) {
+    const e = state.entities.find((en) => en.id === pid);
+    if (!e) continue;
+    for (const r of e.references.filter((r) => r.approved && (r.kind === 'face' || r.kind === 'profile'))) {
+      refs.push({ fileName: refFileName(e, r, seen), sourcePath: r.path, entityId: e.id, entityName: e.name, referenceId: r.id, kind: r.kind });
+    }
+  }
+  const interval = opts.intervalSec ?? null;
+  const contract = {
+    attemptId: take.id, kind: 'lip-sync-repair',
+    repairIntervalSec: interval,
+    instruction: 'Synchronize the performer mouth movement to the provided audio + timed lyrics. PRESERVE EVERYTHING OUTSIDE THE MOUTH REGION. Do not alter identity, wardrobe, camera, lighting, or background.',
+  };
+  const files: PacketFileDirective[] = [
+    { kind: 'text', relPath: 'README.md', content: `# Lip-sync repair packet — ${scene.title}\nRepair mouth sync on source.mp4 using audio/ + lyrics/. Preserve everything outside the mouth.` },
+    { kind: 'copy', relPath: 'source.mp4', sourcePath: opts.sourceVideoPath },
+    { kind: 'text', relPath: 'return-contract.json', content: JSON.stringify(contract, null, 2) },
+    { kind: 'text', relPath: 'lyrics/timed-lyrics.json', content: JSON.stringify(lyr.events.map((l) => ({ word: l.word, startInSceneSec: +(l.startSec - scene.startSec).toFixed(3), endInSceneSec: +(l.endSec - scene.startSec).toFixed(3), emphasis: l.emphasis, mouthVisibility: l.mouthVisibility })), null, 2) },
+    ...refs.map((r): PacketFileDirective => ({ kind: 'copy', relPath: `references/${r.fileName}`, sourcePath: r.sourcePath })),
+  ];
+  if (opts.audioPath) {
+    files.push({ kind: 'audio-segment', relPath: 'audio/scene-audio.wav', audioPath: opts.audioPath, startSec: scene.startSec, durationSec: scene.endSec - scene.startSec });
+  }
+  return files;
+}
+
+// ── General targeted repair (§D) ─────────────────────────────────────────────
+// A repair keeps the parent take intact and regenerates ONLY this scene using
+// the source video + preserve/change direction + identity references + lineage.
+// The live path (Omni Flash) sends the source video as an edit input and can
+// carry the parent interaction id as conversational history; the manual path
+// exports the identical contract.
+
+export function buildRepairPrompt(scene: ScenePlan, state: DirectorState, repair: { preserve: string[]; change: string[]; intervalSec?: { start: number; end: number } | null; note: string }): string {
+  const cast = castingBlock(scene, state);
+  const local = (t: number) => Math.max(0, t - scene.startSec).toFixed(2);
+  return [
+    `Edit the attached video. This is a targeted repair of an existing ${(scene.endSec - scene.startSec).toFixed(1)}s music-video scene — do not regenerate from scratch.`,
+    repair.preserve.length > 0 && `PRESERVE EXACTLY (do not change):\n${repair.preserve.map((p) => `- ${p}`).join('\n')}`,
+    repair.change.length > 0 && `CHANGE ONLY:\n${repair.change.map((c) => `- ${c}`).join('\n')}`,
+    repair.intervalSec ? `Apply the change only between ${local(repair.intervalSec.start)}s and ${local(repair.intervalSec.end)}s of the clip.` : '',
+    cast.preserve.length > 0 && `Keep identity true: ${cast.preserve.join('; ')}.`,
+    repair.note && `Note: ${repair.note}`,
+  ].filter(Boolean).join('\n\n');
+}
+
+export function compileRepairPacket(
+  state: DirectorState, scene: ScenePlan, parentTake: GenerationTake,
+  opts: { attemptId: string; sourceVideoPath: string; audioPath: string | null },
+): { files: PacketFileDirective[]; prompt: string; references: PacketReference[]; sourceVideoPath: string } {
+  const repair = parentTake.repair ?? { kind: 'general' as const, preserve: [], change: [], intervalSec: null, note: '' };
+  const seen = new Set<string>();
+  const references: PacketReference[] = [];
+  for (const c of scene.castings) {
+    const e = state.entities.find((en) => en.id === c.entityId);
+    if (!e) continue;
+    for (const refId of c.referenceIds) {
+      const r = e.references.find((rr) => rr.id === refId && rr.approved);
+      if (r) references.push({ fileName: refFileName(e, r, seen), sourcePath: r.path, entityId: e.id, entityName: e.name, referenceId: r.id, kind: r.kind });
+    }
+  }
+  const prompt = buildRepairPrompt(scene, state, repair);
+  const lyr = lyricsBlock(scene, state);
+  const contract = {
+    attemptId: opts.attemptId, kind: 'targeted-repair',
+    parentTakeId: parentTake.id, parentJobId: parentTake.providerJob.jobId,
+    sceneId: scene.id, expected: 'one edited MP4 preserving everything except the requested change',
+    howToReturn: `Import the edited MP4 for attempt ${opts.attemptId}, or place it beside a return-manifest.json with {"attemptId":"${opts.attemptId}"}.`,
+  };
+  const files: PacketFileDirective[] = [
+    { kind: 'text', relPath: 'README.md', content: `# Repair packet — ${scene.title}\nEdit source.mp4 per repair-direction.md. Preserve everything not listed as a change.` },
+    { kind: 'copy', relPath: 'source.mp4', sourcePath: opts.sourceVideoPath },
+    { kind: 'text', relPath: 'repair-direction.md', content: prompt },
+    { kind: 'text', relPath: 'original-scene.json', content: JSON.stringify(scene, null, 2) },
+    { kind: 'text', relPath: 'original-request.json', content: JSON.stringify(parentTake.requestSnapshot, null, 2) },
+    { kind: 'text', relPath: 'return-contract.json', content: JSON.stringify(contract, null, 2) },
+    ...references.map((r): PacketFileDirective => ({ kind: 'copy', relPath: `references/${r.fileName}`, sourcePath: r.sourcePath })),
+  ];
+  if (lyr.events.length > 0) {
+    files.push({ kind: 'text', relPath: 'lyrics/timed-lyrics.json', content: JSON.stringify(lyr.events.map((l) => ({ word: l.word, startInSceneSec: +(l.startSec - scene.startSec).toFixed(3), endInSceneSec: +(l.endSec - scene.startSec).toFixed(3), mouthVisibility: l.mouthVisibility })), null, 2) });
+  }
+  if (opts.audioPath) files.push({ kind: 'audio-segment', relPath: 'audio/scene-audio.wav', audioPath: opts.audioPath, startSec: scene.startSec, durationSec: scene.endSec - scene.startSec });
+  return { files, prompt, references, sourceVideoPath: opts.sourceVideoPath };
+}
+
+// ── Provider fit (capability conflicts are surfaced, never silently fixed) ──
+
+export interface CapabilityConflict {
+  id: string;
+  message: string;
+  choices: string[];
+}
+
+export function checkProviderFit(packet: GenerationPacket, caps: ProviderCapabilities): CapabilityConflict[] {
+  const out: CapabilityConflict[] = [];
+  if (packet.references.length > caps.referenceImages) {
+    out.push({
+      id: 'too-many-references',
+      message: `This scene selected ${packet.references.length} reference images, but the provider supports at most ${caps.referenceImages}.`,
+      choices: ['Choose the most important references', 'Export the manual package for a generator that accepts more', 'Continue with the first ' + caps.referenceImages + ' (you choose which)'],
+    });
+  }
+  const hasPersonRefs = packet.references.some((r) => r.kind === 'face' || r.kind === 'full-body' || r.kind === 'profile');
+  if (hasPersonRefs && !caps.humanLikenessReferences) {
+    out.push({
+      id: 'human-likeness-unsupported',
+      message: 'This provider does not support real-person likeness references. Your identity requirement will NOT be honored automatically.',
+      choices: ['Use the manual generation package with a generator that supports likeness', 'Relax the identity requirement to consistent/related for this scene', 'Continue knowingly'],
+    });
+  }
+  const maxDur = Math.max(...caps.durationsSec, 0);
+  if (packet.timing.durationSec > maxDur) {
+    out.push({
+      id: 'duration-exceeds-provider',
+      message: `The scene is ${packet.timing.durationSec.toFixed(1)}s but the provider generates at most ${maxDur}s per clip.`,
+      choices: ['Split the scene into two shots', `Generate ${maxDur}s and direct an extension later`, 'Export the manual package'],
+    });
+  }
+  if (!caps.aspects.includes(packet.aspect)) {
+    out.push({ id: 'aspect-unsupported', message: `Aspect ${packet.aspect} is not supported by this provider.`, choices: ['Switch the scene aspect', 'Export the manual package'] });
+  }
+  if (!caps.audioInput && packet.files.some((f) => f.kind === 'audio-segment')) {
+    out.push({ id: 'audio-conditioning-unsupported', message: 'This provider cannot take the song audio as input; timing will rely on the prompt only.', choices: ['Continue (assemble to the song afterward)', 'Export the manual package for an audio-aware generator'] });
+  }
+  return out;
+}

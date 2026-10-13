@@ -77,7 +77,7 @@ const oldProjectNoField = normalizeReleaseProject({
   outputs: [{ functionId: 'make_hook_promo', recipeId: 'vertical_promo', clipDuration: '10' }],
 });
 assert.deepEqual(oldProjectNoField.directionCues, [], 'old project with no directionCues normalizes to []');
-assert.equal(oldProjectNoField.schemaVersion, 4);
+assert.equal(oldProjectNoField.schemaVersion, 5);
 
 const roundTrip = normalizeReleaseProject(JSON.parse(JSON.stringify(projectWithCue(12, 18))));
 assert.equal(roundTrip.directionCues.length, 1);

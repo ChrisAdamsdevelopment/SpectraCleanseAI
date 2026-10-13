@@ -13,7 +13,7 @@ import {
 } from './project/types';
 import { resolveDirectedVisualForOutput, directedVisualsForOutput, isDirectableOutputType } from './project/direction';
 import { formatTime, parseTime } from './lib/time';
-import { pickAudioFile, pickCoverImage, pickArtistPhoto, pickOutputDir, saveReleaseProjectToFile, loadReleaseProjectFromFile, normalizeReleaseProject } from './project/storage';
+import { pickAudioFile, pickCoverImage, pickArtistPhoto, pickOutputDir, pickPacketExportDir, saveReleaseProjectToFile, loadReleaseProjectFromFile, readProjectAtPath, normalizeReleaseProject } from './project/storage';
 import { Preview } from './ui/Preview';
 import { Inspector } from './ui/Inspector';
 import { AudioPanel } from './ui/AudioPanel';
@@ -30,6 +30,21 @@ import { buildExportResultSummary } from './export/result';
 import { applyFailedRender, applySuccessfulRender, canApplyRenderAttempt, invalidateOutputRender, invalidateOutputsForSharedInput, type RenderAttempt, type SharedRenderInput } from './project/renderFreshness';
 import { effectiveOutputState } from './project/readiness';
 import { CanvasTestDrive } from './canvas-ui/CanvasTestDrive';
+import { DirectorWorkspace } from './director-ui/DirectorWorkspace';
+import type { DirectorCtx } from './director-ui/context';
+import { emptyDirectorState, type DirectorState } from './director/model';
+import { browserHost, type DirectorHost } from './director/hostIo';
+import { createTauriDirectorHost, generateToolWithGemini } from './director/tauriHost';
+import { keyForAccount, connectedAccounts } from './app/providerRuntime';
+import type { ConnectedAccounts } from './director/providers/registry';
+// ── ALPHA-001: app-global settings, onboarding, providers, updates, diagnostics
+import { useAppState } from './app-ui/useAppState';
+import { Onboarding } from './app-ui/Onboarding';
+import { SettingsScreen } from './app-ui/SettingsScreen';
+import { DiagnosticsDialog } from './app-ui/DiagnosticsDialog';
+import { shouldShowOnboarding, completeOnboarding } from './app/appSettings';
+import { writeDiagnostics } from './app/appHost';
+import type { AccountId } from './app/providerRuntime';
 
 const IS_TAURI = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in (window as object);
 const basename = (p: string | null) => (p ? p.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || p : '');
@@ -52,9 +67,18 @@ export default function App() {
   const [copiedOutputPath, setCopiedOutputPath] = useState(false);
   const [busy, setBusy] = useState(false);
   const [ffmpeg, setFfmpeg] = useState<FfmpegStatus | null>(null);
-  const [view, setView] = useState<'start' | 'home' | 'editor' | 'canvas-test-drive'>('start');
+  const [view, setView] = useState<'start' | 'home' | 'editor' | 'canvas-test-drive' | 'director'>('start');
   const [audioDurationSec, setAudioDurationSec] = useState<number | null>(null);
   const releaseProjectRef = useRef<ReleaseProject>(releaseProject);
+
+  // ── ALPHA-001: app-global state (settings, onboarding, updates, health,
+  // autosave/recovery). Separate from the creative ReleaseProject by design.
+  const app = useAppState();
+  const [showSettings, setShowSettings] = useState(false);
+  const [focusAccount, setFocusAccount] = useState<AccountId | null>(null);
+  const onboardingViaSettings = useRef(false);
+  const [showDiagnostics, setShowDiagnostics] = useState(false);
+  const [projectFilePath, setProjectFilePath] = useState<string | null>(null);
   // Workspace-clarity v1: advanced editing (output type / look / layers /
   // sliders) is a closed-by-default drawer, not a permanently-open rail.
   const [advancedOpen, setAdvancedOpen] = useState(false);
@@ -470,20 +494,247 @@ export default function App() {
       addLog(`[export] copy output path failed: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
-  async function onSave() { try { const p = await saveReleaseProjectToFile(releaseProject); if (p) addLog(`[project] saved -> ${p}`); } catch (e) { addLog(`save failed: ${e}`); } }
+  // Save writes to the CURRENT project file when there is one (P1-7); Save As
+  // always prompts for a new location and re-targets autosave to it.
+  async function onSave() {
+    try {
+      const p = await saveReleaseProjectToFile(releaseProject, projectFilePath ?? undefined);
+      if (p) { addLog(`[project] saved -> ${p}`); ownProjectPath(p); }
+    } catch (e) { addLog(`save failed: ${e}`); }
+  }
+  async function onSaveAs() {
+    try {
+      const p = await saveReleaseProjectToFile(releaseProject);   // always prompts
+      if (p) { addLog(`[project] saved as -> ${p}`); ownProjectPath(p); }
+    } catch (e) { addLog(`save-as failed: ${e}`); }
+  }
+  /** Take ownership of a project file path: autosave targets it and it becomes
+   * the "reopen last project" pointer. */
+  function ownProjectPath(p: string) {
+    setProjectFilePath(p);
+    app.setSettings({ ...app.settings, lastProjectPath: p });
+  }
+  /** Apply a loaded/recovered project payload to the app. `from` is the file
+   * path when this is a real saved project (opened or reopened-last), or null
+   * for a recovered snapshot (which has no user-chosen home yet). */
+  function applyLoadedProject(rp: ReleaseProject, from: string | null) {
+    setAudioDurationSec(rp.songAnalysis?.durationSec ?? null);
+    setReleaseProject(rp);
+    releaseProjectRef.current = rp;
+    const opened = rp.outputs.find((o) => o.id === rp.activeOutputId) ?? rp.outputs[0];
+    if (opened) openComposition(opened.recipeId, rp.title, opened.loopCore?.motionIntensity);
+    setStatus('ready');
+    setView('home');
+    setProjectFilePath(from);
+    if (from) app.setSettings({ ...app.settings, lastProjectPath: from });
+  }
   async function onLoad() {
     try {
-      const p = await loadReleaseProjectFromFile();
-      if (p) {
-        const rp = normalizeReleaseProject(p);
-        setAudioDurationSec(rp.songAnalysis?.durationSec ?? null);
-        setReleaseProject(rp);
-        const opened = rp.outputs.find((o) => o.id === rp.activeOutputId) ?? rp.outputs[0];
-        if (opened) openComposition(opened.recipeId, rp.title, opened.loopCore?.motionIntensity);
-        setStatus('ready');
-        setView('home');
-      }
+      const loaded = await loadReleaseProjectFromFile();
+      if (loaded) applyLoadedProject(loaded.project, loaded.path);   // P1-7: keep the path
     } catch (e) { addLog(`load failed: ${e}`); }
+  }
+  /** Reopen the remembered last project (from the start screen). */
+  async function reopenLastProject() {
+    const path = app.settings.lastProjectPath;
+    if (!path) return;
+    try {
+      const rp = await readProjectAtPath(path);
+      if (rp) applyLoadedProject(rp, path);
+      else addLog('reopen failed: the last project file could not be read.');
+    } catch (e) { addLog(`reopen failed: ${e}`); }
+  }
+  /** Load the newest recovery snapshot the app found at launch, WITHOUT touching
+   * the user's saved file — it stays a recovery until they Save. */
+  async function recoverFromSnapshot() {
+    try {
+      const raw = await app.loadRecoverySnapshot();
+      if (raw) { applyLoadedProject(normalizeReleaseProject(raw), null); addLog('[project] recovered unsaved work from a snapshot.'); }
+      else addLog('recover failed: no valid recovery snapshot.');
+    } catch (e) { addLog(`recover failed: ${e}`); }
+    app.dismissRecovery();
+  }
+
+  // ── §10 autosave: every meaningful project change is offered to the debounced
+  // autosave. The pure scheduler decides when a disk write actually happens, so
+  // this is not a write per keystroke.
+  useEffect(() => {
+    if (!IS_TAURI || !app.ready) return;
+    // Don't snapshot a pristine, empty project — there is nothing to recover.
+    const hasContent = Boolean(
+      releaseProject.audioPath || releaseProject.coverPath || releaseProject.title.trim()
+      || (releaseProject.director?.scenes.length ?? 0) > 0
+      || (releaseProject.director?.entities.length ?? 0) > 0,
+    );
+    if (!hasContent) return;
+    app.noteProjectChanged(JSON.stringify(releaseProject), projectFilePath);
+  }, [releaseProject, projectFilePath, app.ready]);
+
+  // ── Director Mode (DEC-003) ────────────────────────────────────────────────
+  const directorState: DirectorState = releaseProject.director ?? emptyDirectorState();
+  const updateDirector = (next: DirectorState) => {
+    setReleaseProject((rp) => {
+      const nextProject = { ...rp, director: next, updatedAt: touch() };
+      releaseProjectRef.current = nextProject;
+      return nextProject;
+    });
+  };
+  const addAsset = (role: ProjectAsset['role'], path: string, label: string): string => {
+    const asset: ProjectAsset = { id: makeOutputId(), role, path, label };
+    setReleaseProject((rp) => {
+      const nextProject = { ...rp, assets: [...rp.assets, asset], updatedAt: touch() };
+      releaseProjectRef.current = nextProject;
+      return nextProject;
+    });
+    return asset.id;
+  };
+  const assetPathById = (assetId: string): string | null =>
+    releaseProjectRef.current.assets.find((a) => a.id === assetId)?.path ?? null;
+
+  // ── Provider credential wiring (ALPHA-002 P1-1/P1-2). The generation host
+  // resolves keys through the SAME secure-store service Settings uses, and reads
+  // a live snapshot of connected accounts. The host is created ONCE (a ref) so
+  // its provider selection persists across renders; its deps read refs so they
+  // are always current. ──────────────────────────────────────────────────────
+  const secureStoreRef = useRef(app.secureStore); secureStoreRef.current = app.secureStore;
+  const connectedRef = useRef<ConnectedAccounts>({ google: false, xai: false });
+  // App-data 'generated' folder — a guaranteed-writable fallback so generated
+  // results never land in the process cwd when no project output folder is set.
+  const generatedDirRef = useRef<string | null>(null);
+  generatedDirRef.current = app.health?.appDataDir ? `${app.health.appDataDir}/generated` : null;
+  const directorHostRef = useRef<DirectorHost | null>(null);
+  if (IS_TAURI && !directorHostRef.current) {
+    directorHostRef.current = createTauriDirectorHost({
+      outputDir: () => releaseProjectRef.current.outputDir ?? generatedDirRef.current,
+      keyFor: (account) => keyForAccount(account, secureStoreRef.current),
+      connected: () => connectedRef.current,
+    });
+  }
+  const directorHost = IS_TAURI ? directorHostRef.current! : browserHost;
+
+  // Recompute which accounts are actually connected whenever the secure store
+  // resolves or a credential is added/forgotten in Settings — no restart needed.
+  const [connectedAcc, setConnectedAcc] = useState<ConnectedAccounts>({ google: false, xai: false });
+  useEffect(() => {
+    let cancelled = false;
+    connectedAccounts(app.secureStore).then((c) => { if (!cancelled) { connectedRef.current = c; setConnectedAcc(c); } }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [app.secureStore, app.settings.providers.credentials]);
+
+  // The per-role preference drives the host's default selection (Auto by
+  // default). A per-scene dropdown override still wins until the preference
+  // itself changes.
+  useEffect(() => {
+    if (!IS_TAURI) return;
+    directorHost.setProvider(app.settings.providers.preferred.video);
+    directorHost.setImageProvider(app.settings.providers.preferred.image);
+  }, [app.settings.providers.preferred.video, app.settings.providers.preferred.image]);
+  const directorCtx: DirectorCtx = {
+    state: directorState,
+    update: updateDirector,
+    host: directorHost,
+    songDurationSec: releaseProject.songAnalysis?.durationSec ?? audioDurationSec,
+    audioPath: releaseProject.audioPath,
+    outputDir: releaseProject.outputDir,
+    width: 1080, height: 1920, fps: 30,
+    addAsset,
+    assetPath: assetPathById,
+    assets: releaseProject.assets.map((a) => ({ id: a.id, path: a.path, label: a.label ?? a.role, role: a.role })),
+    textModelConfigured: IS_TAURI && connectedAcc.google,
+    generateTool: async (request, refinement, previousJson) => {
+      // The directing assistant runs on the connected Google key (resolved
+      // through the same secure-store service as everything else).
+      const key = await keyForAccount('google', app.secureStore);
+      return generateToolWithGemini(key, request, refinement, previousJson);
+    },
+  };
+
+  // ── ALPHA-001 §5: the one-time introduction. Gated ONLY on app-global
+  // settings — never on project state — so it cannot reappear because a
+  // different project was opened or because the app updated.
+  const finishOnboarding = (how: 'skip' | 'complete', begin: 'new-project' | 'open-project' | 'explore' | null) => {
+    app.setSettings(completeOnboarding(app.settings, app.appVersion, how === 'skip', new Date().toISOString()));
+    if (begin === 'open-project') void onLoad();
+    else if (begin === 'explore') setView('editor');
+    else setView('start');
+  };
+  if (app.ready && IS_TAURI && shouldShowOnboarding(app.settings)) {
+    return (
+      <Onboarding
+        settings={app.settings}
+        onConnect={(account) => {
+          // P3: opening Settings from onboarding does NOT complete it on intent.
+          // Onboarding completes when the creator actually leaves Settings
+          // (deliberate navigation onward) — see the Settings onClose below.
+          onboardingViaSettings.current = true;
+          setFocusAccount(account); setShowSettings(true);
+        }}
+        onFinish={finishOnboarding}
+      />
+    );
+  }
+
+  // ── Settings (§6/§12). A full screen so provider management is real, not a prompt.
+  const diagnosticsInput = {
+    appVersion: app.appVersion,
+    buildSha: (import.meta as { env?: Record<string, string> }).env?.VITE_BUILD_SHA ?? null,
+    os: navigator.platform || 'unknown',
+    arch: app.health?.targetTriple ?? 'unknown',
+    installedBuild: app.health?.installedBuild ?? false,
+    ffmpeg: { found: app.health?.ffmpeg.found ?? false, source: app.health?.ffmpeg.source ?? 'unknown' },
+    updater: { status: app.updater.status, currentVersion: app.updater.currentVersion, availableVersion: app.updater.available?.version ?? null },
+    settings: app.settings,
+    director: releaseProject.director ?? null,
+    projectSchemaVersion: releaseProject.schemaVersion,
+    logLines: logs.slice(-200),
+    sceneSummary: releaseProject.director?.scenes.map((s) => `${s.title} [${s.startSec}-${s.endSec}s] ${s.action}`).join('\n'),
+    compiledPacket: undefined,
+    mediaPaths: releaseProject.assets.map((a) => a.path),
+  };
+
+  if (showSettings) {
+    return (
+      <>
+        <SettingsScreen
+          settings={app.settings} update={app.setSettings}
+          secureStore={app.secureStore} io={IS_TAURI ? directorHost.providerIo ?? null : null}
+          updater={app.updater}
+          onCheckUpdates={() => void app.checkUpdates()}
+          onDownloadUpdate={() => void app.downloadUpdate()}
+          onRestart={() => void app.restart({ generating: busy, rendering: status === 'rendering' })}
+          onExportDiagnostics={() => setShowDiagnostics(true)}
+          health={app.health} appVersion={app.appVersion}
+          focusAccount={focusAccount}
+          onClose={() => {
+            setShowSettings(false); setFocusAccount(null);
+            // If the creator reached Settings via onboarding, leaving it counts
+            // as deliberate navigation onward → onboarding is complete (P3).
+            if (onboardingViaSettings.current && shouldShowOnboarding(app.settings)) {
+              app.setSettings(completeOnboarding(app.settings, app.appVersion, false, new Date().toISOString()));
+            }
+            onboardingViaSettings.current = false;
+          }}
+        />
+        {showDiagnostics && (
+          <DiagnosticsDialog
+            input={diagnosticsInput}
+            onExport={async (files) => {
+              const dir = await pickPacketExportDir();
+              if (!dir) return null;
+              // Unique, timestamped destination (P3) — repeat exports never
+              // silently overwrite each other.
+              const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+              return writeDiagnostics(`${dir}/song-studio-diagnostics-${stamp}`, files);
+            }}
+            onClose={() => setShowDiagnostics(false)}
+          />
+        )}
+      </>
+    );
+  }
+
+  if (view === 'director') {
+    return <DirectorWorkspace ctx={directorCtx} onExit={() => setView('editor')} />;
   }
 
   if (view === 'canvas-test-drive') {
@@ -491,12 +742,53 @@ export default function App() {
   }
 
   if (view === 'start') {
+    const offer = app.recoveryOffer;
     return (
-      <StartScreen
-        isTauri={IS_TAURI} coverSrc={coverSrc} coverName={basename(releaseProject.coverPath)} audioName={basename(releaseProject.audioPath)}
-        onPickCover={() => choose('cover')} onPickAudio={() => choose('audio')}
-        onStart={startMake} onOpenProject={onLoad} onSkip={skipToManualEditor}
-      />
+      <div className="start-view">
+        {/* §14: the opening screen gives a tester Settings, version, update and
+            health WITHOUT entering the editor first. */}
+        <div className="start-bar">
+          <div className="brand">Song Studio <span className="chip small">Alpha {app.appVersion}</span></div>
+          <div className="spacer" />
+          {app.updater.status === 'available' && <button className="chip small warn" onClick={() => setShowSettings(true)}>Update ready</button>}
+          <button className="ghost small" onClick={() => setShowSettings(true)}>Settings</button>
+        </div>
+        {app.healthMessages.map((m) => <div key={m} className="banner warn">{m}</div>)}
+
+        {/* Recovery / reopen-last (P1-4). Never silently discards a snapshot. */}
+        {offer.kind === 'recover' && (
+          <div className="dir-retime-gate recovery-offer">
+            <b>{offer.reason === 'unclean-shutdown' ? 'Song Studio closed unexpectedly last time.' : 'Newer unsaved work was found.'}</b>
+            <span>
+              A recovery copy of your work is available{app.recoveryMeta.snapshotUpdatedAt ? ` (last change ${new Date(app.recoveryMeta.snapshotUpdatedAt).toLocaleString()})` : ''}.
+              {offer.lastProjectPath ? ` Your saved project file (${basename(offer.lastProjectPath)}) will NOT be overwritten until you Save.` : ''}
+            </span>
+            <div>
+              <button className="primary small" onClick={recoverFromSnapshot}>Recover unsaved work</button>
+              {offer.lastProjectPath && <button className="ghost small" onClick={() => { app.dismissRecovery(); void reopenLastProject(); }}>Open the saved project instead</button>}
+              <button className="ghost small" onClick={onLoad}>Open another project…</button>
+              <button className="ghost small" onClick={() => app.dismissRecovery()}>Dismiss</button>
+            </div>
+          </div>
+        )}
+        {offer.kind === 'reopen-last' && (
+          <div className="dir-retime-gate recovery-offer">
+            <b>Welcome back</b>
+            <span>Reopen your last project ({basename(offer.path)}), or start something new.</span>
+            <div>
+              <button className="primary small" onClick={() => { app.dismissRecovery(); void reopenLastProject(); }}>Reopen last project</button>
+              <button className="ghost small" onClick={onLoad}>Open another project…</button>
+              <button className="ghost small" onClick={() => app.dismissRecovery()}>Dismiss</button>
+            </div>
+          </div>
+        )}
+
+        <StartScreen
+          isTauri={IS_TAURI} coverSrc={coverSrc} coverName={basename(releaseProject.coverPath)} audioName={basename(releaseProject.audioPath)}
+          onPickCover={() => choose('cover')} onPickAudio={() => choose('audio')}
+          onStart={startMake} onOpenProject={onLoad} onSkip={skipToManualEditor}
+        />
+      </div>
     );
   }
 
@@ -515,7 +807,7 @@ export default function App() {
     <div className="studio">
       {/* Top project bar */}
       <div className="topbar">
-        <div className="brand">Song Studio <span className="brand-scope">· Editing Output</span></div>
+        <div className="brand">Song Studio <span className="chip small">Alpha {app.appVersion}</span> <span className="brand-scope">· Editing Output</span></div>
         <input className="t-title" type="text" value={project.title} placeholder="Song title" onChange={(e) => setTitle(e.target.value)} />
         <input className="t-artist" type="text" value={project.artist} placeholder="Artist" onChange={(e) => updateShared({ artist: e.target.value })} />
         <Chip ok={!!project.coverPath} label={project.coverPath ? 'Cover ✓' : 'Cover'} onClick={() => choose('cover')} />
@@ -523,11 +815,24 @@ export default function App() {
         <Chip ok={!!project.outputDir} label={project.outputDir ? 'Save folder ✓' : 'Save folder'} onClick={() => choose('output')} />
         <div className="spacer" />
         {IS_TAURI && ffmpeg && <span className={`ff ${ffmpeg.found ? 'ok' : 'err'}`}>Create MP4 {ffmpeg.found ? 'ready' : 'needs setup'}</span>}
-        <button className="ghost small internal-tools-link" title="Owner/dev validation tools — not part of creating a promo MP4" onClick={() => setView('canvas-test-drive')}>Internal tools · dev/test</button>
+        {app.updater.status === 'available' && <button className="chip small warn" title="A new alpha build is available" onClick={() => setShowSettings(true)}>Update ready</button>}
+        <button className="primary small" title="Direct AI-generated moving scenes across the whole song" onClick={() => setView('director')}>Director Mode</button>
+        {/* §6: real provider management replaces the old window.prompt key entry. */}
+        <button className="ghost small" title="AI providers, updates, diagnostics" onClick={() => setShowSettings(true)}>Settings</button>
+        {/* §12: developer-only tools are hidden from normal testers. */}
+        {app.settings.ui.developerMode && (
+          <button className="ghost small internal-tools-link" title="Owner/dev validation tools — not part of creating a promo MP4" onClick={() => setView('canvas-test-drive')}>Internal tools · dev/test</button>
+        )}
         <button className="ghost small" onClick={() => setView('home')}>Project Home</button>
         <button className="ghost small" onClick={() => setView('start')}>New project</button>
-        <button className="ghost small" onClick={onSave} disabled={!IS_TAURI}>Save</button>
+        <button className="ghost small" onClick={onSave} disabled={!IS_TAURI} title={projectFilePath ? `Save to ${basename(projectFilePath)}` : 'Save to a file'}>Save</button>
+        <button className="ghost small" onClick={onSaveAs} disabled={!IS_TAURI} title="Save a copy to a new file">Save As…</button>
       </div>
+
+      {/* §1: plain-language runtime health failures (missing video engine, etc). */}
+      {app.healthMessages.map((m) => <div key={m} className="banner warn">{m}</div>)}
+      {/* P3: a failed autosave is surfaced, never silently swallowed. */}
+      {app.autosaveError && <div className="banner warn">Autosave could not write your work ({app.autosaveError}). Your changes are still in the app — try Save, or free up disk space.</div>}
 
       {!IS_TAURI && <div className="banner warn">Preview works in the browser, but choosing files and creating MP4s needs <code>npm run tauri dev</code>.</div>}
 

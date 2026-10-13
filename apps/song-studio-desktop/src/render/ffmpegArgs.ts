@@ -164,12 +164,14 @@ export function buildFfmpegArgs(comp: Composition, rt: RenderInputs, opts: Build
 
   return [
     ...inputs,
+    // Bound FFmpeg filter threading to limit peak memory on laptop-class devices.
+    '-filter_complex_threads', '1',
     '-filter_complex', chains.join(';'),
     '-map', `[${vlabel}]`,
     ...(useAudio ? ['-map', '1:a', '-c:a', 'aac', '-b:a', '192k', '-shortest'] : ['-an']),
     '-t', String(dur),
     '-r', String(fps),
     '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23', '-pix_fmt', 'yuv420p',
-    '-y', rt.outputPath,
+    '-threads', '2', '-y', rt.outputPath,
   ];
 }

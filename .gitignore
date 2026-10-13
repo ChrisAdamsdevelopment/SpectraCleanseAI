@@ -1,34 +1,24 @@
-# ── Secrets – NEVER commit these ─────────────────────────────────────────────
-.env
-.env.local
-.env.*.local
-
-# ── Dependencies ──────────────────────────────────────────────────────────────
+# Song Studio app workspace and private runtime artifacts
 node_modules/
-
-# ── Runtime / uploads ─────────────────────────────────────────────────────────
-# Temporary audio files processed by the backend
-uploads/
-
-# SQLite database (persisted via Hyperlift volume at /data in production)
+dist/
+out/
+target/
+coverage/
+*.log
 *.db
 *.db-shm
 *.db-wal
-/data/
-
-# ── Frontend build output ─────────────────────────────────────────────────────
-dist/
-
-# ── Logs ─────────────────────────────────────────────────────────────────────
-*.log
-npm-debug.log*
-
-# ── OS / editor noise ─────────────────────────────────────────────────────────
+*.sqlite
+*.sqlite3
+.env
+.env.*
+!.env.example
+*.pem
+*.pfx
+*.key
+*.sig
+*.ssproj
+.tauri/
+.claude/
 .DS_Store
 Thumbs.db
-.vscode/
-.idea/
-
-# ── Song Studio generated harness output ─────────────────────────────────────
-apps/song-studio-desktop/out/
-apps/song-studio-desktop/.canvas-lab/
