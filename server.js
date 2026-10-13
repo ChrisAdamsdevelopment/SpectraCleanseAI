@@ -12,6 +12,11 @@ const downloadTokens = require('./server/downloadTokens');
 const { createEmailVerificationToken, createPasswordResetToken, hashToken } = require('./server/authTokens');
 const { sendEmail, APP_BASE_URL, isEmailDeliveryConfigured } = require('./server/emailService');
 const { buildForgotPasswordGenericResponse, buildUnauthResendVerificationGenericResponse } = require('./server/authRecoveryPolicy');
+const { getEnabledFeatures, isFeatureEnabled } = require('./server/featureFlags');
+const readinessStore = require('./server/readiness/store');
+const { generateReport } = require('./server/readiness/report');
+const { getEnabledProviders } = require('./server/readiness/providers');
+require('./server/readiness/registerProviders'); // registers built-in check providers
 const bcrypt     = require('bcryptjs');
 const jwt        = require('jsonwebtoken');
 const Database   = require('better-sqlite3');
@@ -106,6 +111,7 @@ ensureJobColumn('markers_removed', 'INTEGER');
 
 cleanup.init(db);
 downloadTokens.init(db);
+readinessStore.init(db);
 // ─────────────────────────────────────────────────────────────────────────────
 // Usage helpers
 // ─────────────────────────────────────────────────────────────────────────────
@@ -834,6 +840,61 @@ app.get('/api/health', (_req, res) =>
     time: new Date().toISOString(),
   })
 );
+
+// Public, read-only: lets the SPA discover which overhaul features are live in
+// this environment. Returns [] by default, so production behaviour is unchanged
+// until FEATURES is set. Never gate auth/billing/cleanse on this list.
+app.get('/api/features', (_req, res) =>
+  res.json({ features: getEnabledFeatures() })
+);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Release Readiness (Phase 1) — additive, flag-gated. When the flag is off these
+// routes 404, so production behaves as if the feature does not exist.
+// ─────────────────────────────────────────────────────────────────────────────
+function requireFeature(name) {
+  return (req, res, next) =>
+    isFeatureEnabled(name) ? next() : res.status(404).json({ error: 'API route not found', path: req.originalUrl });
+}
+
+app.post('/api/releases', requireAuth, requireFeature('release_readiness'), (req, res) => {
+  const { title, platform, metadata, analysis, targets } = req.body || {};
+  const context = { metadata: metadata || {}, analysis: analysis || null, targets: targets || null };
+  const release = readinessStore.createRelease(req.user.sub, {
+    title: title || (metadata && metadata.title) || '',
+    platform: platform || 'General',
+    context,
+  });
+  return res.status(201).json({ release });
+});
+
+app.get('/api/releases', requireAuth, requireFeature('release_readiness'), (req, res) => {
+  return res.json({ releases: readinessStore.listReleases(req.user.sub) });
+});
+
+app.get('/api/releases/:id', requireAuth, requireFeature('release_readiness'), (req, res) => {
+  const release = readinessStore.getRelease(req.user.sub, parseInt(req.params.id, 10));
+  if (!release) return res.status(404).json({ error: 'Release not found' });
+  return res.json({ release, report: readinessStore.getLatestReport(release.id) });
+});
+
+app.post('/api/releases/:id/check', requireAuth, requireFeature('release_readiness'), async (req, res) => {
+  const release = readinessStore.getRelease(req.user.sub, parseInt(req.params.id, 10));
+  if (!release) return res.status(404).json({ error: 'Release not found' });
+  try {
+    const report = await generateReport({
+      releaseId: release.id,
+      context: release.context,
+      providers: getEnabledProviders(),
+      ruleRegistryVersion: 'none',
+    });
+    readinessStore.saveReport(release.id, report);
+    return res.json({ report });
+  } catch (err) {
+    console.error('Readiness check failed:', err);
+    return res.status(500).json({ error: 'Readiness check failed' });
+  }
+});
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Public SEO endpoints — served from server so they work in dev and prod
