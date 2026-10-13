@@ -2,9 +2,7 @@
 
 **Engineering portfolio:** [Full-stack architecture, AI integration, media-processing pipelines, QA and release constraints](docs/engineering-portfolio.md).
 
-![Live](https://img.shields.io/badge/status-live-brightgreen)
-![Pricing](https://img.shields.io/badge/pricing-free%20%7C%20%249.99%20%7C%20%2429.99-blue)
-![Sign up](https://img.shields.io/badge/sign%20up-spectracleanse.com-cyan)
+**Project stage:** web app and active engineering development; test the live deployment separately before relying on its availability.
 
 **SpectraCleanse AI is a full-stack audio/video metadata analysis and editing application, including embedded provenance-related metadata removal and AI-assisted descriptive metadata generation.**
 
@@ -16,17 +14,17 @@ Upload a supported audio or video file, choose a processing mode, inspect the de
 
 → **[spectracleanse.com](https://spectracleanse.com)**
 
-No credit card required. Free accounts include 3 files per month. Upgrade to Creator ($9.99/mo) or Studio ($29.99/mo) for unlimited processing and batch uploads.
+Account and billing options are described in the application; confirm current plans and limits there before purchasing.
 
 ---
 
 ## How it works
 
 1. **Upload** — Quick Cleanse supports MP3 (browser-side). Full Server Cleanse supports MP4 and M4A (server-side). WAV and FLAC are planned but not currently supported.
-2. **Analyse** — the forensic engine reads every embedded tag and identifies provenance markers.
+2. **Analyse** — the application inspects supported embedded metadata fields and flags those it can identify.
 3. **Cleanse** — supported editing pathways remove selected embedded metadata fields; exact results depend on file format and processing mode.
 4. **Suggest metadata** — Gemini generates proposed descriptive titles, descriptions and tags for the chosen platform; optimization outcomes are not guaranteed.
-5. **Download** — receive a clean file with a full forensic report showing exactly what was removed.
+5. **Download** — receive the processed file and a report of detected and modified fields for the supported processing mode.
 
 ---
 
